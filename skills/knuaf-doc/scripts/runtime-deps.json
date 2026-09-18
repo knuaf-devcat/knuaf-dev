@@ -1,0 +1,46 @@
+{
+ "dependencies": [
+  {
+   "dist": "openpyxl",
+   "spec": "openpyxl>=3.1,<4",
+   "import_name": "openpyxl",
+   "purpose": "XLSX 읽기·생성 — 재무 workbook·학교 양식 검사·출력 검증",
+   "used_by": [
+    "scripts/gg_finance.py",
+    "scripts/gg_school_excel.py",
+    "scripts/gg_school_verify.py",
+    "scripts/gg_office.py",
+    "scripts/gg_excel_print.py"
+   ]
+  },
+  {
+   "dist": "python-docx",
+   "spec": "python-docx>=1.1,<2",
+   "import_name": "docx",
+   "purpose": "DOCX 생성 — 앞표지·본문 렌더",
+   "used_by": [
+    "scripts/build_docx.py",
+    "scripts/gg_frontmatter_layout.py"
+   ]
+  },
+  {
+   "dist": "pypdf",
+   "spec": "pypdf>=6,<7",
+   "import_name": "pypdf",
+   "purpose": "PDF 구조 검증 — 보낸 PDF 페이지 확인",
+   "used_by": [
+    "scripts/gg_office.py"
+   ]
+  },
+  {
+   "dist": "pywin32",
+   "spec": "pywin32>=306,<307",
+   "import_name": "win32com",
+   "purpose": "Windows Word/Excel COM 자동화 — gg_office_win.py의 win32com 구동(Windows 전용)",
+   "used_by": [
+    "scripts/gg_office_win.py"
+   ],
+   "platform": "win32"
+  }
+ ]
+}

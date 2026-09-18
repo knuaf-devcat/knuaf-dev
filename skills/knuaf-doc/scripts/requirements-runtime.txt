@@ -1,0 +1,10 @@
+# ginseng-goat runtime dependencies — declared, not discovered.
+# Install into the project's own environment:
+#   python3 -m venv <작업폴더>/.venv
+#   <작업폴더>/.venv/bin/python -m pip install -r <이 파일>
+# Offline wheelhouse: add --no-index --find-links <wheels-dir>
+# Details: references/package-install.md
+openpyxl>=3.1,<4
+python-docx>=1.1,<2
+pypdf>=6,<7
+pywin32>=306,<307; sys_platform == "win32"
