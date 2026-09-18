@@ -1,0 +1,15 @@
+# dev environments
+.venv-dev/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# app
+app/node_modules/
+app/out/
+app/dist/
+app/resources/python/
+app/resources/wheelhouse/
+app/resources/skill/
+# OS
+.DS_Store

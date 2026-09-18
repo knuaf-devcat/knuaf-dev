@@ -17,7 +17,7 @@ if __name__ == "__main__":
     a = ap.parse_args()
     try:
         result = workbook(
-            json.loads(local(a.base, a.input).read_text()), local(a.base, a.out)
+            json.loads(local(a.base, a.input).read_text(encoding="utf-8")), local(a.base, a.out)
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, KeyError, OSError) as e:

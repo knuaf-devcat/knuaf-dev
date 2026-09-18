@@ -1,0 +1,4 @@
+app/
+tests/
+.venv-dev/
+.github/

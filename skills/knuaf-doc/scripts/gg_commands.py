@@ -55,14 +55,14 @@ def main(mode):
             if p and path.is_dir():
                 text = c.merged(root, p)
             elif path.is_file():
-                text = c.draft(path.read_text())
+                text = c.draft(path.read_text(encoding="utf-8"))
                 root = path.parent
             else:
                 files = sorted(
                     (path / "sections").glob("*.md"),
                     key=lambda f: c.section_order(f.name),
                 )
-                text = "\n\n".join(c.draft(f.read_text()) for f in files)
+                text = "\n\n".join(c.draft(f.read_text(encoding="utf-8")) for f in files)
             rows = [
                 c.result(cid, str(path), "fail", reason, p["revision"] if p else 0)
                 for cid, reason in check(text, root)
@@ -83,7 +83,15 @@ def main(mode):
             if any(r["status"] != "pass" and r["severity"] == "error" for r in rows)
             else 0
         )
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        ImportError,
+        AttributeError,
+        RecursionError,
+    ) as e:
         print(
             json.dumps(
                 [c.result("execution", str(path), "blocked", str(e), 0)],

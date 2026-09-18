@@ -70,7 +70,7 @@ def _locations(root, p, locations):
             return None
         try:
             from gg_core import draft, local
-            body = draft(local(root, p["sections"][sid]["path"]).read_text())
+            body = draft(local(root, p["sections"][sid]["path"]).read_text(encoding="utf-8"))
             if loc["quote"] not in body:
                 return None
         except (OSError, ValueError, KeyError, TypeError):
@@ -252,7 +252,7 @@ def check(root, p):
         if not isinstance(inv_path, str) or not isinstance(inv_hash, str) or digest(local(root, inv_path).read_bytes()) != inv_hash:
             blockers.append("inventory_hash")
         else:
-            inventory = json.loads(local(root, inv_path).read_text())
+            inventory = json.loads(local(root, inv_path).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         blockers.append("inventory_read")
     inv_meta = {"path": inv_path, "sha256": inv_hash}

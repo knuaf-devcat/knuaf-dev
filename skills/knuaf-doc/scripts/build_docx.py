@@ -2,6 +2,7 @@
 """Low-level DOCX preview exporter. No submission or font/render approval implied."""
 
 import argparse
+import io
 import json
 from pathlib import Path
 import re
@@ -15,11 +16,13 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from gg_document import parse, spans, SCI, FRONT, school_toc_range, school_frontmatter_plan
-from gg_core import digest, local
+from gg_core import atomic, digest, local
 import gg_docx_table_layout
 
 FONT = "신명조"
-LEVEL_PT = {1: 20, 2: 18, 3: 16, 4: 14, 5: 13, 6: 12, 7: 12, 8: 12, 9: 12}
+# 소제목(6~9단계: (1)/(가)/①/㉮)은 gg_school_format의 OG-016 허용 범위
+# (13~18pt) 최소치인 13pt로 둔다. 12pt는 본문과 같아 검사에서 차단된다.
+LEVEL_PT = {1: 20, 2: 18, 3: 16, 4: 14, 5: 13, 6: 13, 7: 13, 8: 13, 9: 13}
 
 
 def set_font(run, name, size_pt, bold=False, color=(0, 0, 0)):
@@ -184,6 +187,45 @@ def add_table(doc, rows, font):
 
 WIDE_TABLE_MIN_COLS = 10
 
+# 목차 항목으로 인정하는 줄: 원고 목차에 적힌 제목 줄과 고정 표제. 뒤에 점선·
+# 쪽번호가 붙어도 목차 항목으로 본다. 그 밖의 문단·표·그림은 본문 앞에서
+# 조용히 버려지므로 fail-closed로 거부한다.
+_TOC_LABEL_RE = re.compile(
+    r"^(목차|요약|표 목차|그림 목차|감사의 글|참고문헌|부록)"
+    r"(\s*[.·…]*\s*[ivxⅰ-ⅹ\d]*)$"
+)
+
+
+def _toc_like(n):
+    if n["kind"] == "heading":
+        return True
+    if n["kind"] == "paragraph" and not n.get("list_item"):
+        return bool(_TOC_LABEL_RE.match(n.get("text", "").strip()))
+    return False
+
+
+def _node_label(n):
+    if n["kind"] == "table":
+        return "[표 " + " ".join(n["rows"][0])[:30] + "]"
+    if n["kind"] == "image":
+        return "[그림 " + n.get("path", "") + "]"
+    return n.get("text", "")
+
+
+def check_dropped_nodes(nodes, i_toc, i_body, rendered=()):
+    """목차와 본문 사이에서 렌더되지 않는 내용이 있으면 ValueError.
+
+    ``rendered``는 이 구간에서 실제로 출력되는 노드(요약 절 등)다. 목차 항목
+    (제목 줄·고정 표제)은 목차 필드로 다시 만들어지므로 버려도 된다."""
+    kept = {id(n) for n in rendered}
+    dropped = [n for n in nodes[i_toc + 1:i_body]
+               if id(n) not in kept and not _toc_like(n)]
+    if dropped:
+        shown = [_node_label(n).strip()[:40] for n in dropped[:3]]
+        more = " 외 %d개" % (len(dropped) - 3) if len(dropped) > 3 else ""
+        raise ValueError("목차 뒤 렌더되지 않는 내용: " + " | ".join(shown) + more)
+    return []
+
 
 def convert(md_text, font=FONT, base=".", table_reports=None):
     doc = Document()
@@ -211,10 +253,17 @@ def convert(md_text, font=FONT, base=".", table_reports=None):
                     - sec.left_margin.mm
                     - sec.right_margin.mm
                 )
+                # A4 세로를 유지한다: 가로 회전은 절 전체 pgSz를 바꾸므로
+                # 금지하고, 안 맞으면 feasible=False로 보고만 한다.
                 rep = gg_docx_table_layout.fit_table(
-                    t, text_area_mm=text_area_mm
+                    t, text_area_mm=text_area_mm, allow_landscape=False
                 )
                 rep["n_cols"] = len(n["rows"][0])
+                if rep.get("applied") and rep.get("feasible") is False:
+                    rep["warnings"].append(
+                        "표(%d열)가 A4 세로 본문 폭에 맞지 않음: 열 축소·분할 필요"
+                        % rep["n_cols"]
+                    )
                 if table_reports is not None:
                     table_reports.append(rep)
         elif n["kind"] == "image":
@@ -434,6 +483,7 @@ def convert(md_text, font=FONT, base=".", table_reports=None):
                 text=n.get('text','').strip()
                 if text in {'표 목차','그림 목차','감사의 글'} or re.match(r'^[ⅠI]\s*[.．].*머리말',text): break
                 prelim.append(n)
+        check_dropped_nodes(nodes, i_toc, i_body, prelim)
         table_entries=[(n['text'],n['_bookmark'],2) for n in body_nodes if n['kind']=='caption' and n.get('label')=='표']
         figure_entries=[(n['text'],n['_bookmark'],2) for n in body_nodes if n['kind']=='caption' and n.get('label')=='그림']
         entries=[]
@@ -463,6 +513,8 @@ def convert(md_text, font=FONT, base=".", table_reports=None):
                 contents(doc,figure_entries,font,'그림 목차','gg_figures',9003)
         new_numbered_section('decimal')
     else:
+        # 목차 필드 앞의 원고 목차 항목만 버린다; 그 외 내용은 거부한다.
+        check_dropped_nodes(nodes, i_toc, i_body)
         add_toc(doc,font)
         # 본문은 새 구역에서 1쪽부터 아라비아 숫자 쪽번호를 매긴다.
         sec = doc.add_section(WD_SECTION.NEW_PAGE)
@@ -489,16 +541,23 @@ def main():
     try:
         src = local(a.base, a.inp)
         out = local(a.base, a.out)
+        manifest_path = out.with_suffix(".manifest.json")
         out.parent.mkdir(parents=True, exist_ok=True)
         if out.exists():
             raise ValueError("기존 산출물을 덮어쓰지 않음: 새 경로 지정")
-        source_text = src.read_text()
+        if manifest_path.exists():
+            raise ValueError("기존 산출물을 덮어쓰지 않음: " + manifest_path.name)
+        source_text = src.read_text(encoding="utf-8")
         table_reports = []
+        buf = io.BytesIO()
         convert(source_text, a.font, Path(a.base),
-                table_reports=table_reports).save(out)
+                table_reports=table_reports).save(buf)
+        docx_bytes = buf.getvalue()
         parsed_plan = school_frontmatter_plan(parse(source_text))
         infeasible = [r for r in table_reports
                       if r.get("applied") and r.get("feasible") is False]
+        warnings = [w for r in table_reports for w in r.get("warnings", ())
+                    if r.get("applied") and r.get("feasible") is False]
         manifest = {
             "kind": "draft",
             "table_layout": {
@@ -507,7 +566,9 @@ def main():
                 "infeasible_count": len(infeasible),
                 "reports": table_reports,
             },
-            "file_hash": digest(out.read_bytes()),
+            "warnings": warnings,
+            "dropped_nodes": [],
+            "file_hash": digest(docx_bytes),
             "input_hash": digest(src.read_bytes()),
             "font": a.font,
             "font_available": "not_run",
@@ -529,9 +590,12 @@ def main():
             ),
             "notice": "저수준 미검증 출력. 목차 필드 갱신·전체 페이지·학교 원문·학명·그림·표·머리행 검토 필요. 한글에서 글꼴 신명조·여백(위20/아래15/머리15/꼬리15/좌30/우30/제본0 mm)·페이지 번호를 확인한다. 이 세 가지는 스킬 작성 완료를 막지 않으며 자동 통과하지 않는다.",
         }
-        out.with_suffix(".manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2)
-        )
+        # 스테이징 파일에 쓴 뒤 os.replace: 중단돼도 반쪽짜리 .docx가 남지 않는다.
+        atomic(out, docx_bytes)
+        atomic(manifest_path,
+               json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8"))
+        for w in warnings:
+            print("경고: " + w, file=sys.stderr)
         print(str(out))
         return 0
     except (ValueError, OSError) as e:

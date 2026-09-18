@@ -25,7 +25,8 @@ import re
 PACKAGE = "kordoc"
 VERSION = "4.13.1"
 REGISTRY = "https://registry.npmjs.org"
-OWNER = "ginseng-goat.gg_kordoc"
+OWNER = "knuaf-doc.gg_kordoc"
+LEGACY_OWNERS = frozenset({"ginseng-goat.gg_kordoc"})  # caches made before the rename
 DEFAULT_TIMEOUT = 180
 REQUIRED_PARSE_FLAGS = (
     "--format",
@@ -48,13 +49,27 @@ def _result(status: str, **fields):
     return {"status": status, **fields}
 
 
+def _owner_ok(value) -> bool:
+    return value == OWNER or value in LEGACY_OWNERS
+
+
 def _cache_root(value: str | os.PathLike[str] | None) -> Path:
     if value:
         return Path(value).expanduser().resolve()
     base = os.environ.get("XDG_CACHE_HOME")
     if base:
-        return (Path(base).expanduser() / "ginseng-goat" / "kordoc").resolve()
-    return (Path.home() / ".cache" / "ginseng-goat" / "kordoc").resolve()
+        return (Path(base).expanduser() / "knuaf-doc" / "kordoc").resolve()
+    return (Path.home() / ".cache" / "knuaf-doc" / "kordoc").resolve()
+
+
+def _legacy_cache_roots() -> list[Path]:
+    """Read-only: caches created under the old package name are reused, never written."""
+    roots = []
+    base = os.environ.get("XDG_CACHE_HOME")
+    if base:
+        roots.append((Path(base).expanduser() / "ginseng-goat" / "kordoc").resolve())
+    roots.append((Path.home() / ".cache" / "ginseng-goat" / "kordoc").resolve())
+    return [r for r in roots if r.is_dir()]
 
 
 def _runtime_path(value: str | None, names: tuple[str, ...]) -> str | None:
@@ -230,7 +245,7 @@ def _validated_install(version_root: Path, node_path: str):
     package_root, package_json, cli = _package_paths(version_root)
     marker = _read_json(version_root / ".gg-kordoc.json")
     spec = _read_json(package_json)
-    if not marker or marker.get("owner") != OWNER or marker.get("version") != VERSION or marker.get("registry") != REGISTRY:
+    if not marker or not _owner_ok(marker.get("owner")) or marker.get("version") != VERSION or marker.get("registry") != REGISTRY:
         return None
     if not spec or spec.get("name") != PACKAGE or str(spec.get("version")) != VERSION:
         return None
@@ -315,7 +330,7 @@ def _claim_cache(root: Path):
     marker_path = root / ".gg-kordoc-cache.json"
     current = _read_json(marker_path)
     if current is not None:
-        if current.get("owner") != OWNER or current.get("package") != PACKAGE or current.get("version") != VERSION or current.get("registry") != REGISTRY:
+        if not _owner_ok(current.get("owner")) or current.get("package") != PACKAGE or current.get("version") != VERSION or current.get("registry") != REGISTRY:
             raise KordocBlocked("cache_unowned", cache_dir=str(root), action="Choose a new --cache-dir; existing files are preserved.")
         return
     # Do not take over an arbitrary populated directory.
@@ -334,7 +349,7 @@ def _claim_cache(root: Path):
             fh.write("\n")
     except FileExistsError:
         current = _read_json(marker_path)
-        if not current or current.get("owner") != OWNER or current.get("package") != PACKAGE or current.get("version") != VERSION or current.get("registry") != REGISTRY:
+        if not current or not _owner_ok(current.get("owner")) or current.get("package") != PACKAGE or current.get("version") != VERSION or current.get("registry") != REGISTRY:
             raise KordocBlocked("cache_unowned", cache_dir=str(root), action="Choose a new --cache-dir; existing files are preserved.")
 
 
@@ -379,6 +394,25 @@ def ensure(*, cache_dir=None, node=None, pnpm=None, kordoc=None, timeout=DEFAULT
             exc.details["rejected_candidates"] = rejected_candidates
         raise
     root = _cache_root(cache_dir)
+    if cache_dir is None:
+        for legacy_root in _legacy_cache_roots():
+            legacy_cached = _validated_install(legacy_root / VERSION, node_path) if (legacy_root / VERSION).exists() else None
+            if legacy_cached:
+                return _result(
+                    "ready",
+                    action="reused_legacy",
+                    package=PACKAGE,
+                    version=VERSION,
+                    actual_version=VERSION,
+                    cache_dir=str(legacy_root),
+                    cli_path=str(legacy_cached["cli"]),
+                    cli_command=[node_path, str(legacy_cached["cli"])],
+                    command=[node_path, str(legacy_cached["cli"])],
+                    node_path=node_path,
+                    smoke="help_ok",
+                    capability_verification={"help": "ok", "smoke": "help"},
+                    rejected_candidates=rejected_candidates,
+                )
     _claim_cache(root)
     version_root = root / VERSION
     cached = _validated_install(version_root, node_path) if version_root.exists() else None
@@ -417,7 +451,7 @@ def ensure(*, cache_dir=None, node=None, pnpm=None, kordoc=None, timeout=DEFAULT
     stage.mkdir(mode=0o700)
     try:
         (stage / "package.json").write_text(
-            json.dumps({"name": "ginseng-goat-kordoc-cache", "private": True}, indent=2) + "\n",
+            json.dumps({"name": "knuaf-doc-kordoc-cache", "private": True}, indent=2) + "\n",
             encoding="utf-8",
         )
         install_cmd = pnpm_cmd + [

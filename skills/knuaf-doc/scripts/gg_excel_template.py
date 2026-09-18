@@ -166,7 +166,8 @@ def merged_cells(root: ET.Element) -> tuple[set[str], set[str]]:
     return anchors, nonanchors
 
 
-def inspect_source(source: Path, out_map: Path | None, report: Path | None) -> dict:
+def inspect_source(source: Path, out_map: Path | None, report: Path | None,
+                   legacy_map: bool = False) -> dict:
     source = resolve_source(source).resolve()
     if out_map and out_map.exists():
         raise FileExistsError(f"refusing to overwrite map: {out_map}")
@@ -178,8 +179,10 @@ def inspect_source(source: Path, out_map: Path | None, report: Path | None) -> d
         sheets = workbook_sheets(z)
         inventory = []
         sheet_summaries = []
+        nonanchors_by_sheet: dict[str, set[str]] = {}
         for idx, (name, target) in enumerate(sheets):
             root = ET.fromstring(z.read(target))
+            _, nonanchors_by_sheet[name] = merged_cells(root)
             cells = []
             formulas = 0
             for c in root.findall(f".//{local('c')}"):
@@ -195,9 +198,19 @@ def inspect_source(source: Path, out_map: Path | None, report: Path | None) -> d
             sheet_summaries.append({"name": name, "index": idx, "xml": target,
                                     "cellCount": len(cells), "formulaCount": formulas})
             inventory.extend({"sheet": name, **c} for c in cells)
-    entries = default_entries(inventory)
+    sheet_names = {name for name, _ in sheets}
+    if legacy_map:
+        entries = default_entries(inventory)
+        missing_sheets = sorted({ent["sheet"] for ent in entries} - sheet_names)
+        if missing_sheets:
+            raise ValueError("map references missing sheet: " + ", ".join(missing_sheets))
+        entries_source = "legacy"
+    else:
+        entries = inventory_entries(inventory, nonanchors_by_sheet)
+        entries_source = "inventory"
     result = {
         "schema": "gg-xlsx-template-map/v1",
+        "entriesSource": entries_source,
         "source": {"path": str(source), "sha256": digest, "size": source.stat().st_size},
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "sheets": sheet_summaries,
@@ -213,7 +226,7 @@ def inspect_source(source: Path, out_map: Path | None, report: Path | None) -> d
             "legacyErrorsPreserved": True,
             "unclassifiedTextDisclosed": True,
             "publicationReady": False,
-            "referenceSheetPreserved": "참고1. 모델농장분석",
+            "referenceSheetPreserved": "참고1. 모델농장분석" if legacy_map else None,
         },
     }
     if out_map:
@@ -231,8 +244,66 @@ def e(sheet: str, refs: str, semantic: str, reason: str, action: str = "clear") 
             "action": action, "explicit": True}
 
 
+LABEL_TEXT_RE = re.compile(r"^[가-힣ㄱ-ㅎㅏ-ㅣ\s()（）\[\]/·,.\-]+$")
+MAX_LABEL_TEXT_LEN = 24
+
+
+def is_label_text(value: str, ref: str) -> bool:
+    """Heuristic: fixed worksheet label rather than a sample input value."""
+    text = value.strip()
+    if not text:
+        return False
+    if text.endswith((":", "：")):
+        return True
+    m = CELL_RE.match(ref)
+    if m and m.group(1) == "A":
+        return True
+    return len(text) <= MAX_LABEL_TEXT_LEN and bool(LABEL_TEXT_RE.match(text))
+
+
+def inventory_entries(inventory: list[dict], nonanchors_by_sheet: dict[str, set[str]] | None = None) -> list[dict]:
+    """Derive one explicit entry per literal cell from the inspected inventory.
+
+    Formula cells and merged non-anchor cells are skipped. Numbers and ordinary
+    text become ``input_candidate`` clear entries; label-like text (ends with a
+    colon, sits in column A, or is a short all-Korean header) and narrative
+    reference text are recorded as ``preserve`` entries so the map stays explicit.
+    """
+    nonanchors_by_sheet = nonanchors_by_sheet or {}
+    out = []
+    for item in inventory:
+        if item.get("formula") is not None:
+            continue
+        sheet, ref, value = item["sheet"], item["cell"], item.get("value")
+        if value is None or ref in nonanchors_by_sheet.get(sheet, set()):
+            continue
+        if isinstance(value, str):
+            if not value.strip():
+                continue
+            if is_label_text(value, ref):
+                out.append({"sheet": sheet, "range": ref, "semanticField": "label", "role": "label",
+                            "reason": "label-like text in source workbook", "action": "preserve",
+                            "explicit": True})
+                continue
+            if is_reference_text(value):
+                out.append({"sheet": sheet, "range": ref, "semanticField": "reference_text",
+                            "role": "reference_text", "reason": "reference/narrative text in source workbook",
+                            "action": "preserve", "explicit": True})
+                continue
+        elif not isinstance(value, (bool, int, float)):
+            continue
+        out.append({"sheet": sheet, "range": ref, "semanticField": "input_candidate",
+                    "role": "input_candidate", "reason": "literal value in source workbook",
+                    "action": "clear", "explicit": True})
+    return out
+
+
 def default_entries(inventory: list[dict]) -> list[dict]:
-    """Return an explicit cell map.  Rectangles that contain labels are avoided."""
+    """Return the legacy explicit cell map for the original 17-sheet school workbook.
+
+    The inventory argument is unused: this map is hard-coded and only valid
+    behind ``inspect --legacy-map``, which verifies every referenced sheet exists.
+    """
     out = [
         e("1. 기초재무상태조사", "B9:F9", "existing_land_asset", "sample author's land facts"),
         e("1. 기초재무상태조사", "H9", "existing_land_asset_note", "sample author's land note"),
@@ -474,7 +545,12 @@ def _serialize_dom(xml_bytes: bytes, source_name: str) -> minidom.Document:
     return document
 
 
-def blank_copy(source: Path, map_path: Path, out: Path) -> dict:
+def _ref_sort_key(ref: str) -> tuple[int, int]:
+    m = CELL_RE.match(ref)
+    return (int(m.group(2)), col_num(m.group(1))) if m else (0, 0)
+
+
+def blank_copy(source: Path, map_path: Path, out: Path, allow_missing: bool = False) -> dict:
     if out.exists():
         raise FileExistsError(f"refusing to overwrite output: {out}")
     map_data = json.loads(map_path.read_text(encoding="utf-8"))
@@ -514,7 +590,7 @@ def blank_copy(source: Path, map_path: Path, out: Path) -> dict:
                     "sha256": sha256(source), "size": source.stat().st_size},
                    "output": {"path": str(out.resolve())}, "cleared": [], "preserved": [],
                    "formulaCellsProtected": 0, "mergedCellsProtected": 0,
-                   "formulaCachesInvalidated": 0, "ambiguousCount": 0, "errors": []}
+                   "formulaCachesInvalidated": 0, "ambiguousCount": 0, "missingCells": [], "errors": []}
         for name, target in sheets.items():
             sheet_bytes = zin.read(target)
             root = ET.fromstring(sheet_bytes)
@@ -529,10 +605,12 @@ def blank_copy(source: Path, map_path: Path, out: Path) -> dict:
             }
             anchors, nonanchors = merged_cells(root)
             wanted = by_sheet.get(name, set())
+            seen: set[str] = set()
             for c in root.findall(f".//{local('c')}"):
                 ref = c.attrib.get("r")
                 if not ref:
                     continue
+                seen.add(ref)
                 dom_cell = dom_cells.get(ref)
                 if dom_cell is None:
                     raise ValueError(f"worksheet cell missing from namespace-preserving DOM: {target}!{ref}")
@@ -560,7 +638,15 @@ def blank_copy(source: Path, map_path: Path, out: Path) -> dict:
                 old = text_value(c, shared)
                 _dom_clear_cell_value(dom_cell)
                 receipt["cleared"].append({"sheet": name, "cell": ref, "oldValue": old})
+            # A mapped coordinate with no <c> node cannot be cleared; report it
+            # instead of silently skipping it.
+            for ref in sorted(wanted - seen, key=_ref_sort_key):
+                receipt["missingCells"].append({"sheet": name, "cell": ref})
             modified[target] = sheet_dom.toxml(encoding="utf-8")
+        if receipt["missingCells"] and not allow_missing:
+            shown = ", ".join(f"{m['sheet']}!{m['cell']}" for m in receipt["missingCells"][:10])
+            extra = len(receipt["missingCells"]) - 10
+            raise ValueError("매핑된 셀이 원본에 없음: " + shown + (f" 외 {extra}건" if extra > 0 else ""))
         targeted = {(r["sheet"], r["cell"]) for r in receipt["cleared"]}
         preserved = {(r["sheet"], r["cell"]) for r in receipt["preserved"]}
         # Hard-coded numerics left outside the explicit map are intentionally reported
@@ -616,7 +702,8 @@ def blank_copy(source: Path, map_path: Path, out: Path) -> dict:
     # keeps the artifact review-only; the receipt must not call it publication-ready.
     retained_legacy = any("legacy" in reason.lower() or "reference" in reason.lower()
                           for reasons in preserved_by_sheet.values() for reason in reasons.values())
-    receipt["output"]["status"] = "partial" if (receipt["ambiguousCount"] or receipt.get("unclassifiedTextCells") or retained_legacy) else "blank_template"
+    receipt["output"]["status"] = "partial" if (receipt["ambiguousCount"] or receipt.get("unclassifiedTextCells")
+                                                or retained_legacy or receipt["missingCells"]) else "blank_template"
     receipt["output"]["calculationStatus"] = "recalculate_on_open; cached_formula_values_invalidated"
     return receipt
 
@@ -628,16 +715,21 @@ def cli(argv: list[str]) -> int:
     i.add_argument("--source", required=True, type=Path)
     i.add_argument("--out-map", required=True, type=Path)
     i.add_argument("--report", type=Path)
+    i.add_argument("--legacy-map", action="store_true",
+                   help="use the hard-coded legacy 17-sheet map instead of the inventory-derived map")
     c = sp.add_parser("clear")
     c.add_argument("--source", required=True, type=Path)
     c.add_argument("--map", required=True, type=Path)
     c.add_argument("--out", required=True, type=Path)
     c.add_argument("--receipt", type=Path)
+    c.add_argument("--allow-missing", action="store_true",
+                   help="do not fail when a mapped cell has no node in the source; report it in the receipt")
     args = p.parse_args(argv)
     try:
         if args.cmd == "inspect":
-            r = inspect_source(args.source, args.out_map, args.report)
+            r = inspect_source(args.source, args.out_map, args.report, legacy_map=args.legacy_map)
             print(json.dumps({"status": "inspected", "source": r["source"], "entries": len(r["entries"]),
+                              "entries_source": r["entriesSource"],
                               "sheets": len(r["sheets"]), "map": str(args.out_map)}, ensure_ascii=False))
         else:
             if args.out.exists():
@@ -654,7 +746,8 @@ def cli(argv: list[str]) -> int:
                 raise FileExistsError("staging path already exists")
             published_out = False
             try:
-                r = blank_copy(resolve_source(args.source).resolve(), args.map.resolve(), staged_out.resolve())
+                r = blank_copy(resolve_source(args.source).resolve(), args.map.resolve(), staged_out.resolve(),
+                               allow_missing=args.allow_missing)
                 r["output"]["path"] = str(args.out.resolve())
                 if staged_receipt:
                     staged_receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -672,7 +765,8 @@ def cli(argv: list[str]) -> int:
                 raise
             print(json.dumps({"status": r["output"]["status"], "out": r["output"],
                               "cleared": len(r["cleared"]), "formulaProtected": r["formulaCellsProtected"],
-                              "formulaCachesInvalidated": r["formulaCachesInvalidated"]}, ensure_ascii=False))
+                              "formulaCachesInvalidated": r["formulaCachesInvalidated"],
+                              "missing": len(r["missingCells"])}, ensure_ascii=False))
         return 0
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as exc:
         print(f"BLOCK: {exc}", file=sys.stderr)

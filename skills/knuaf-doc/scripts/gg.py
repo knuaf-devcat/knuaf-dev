@@ -1,15 +1,38 @@
 #!/usr/bin/env python3
 """Local command interface; never calls model providers or web services."""
 
-import argparse
-import importlib.util
 import json
-from pathlib import Path
 import sys
+
+if sys.version_info < (3, 10):  # must run before any 3.10-only module is imported
+    print(
+        json.dumps(
+            {
+                "status": "blocked",
+                "reason": "Python 3.10 이상이 필요함 (현재 %d.%d). gg_deps.py python <폴더> 가 가리키는 인터프리터로 실행"
+                % sys.version_info[:2],
+            },
+            ensure_ascii=False,
+        )
+    )
+    sys.exit(2)
+
+import argparse
+from pathlib import Path
 import gg_core as core
 
 
+def _utf8_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None):
+    _utf8_stdio()
     ap = argparse.ArgumentParser(description="논문 정본·검사·검토본 관리")
     ap.add_argument(
         "command",
@@ -26,12 +49,17 @@ def main(argv=None):
             "bundle",
             "paper",
             "observe",
+            "lock-info",
+            "unlock",
+            "history",
+            "restore",
         ],
     )
     ap.add_argument("folder")
     ap.add_argument("--out")
     ap.add_argument("--change")
     ap.add_argument("--expected-revision", type=int)
+    ap.add_argument("--revision", type=int, help="restore: 되돌릴 개정 번호")
     ap.add_argument("--scope", default="all")
     ap.add_argument(
         "--kind", choices=["draft", "review", "submission_candidate"], default="review"
@@ -48,28 +76,21 @@ def main(argv=None):
                 raise ValueError("--out 새 폴더 필요")
             value = core.migrate(a.folder, a.out)
         elif a.command == "doctor":
-            value = {
-                "python": sys.version,
-                "dependencies": {
-                    m: bool(importlib.util.find_spec(m)) for m in ("docx", "openpyxl")
-                },
-                "recalculation": "not_run",
-                "render": "not_run",
-                "hwp": "unsupported",
-                "web": "not_run",
-                "model_calls": "disabled",
-                "lock_present": (Path(a.folder) / ".gg-lock").exists(),
-                "orphan_files": [
-                    str(p)
-                    for p in list(Path(a.folder).rglob(".gg-tmp-*"))
-                    + list(Path(a.folder).rglob(".gg-export-*"))
-                ],
-                "notice": "설치 탐지는 실행 검증이 아님. 채팅만 가능하면 초안과 원답변 인계, 제출 후보 불가.",
-            }
+            value = core.doctor(a.folder)
+        elif a.command == "lock-info":
+            value = core.lock_info(a.folder)
+        elif a.command == "unlock":
+            value = core.unlock(a.folder)
+        elif a.command == "history":
+            value = core.history(a.folder)
+        elif a.command == "restore":
+            if a.revision is None or a.expected_revision is None:
+                raise ValueError("--revision과 --expected-revision 필요")
+            value = core.restore(a.folder, a.revision, a.expected_revision)
         elif a.command == "observe":
             if not a.input or not a.observer:
                 raise ValueError("--input 관측 JSON과 --observer 필요")
-            payload = json.loads(core.local(a.folder, a.input).read_text())
+            payload = json.loads(core.local(a.folder, a.input).read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("관측 기록은 객체여야 함")
             value = core.ingest_review_observation(a.folder, payload, a.observer)
@@ -83,11 +104,11 @@ def main(argv=None):
             if dest.exists():
                 raise ValueError("기존 산출물을 덮어쓰지 않음")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            spec = json.loads(src.read_text())
+            spec = json.loads(src.read_text(encoding="utf-8"))
             if not isinstance(spec, dict):
                 raise ValueError("논문 입력은 객체여야 함")
             spec.setdefault("school_profile", {"mode": "school", "layout": "forms_1_to_4"})
-            dest.write_text(school_paper(spec))
+            dest.write_text(school_paper(spec), encoding="utf-8")
             value = {"path": str(dest), "status": "generated"}
         else:
             p = core.load(a.folder)
@@ -96,7 +117,7 @@ def main(argv=None):
                     raise ValueError("--change와 --expected-revision 필요")
                 value = core.apply(
                     a.folder,
-                    json.loads(Path(a.change).read_text()),
+                    json.loads(Path(a.change).read_text(encoding="utf-8")),
                     a.expected_revision,
                 )
             elif a.command == "check":
@@ -157,7 +178,7 @@ def main(argv=None):
                 refs = [{"collection": "sections", "id": a.scope}]
                 value = {
                     "section": s,
-                    "draft": core.draft(core.local(a.folder, s["path"]).read_text()),
+                    "draft": core.draft(core.local(a.folder, s["path"]).read_text(encoding="utf-8")),
                     "original_sources": p["sources"],
                     "facts": p["facts"],
                     "rules": p["rules"],
@@ -191,7 +212,15 @@ def main(argv=None):
         ):
             return 1
         return 0
-    except (ValueError, KeyError, OSError, TypeError) as e:
+    except (
+        ValueError,
+        KeyError,
+        OSError,
+        TypeError,
+        ImportError,
+        AttributeError,
+        RecursionError,
+    ) as e:
         print(json.dumps({"status": "blocked", "reason": str(e)}, ensure_ascii=False))
         return 2
 

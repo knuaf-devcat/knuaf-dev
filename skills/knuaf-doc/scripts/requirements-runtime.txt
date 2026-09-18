@@ -1,4 +1,4 @@
-# ginseng-goat runtime dependencies — declared, not discovered.
+# knuaf-doc runtime dependencies — declared, not discovered.
 # Install into the project's own environment:
 #   python3 -m venv <작업폴더>/.venv
 #   <작업폴더>/.venv/bin/python -m pip install -r <이 파일>

@@ -77,7 +77,13 @@ def _direct_children(node, local_name):
             and child.namespaceURI == NS_MAIN and child.localName == local_name]
 
 
-def _style_wrap_cells(styles_doc, sheet_doc, cells, note_color=None, number_format=None):
+def _style_wrap_cells(styles_doc, sheet_doc, cells, note_color=None, number_format=None, wrap=True):
+    """Clone each target cell's xf into a new style record.
+
+    ``wrap=True`` sets ``alignment wrapText="1"`` (wrap_cells/source_note_cells).
+    ``wrap=False`` leaves alignment untouched so a number_formats override
+    changes only the displayed number format.
+    """
     if not cells:
         return []
     roots = _dom_elements(styles_doc, NS_MAIN, 'cellXfs')
@@ -154,29 +160,30 @@ def _style_wrap_cells(styles_doc, sheet_doc, cells, note_color=None, number_form
             font_roots[0].setAttribute('count', str(len(fonts) + 1))
             clone.setAttribute('fontId', str(len(fonts)))
             clone.setAttribute('applyFont', '1')
-        clone.setAttribute('applyAlignment', '1')
-        alignments = _direct_children(clone, 'alignment')
-        if alignments:
-            alignment = alignments[0]
-            for extra in alignments[1:]:
-                clone.removeChild(extra)
-        else:
-            prefix = clone.prefix or cell_xfs.prefix or styles_doc.documentElement.prefix
-            alignment = styles_doc.createElementNS(NS_MAIN, (prefix + ':' if prefix else '') + 'alignment')
-            protection = next((child for child in clone.childNodes
-                               if child.nodeType == child.ELEMENT_NODE
-                               and child.namespaceURI == NS_MAIN
-                               and child.localName in {'protection', 'extLst'}), None)
-            if protection is None:
-                clone.appendChild(alignment)
+        if wrap:
+            clone.setAttribute('applyAlignment', '1')
+            alignments = _direct_children(clone, 'alignment')
+            if alignments:
+                alignment = alignments[0]
+                for extra in alignments[1:]:
+                    clone.removeChild(extra)
             else:
-                clone.insertBefore(alignment, protection)
-        alignment.setAttribute('wrapText', '1')
+                prefix = clone.prefix or cell_xfs.prefix or styles_doc.documentElement.prefix
+                alignment = styles_doc.createElementNS(NS_MAIN, (prefix + ':' if prefix else '') + 'alignment')
+                protection = next((child for child in clone.childNodes
+                                   if child.nodeType == child.ELEMENT_NODE
+                                   and child.namespaceURI == NS_MAIN
+                                   and child.localName in {'protection', 'extLst'}), None)
+                if protection is None:
+                    clone.appendChild(alignment)
+                else:
+                    clone.insertBefore(alignment, protection)
+            alignment.setAttribute('wrapText', '1')
         new_style = len(xfs)
         cell_xfs.appendChild(clone)
         xfs.append(clone)
         cell.setAttribute('s', str(new_style))
-        changes.append({'cell': ref, 'old_style': style_id, 'new_style': new_style, 'wrap_text': True})
+        changes.append({'cell': ref, 'old_style': style_id, 'new_style': new_style, 'wrap_text': bool(wrap)})
         if note_color is not None:
             changes[-1]['font_color'] = note_color
         if number_format is not None:
@@ -185,12 +192,34 @@ def _style_wrap_cells(styles_doc, sheet_doc, cells, note_color=None, number_form
     return changes
 
 
+# CT_Workbook child order after <definedNames>; a new container is inserted
+# before the first of these that exists so the workbook stays schema-valid.
+_WORKBOOK_AFTER_DEFINED_NAMES = ('calcPr', 'oleSize', 'customWorkbookViews', 'pivotCaches', 'smartTagPr',
+                                 'smartTagTypes', 'webPublishing', 'fileRecoveryPr', 'webPublishObjects', 'extLst')
+
+
+def _defined_names_container(book):
+    """Return the workbook's <definedNames> element, creating it in schema position."""
+    broot = book.documentElement
+    existing = _direct_children(broot, 'definedNames')
+    if existing:
+        return existing[0]
+    container = qualified(book, broot, 'definedNames')
+    next_node = next((n for n in broot.childNodes if n.nodeType == n.ELEMENT_NODE
+                      and n.namespaceURI == NS_MAIN and n.localName in _WORKBOOK_AFTER_DEFINED_NAMES), None)
+    if next_node is not None:
+        broot.insertBefore(container, next_node)
+    else:
+        broot.appendChild(container)
+    return container
+
+
 def apply(source, map_path, out, receipt_path):
     source, map_path, out, receipt_path = map(Path, (source, map_path, out, receipt_path))
     paths = [p.resolve() for p in (source, map_path, out, receipt_path)]
     if len(set(paths)) != 4: raise ValueError('source, map, output, and receipt must be different')
     if out.exists() or receipt_path.exists(): raise FileExistsError('refusing overwrite')
-    data = json.loads(map_path.read_text())
+    data = json.loads(map_path.read_text(encoding="utf-8"))
     if data.get('schema') != SCHEMA or data.get('source', {}).get('sha256') != sha256(source):
         raise ValueError('print map schema/source hash mismatch')
     plans = data.get('sheets')
@@ -244,18 +273,12 @@ def apply(source, map_path, out, receipt_path):
                         dn.removeChild(dn.firstChild)
                     dn.appendChild(book.createTextNode(ref_str))
                 else:
-                    dn_list = _dom_elements(book, NS_MAIN, 'definedName')
-                    dn = qualified(book, book.documentElement, 'definedName')
+                    broot = book.documentElement
+                    dn = qualified(book, broot, 'definedName')
                     dn.setAttribute('name', '_xlnm.Print_Titles')
                     dn.setAttribute('localSheetId', str(order.index(name)))
                     dn.appendChild(book.createTextNode(ref_str))
-                    if dn_list:
-                        dn_list[-1].parentNode.insertBefore(dn, dn_list[-1].nextSibling)
-                    else:
-                        broot = book.documentElement
-                        sheets_el = _dom_elements(broot, NS_MAIN, 'sheets')
-                        anchor = sheets_el[0] if sheets_el else broot.firstChild
-                        anchor.parentNode.insertBefore(dn, anchor.nextSibling)
+                    _defined_names_container(book).appendChild(dn)
             row_heights = _row_heights(plan)
 
             wrap_cells = _wrap_cells(plan)
@@ -316,7 +339,7 @@ def apply(source, map_path, out, receipt_path):
                         raise ValueError('number format override requires cells and format')
                     cells = _wrap_cells({'wrap_cells': override['cells']})
                     wrap_changes.extend(_style_wrap_cells(
-                        styles_doc, doc, cells, number_format=override['format']
+                        styles_doc, doc, cells, number_format=override['format'], wrap=False
                     ))
                 style_changes.extend({'sheet': name, **item} for item in wrap_changes)
             else:
@@ -369,7 +392,7 @@ def main():
     a = p.parse_args()
     try:
         r = apply(a.source, a.map, a.out, a.receipt)
-        print(json.dumps({'status':'layout_copy_created','output':r['output'],'sheets':len(r['changes'])}))
+        print(json.dumps({'status':'layout_copy_created','output':r['output'],'sheets':len(r['changes'])}, ensure_ascii=False))
         return 0
     except (ValueError, OSError, KeyError, zipfile.BadZipFile) as e:
         print('BLOCK: ' + str(e), file=sys.stderr); return 2

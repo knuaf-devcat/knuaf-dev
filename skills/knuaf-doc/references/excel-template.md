@@ -22,9 +22,21 @@ python3 scripts/gg_excel_template.py clear \
 ```
 
 `inspect` records the source SHA-256, all observed cells/formulas, sheet order,
-and an explicit per-sheet map. The map records `semanticField`, `reason`, and
-`action` (`clear` or `preserve`). `clear` refuses a source whose SHA-256 no
-longer matches the map and refuses to overwrite an existing output or receipt.
+and an explicit per-sheet map derived from that inventory (`entries_source:
+"inventory"` on stdout): every non-formula, non-merged-non-anchor literal cell
+becomes a `clear` entry with `role: "input_candidate"`, while label-like text
+(ends with a colon, sits in column A, or is a short all-Korean header) and
+narrative reference text become `preserve` entries. Review the map before
+`clear`; the heuristic marks candidates, not verified inputs. `--legacy-map`
+instead writes the hard-coded map for the original 17-sheet school workbook
+(`entries_source: "legacy"`) and fails at inspect time with `map references
+missing sheet` when the source lacks any of those sheets. The map records
+`semanticField`, `role`, `reason`, and `action` (`clear` or `preserve`).
+`clear` refuses a source whose SHA-256 no longer matches the map and refuses to
+overwrite an existing output or receipt. A mapped cell with no `<c>` node in
+the source cannot be cleared: `clear` fails closed with `매핑된 셀이 원본에 없음`
+unless `--allow-missing` is passed, in which case the receipt lists them under
+`missingCells`, stdout reports `missing: N`, and the status stays `partial`.
 
 The copy operation removes values only from mapped non-formula cells. Formula
 expressions, cell styles, merged ranges, sheet names/order, print settings,
@@ -224,7 +236,9 @@ For a verified rate displayed as zero by an integer format, an explicit
 `number_formats` entry can use `0.00%`. The stored fraction and its dependent
 formulas remain unchanged; verify the displayed rate in the native PDF.
 Fractional labor days can use an explicit `#,##0.00` override without rounding
-the stored days or changing the labor-cost formula.
+the stored days or changing the labor-cost formula. A `number_formats` override
+clones the cell style and changes only `numFmtId`; it does not set wrap text.
+List the same cell under `wrap_cells` when wrapping is also wanted.
 
 A zero error-cell count is not a financial review. Check first-year ratios and subtotals against the remaining years; trace each yearly rent, tools, other expense, subsidy and investment row to that same year, including subtotal-to-detail links and cumulative balances. Compare written rate/period notes with formulas. Use a separate nonzero, different-per-year probe or inspect every corresponding reference: all-zero sample costs can hide copied first-year references. Keep probe values out of the student plan. A hidden reference/helper cell must never influence a printed result without a labeled input and source. Record the tested assumptions and applicability of each correction; do not force a student's loan, depreciation, rent or grant-accounting conditions to match the exemplar. Explicit no-expense answers in a synthetic fixture may be zero; missing real answers remain unknown.
 

@@ -65,6 +65,8 @@ _EMPTY_CELL = frozenset(
     for x in (
         "-", "—", "–", "―", "·", "…", "확인 필요", "[확인 필요]",
         "미산정", "자료 없음", "해당 없음", "없음", "없다", "N/A",
+        # pipe-table merge markers (gg_school_paper climate/profile tables)
+        "<", "^",
     )
 )
 

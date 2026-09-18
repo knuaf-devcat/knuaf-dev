@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -ra --timeout=300"
+xfail_strict = true
+filterwarnings = ["ignore::DeprecationWarning"]

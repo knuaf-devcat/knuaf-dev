@@ -47,7 +47,7 @@ def load_manifest(path=DEPS_JSON):
     path = Path(path)
     if not path.is_file():
         raise ValueError("runtime-deps.json 선언 없음: " + str(path))
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("runtime-deps.json 최상위는 객체여야 함")
     return validate_dependencies(data.get("dependencies"))
@@ -325,7 +325,29 @@ def ensure(project, find_links=None, no_index=False):
     }, (0 if ok else 1)
 
 
+def _utf8_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None):
+    _utf8_stdio()
+    if sys.version_info < (3, 10):
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": "Python 3.10 이상이 필요함 (현재 %d.%d). gg_deps.py python <폴더> 가 가리키는 인터프리터로 실행"
+                    % sys.version_info[:2],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command", choices=["doctor", "ensure", "python"])
     ap.add_argument("folder", help="프로젝트 작업폴더")

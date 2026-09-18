@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import sys
 import tempfile
 import time
 import uuid
@@ -131,14 +132,28 @@ def atomic(path, data):
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(name, path)
+        _replace_with_retry(name, path)
     finally:
         if os.path.exists(name):
             os.unlink(name)
 
 
+def _replace_with_retry(src, dst, attempts=4):
+    """os.replace, retried briefly on Windows PermissionError (AV/editor handles)."""
+    delay = 0.05
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if sys.platform != "win32" or i == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 3
+
+
 def load(root):
-    p = json.loads((Path(root) / "project.json").read_text())
+    p = json.loads((Path(root) / "project.json").read_text(encoding="utf-8"))
     validate(p)
     return p
 
@@ -150,13 +165,123 @@ def init(root):
         if (root / "project.json").exists():
             raise ValueError("기존 정본을 덮어쓰지 않음")
         p = dict(
-            schema_version=2, revision=0, requests={}, views={}, issues=[], history=[]
+            schema_version=2,
+            revision=0,
+            project_id=uuid.uuid4().hex,
+            requests={},
+            views={},
+            issues=[],
+            history=[],
         )
         p.update({k: {} for k in COLLECTIONS})
         atomic(
             root / "project.json", json.dumps(p, ensure_ascii=False, indent=2).encode()
         )
     return p
+
+
+_FD_LOCKING = (
+    hasattr(os, "O_DIRECTORY")
+    and hasattr(os, "O_NOFOLLOW")
+    and os.open in os.supports_dir_fd
+    and os.stat in os.supports_dir_fd
+    and os.unlink in os.supports_dir_fd
+)
+_REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+class _DirRef:
+    """Operations on entries of one directory, bound to that directory.
+
+    POSIX: an O_DIRECTORY|O_NOFOLLOW descriptor and dir_fd= calls, so a
+    directory swapped underneath us can never be written through.
+    Windows (no dir_fd): path based; symlinks/junctions are refused via the
+    reparse-point attribute and the directory identity is re-checked around
+    each step. That is a weaker guarantee and section-ledger.md says so.
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.fd = None
+        if _FD_LOCKING:
+            self.fd = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        else:
+            self._refuse_reparse(self.path)
+            if not self.path.is_dir():
+                raise NotADirectoryError(str(self.path))
+
+    @staticmethod
+    def _refuse_reparse(path):
+        st = os.lstat(path)
+        if os.path.islink(path) or (getattr(st, "st_file_attributes", 0) & _REPARSE_POINT):
+            raise OSError("심볼릭 링크/정션은 잠금 경로로 허용하지 않음: " + str(path))
+        return st
+
+    def identity(self):
+        st = os.fstat(self.fd) if self.fd is not None else os.lstat(self.path)
+        return (st.st_dev, st.st_ino)
+
+    def open(self, name, flags, mode=0o600):
+        if self.fd is not None:
+            return os.open(name, flags | os.O_NOFOLLOW, mode, dir_fd=self.fd)
+        target = self.path / name
+        if os.path.lexists(target):
+            self._refuse_reparse(target)
+        return os.open(target, flags | getattr(os, "O_BINARY", 0), mode)
+
+    def stat(self, name):
+        if self.fd is not None:
+            return os.stat(name, dir_fd=self.fd, follow_symlinks=False)
+        return os.lstat(self.path / name)
+
+    def unlink(self, name):
+        if self.fd is not None:
+            os.unlink(name, dir_fd=self.fd)
+        else:
+            os.unlink(self.path / name)
+
+    def link(self, source, name):
+        """Hard-link `source` as `name`; copy atomically where links are impossible."""
+        source = Path(source)
+        try:
+            if self.fd is not None:
+                os.link(source, name, dst_dir_fd=self.fd)
+            else:
+                os.link(source, self.path / name)
+            return "link"
+        except OSError as error:
+            if getattr(error, "errno", None) not in (1, 18, 95, 38, 22) and sys.platform != "win32":
+                raise  # EPERM/EXDEV/EOPNOTSUPP/ENOSYS/EINVAL fall back; anything else is real
+            data = source.read_bytes()
+            atomic(self.path / name, data)
+            if digest((self.path / name).read_bytes()) != digest(data):
+                raise ValueError("복사 발행 후 해시 불일치: " + name) from error
+            return "copy"
+
+    def fsync(self):
+        if self.fd is not None:
+            os.fsync(self.fd)
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+def _same_marker(a, b):
+    """True when two publication markers are the same file, or byte-identical
+    (copy fallback on filesystems without hard links)."""
+    a, b = Path(a), Path(b)
+    try:
+        if a.samefile(b):
+            return True
+    except OSError:
+        return False
+    try:
+        data = a.read_bytes()
+        return bool(data) and data == b.read_bytes() and b"token" in data
+    except OSError:
+        return False
 
 
 class Lock:
@@ -170,73 +295,73 @@ class Lock:
             self.path.mkdir()
         except FileExistsError:
             raise ValueError(
-                "쓰기 잠금 존재: 실행 중인 작성자를 확인 후 doctor로 복구 판단"
+                "쓰기 잠금 존재: 실행 중인 작성자를 확인 후 doctor/lock-info로 복구 판단 (잔류 잠금은 unlock)"
             )
-        stat = self.path.stat(follow_symlinks=False)
-        self.identity = (stat.st_dev, stat.st_ino)
         self.owner = {
             "pid": os.getpid(),
             "host": socket.gethostname(),
             "token": self.token,
+            "acquired_at": time.time(),
+            "python": sys.executable,
+            "argv0": sys.argv[0] if sys.argv else None,
         }
         directory = None
         owner_identity = None
         try:
-            directory = os.open(self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            stat = os.fstat(directory)
-            if (stat.st_dev, stat.st_ino) != self.identity:
+            stat = os.lstat(self.path)
+            self.identity = (stat.st_dev, stat.st_ino)
+            directory = _DirRef(self.path)
+            if directory.identity() != self.identity:
                 raise OSError("잠금 디렉터리 교체: 획득 중단")
-            owner_fd = os.open(
-                "owner.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600, dir_fd=directory,
-            )
-            with os.fdopen(owner_fd, "w") as owner_file:
+            owner_fd = directory.open("owner.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(owner_fd, "w", encoding="utf-8") as owner_file:
                 stat = os.fstat(owner_file.fileno())
                 owner_identity = (stat.st_dev, stat.st_ino)
                 owner_file.write(json.dumps(self.owner))
                 owner_file.flush()
                 os.fsync(owner_file.fileno())
-            stat = self.path.stat()
+            stat = os.lstat(self.path)
             if (stat.st_dev, stat.st_ino) != self.identity:
                 raise OSError("잠금 디렉터리 교체: 획득 중단")
-        except OSError:
+        except BaseException:
+            # Whatever went wrong (OSError, a missing platform API,
+            # KeyboardInterrupt...), the directory we just created must not
+            # survive as an orphan lock (audit C1/C4).
             try:
                 if directory is not None and owner_identity is not None:
-                    stat = os.stat("owner.json", dir_fd=directory, follow_symlinks=False)
+                    stat = directory.stat("owner.json")
                     if (stat.st_dev, stat.st_ino) == owner_identity:
-                        os.unlink("owner.json", dir_fd=directory)
-                stat = self.path.stat()
-                if (stat.st_dev, stat.st_ino) == self.identity:
+                        directory.unlink("owner.json")
+                if self.identity is None:
                     self.path.rmdir()
+                else:
+                    stat = os.lstat(self.path)
+                    if (stat.st_dev, stat.st_ino) == self.identity:
+                        self.path.rmdir()
             except OSError:
                 self.identity = None
             raise
         finally:
             if directory is not None:
-                os.close(directory)
+                directory.close()
         return self
 
     def __exit__(self, *args):
         directory = None
         try:
-            directory = os.open(
-                self.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-            )
-            stat = os.fstat(directory)
-            if (stat.st_dev, stat.st_ino) != self.identity:
+            directory = _DirRef(self.path)
+            if directory.identity() != self.identity:
                 raise ValueError(
                     "쓰기 잠금 디렉터리 교체: 자기 잠금이 아니므로 정리하지 않음: "
                     + str(self.path)
                 )
             owner_state = "missing"
             try:
-                owner_fd = os.open(
-                    "owner.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory
-                )
+                owner_fd = directory.open("owner.json", os.O_RDONLY)
             except FileNotFoundError:
                 owner_fd = None
             else:
-                with os.fdopen(owner_fd) as owner_file:
+                with os.fdopen(owner_fd, encoding="utf-8") as owner_file:
                     stat = os.fstat(owner_file.fileno())
                     owner_identity = (stat.st_dev, stat.st_ino)
                     data = owner_file.read()
@@ -252,11 +377,7 @@ class Lock:
                             if owner != self.owner:
                                 owner_state = "replacement_owner"
                             else:
-                                stat = os.stat(
-                                    "owner.json",
-                                    dir_fd=directory,
-                                    follow_symlinks=False,
-                                )
+                                stat = directory.stat("owner.json")
                                 owner_state = (
                                     "ours"
                                     if (stat.st_dev, stat.st_ino) == owner_identity
@@ -267,13 +388,11 @@ class Lock:
                 # contents, so re-read the record after json.loads and
                 # before deletion. inode alone cannot catch this.
                 try:
-                    recheck_fd = os.open(
-                        "owner.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory
-                    )
+                    recheck_fd = directory.open("owner.json", os.O_RDONLY)
                 except FileNotFoundError:
                     owner_state = "missing"
                 else:
-                    with os.fdopen(recheck_fd) as recheck_file:
+                    with os.fdopen(recheck_fd, encoding="utf-8") as recheck_file:
                         stat = os.fstat(recheck_file.fileno())
                         if (stat.st_dev, stat.st_ino) != owner_identity:
                             owner_state = "replacement_owner"
@@ -295,15 +414,16 @@ class Lock:
             # Never unlink twice (FileNotFoundError must not leak from a
             # redundant second unlink).
             try:
-                os.unlink("owner.json", dir_fd=directory)
+                directory.unlink("owner.json")
             except FileNotFoundError:
                 pass
-            stat = self.path.stat()
+            directory.close()
+            stat = os.lstat(self.path)
             if (stat.st_dev, stat.st_ino) != self.identity:
                 return
             released = self.path.with_name(".gg-tmp-lock-" + self.token)
             self.path.rename(released)
-            stat = released.stat()
+            stat = os.lstat(released)
             if (stat.st_dev, stat.st_ino) != self.identity:
                 if not self.path.exists():
                     try:
@@ -314,7 +434,7 @@ class Lock:
             released.rmdir()
         finally:
             if directory is not None:
-                os.close(directory)
+                directory.close()
 
 
 def validate(p):
@@ -328,11 +448,13 @@ def validate(p):
             raise ValueError("잘못된 컬렉션: " + c)
         for key, v in p[c].items():
             if (
-                not isinstance(v, dict)
+                not isinstance(key, str)
+                or not key
+                or not isinstance(v, dict)
                 or v.get("id") != key
                 or type(v.get("revision")) is not int
             ):
-                raise ValueError("ID/개정번호 오류: " + key)
+                raise ValueError("ID/개정번호 오류: " + str(key))
     for q in p["questions"].values():
         if (
             q.get("field_id") != q["id"]
@@ -403,6 +525,10 @@ def validate(p):
                 raise ValueError("원자료/위치 누락")
         if f["kind"] == "derived" and (not f.get("formula") or not f.get("input_refs")):
             raise ValueError("계산식/입력 필요")
+    if p.get("parent_hash") is not None:
+        hist = p.get("history") or []
+        if not hist or hist[-1].get("hash") != p["parent_hash"]:
+            raise ValueError("정본 계보 불일치: parent_hash가 history와 맞지 않음")
     visiting, visited = set(), set()
 
     def visit(key):
@@ -643,13 +769,16 @@ def apply(root, change, expected_revision):
                         "작업 실행 대상 범위 밖 변경: "
                         + str(op.get("collection") if isinstance(op, dict) else op)
                     )
+        p.setdefault("project_id", uuid.uuid4().hex)
         old = copy.deepcopy(p)
         meta_linked = set()
         for op in change.get("ops", []):
             col, value = op["collection"], copy.deepcopy(op["value"])
             if col not in COLLECTIONS:
                 raise ValueError("허용되지 않은 변경 컬렉션")
-            key = value["id"]
+            key = value.get("id")
+            if not isinstance(key, str) or not key:
+                raise ValueError("ID는 비어 있지 않은 문자열이어야 함: " + repr(key))
             prev = p[col].get(key)
             value["revision"] = prev["revision"] + 1 if prev else 1
             if (
@@ -676,7 +805,7 @@ def apply(root, change, expected_revision):
                 raise ValueError("동일 결정의 질문 횟수를 초기화할 수 없음")
             if col == "sections":
                 value["draft_hash"] = digest(
-                    draft(local(root, value["path"]).read_text())
+                    draft(local(root, value["path"]).read_text(encoding="utf-8"))
                 )
             if col == "sources":
                 value["hash"] = digest(local(root, value["path"]).read_bytes())
@@ -726,6 +855,10 @@ def apply(root, change, expected_revision):
                     raise ValueError("검토 입력 버전 불일치")
                 value["report_hash"] = digest(local(root, value["path"]).read_bytes())
             p[col][key] = value
+        p["parent_hash"] = digest(old)
+        p["history"].append(
+            {"revision": old["revision"], "hash": p["parent_hash"], "request_id": request}
+        )
         validate(p)
         p["revision"] += 1
         for col in ("reviews", "approvals", "outputs"):
@@ -738,9 +871,6 @@ def apply(root, change, expected_revision):
                     v["stale"] = True
         if meta_linked:
             _meta_only_links_final_check(root, p, meta_linked)
-        p["history"].append(
-            {"revision": old["revision"], "hash": digest(old), "request_id": request}
-        )
         p["requests"][request] = {"hash": chash, "revision": p["revision"]}
         atomic(
             local(root, "migration/revision-%s.json" % old["revision"]),
@@ -755,7 +885,7 @@ def apply(root, change, expected_revision):
 def question(p, field_id):
     facts = [f for f in p["facts"].values() if f["field_id"] == field_id]
     if any(
-        f["answer_state"] in {"provided", "explicit_none", "not_applicable", "withheld", "unknown"}
+        f["answer_state"] in {"provided", "explicit_none", "not_applicable", "withheld"}
         for f in facts
     ):
         return "reuse"
@@ -857,7 +987,7 @@ VISUAL_FAIL = {
 
 def visual_review_blocks(path):
     try:
-        data = json.loads(Path(path).read_text())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return set()
     if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
@@ -1081,13 +1211,16 @@ def _finance_check_items(p):
     ``sources[].claims`` are source claims, not body claims, and are never
     consulted here.  Returns (items, blocked_reason).
     """
-    def eligible(fid):
+    def provided(fid):
         f = p["facts"][fid]
-        return (
-            f.get("answer_state") == "provided"
-            and f.get("unit") == "천원"
-            and f.get("value") is not None
-        )
+        return f.get("answer_state") == "provided" and f.get("value") is not None
+
+    def eligible(fid):
+        return provided(fid) and p["facts"][fid].get("unit") == "천원"
+
+    def unsupported_money(fid):
+        unit = p["facts"][fid].get("unit")
+        return provided(fid) and isinstance(unit, str) and "원" in unit and unit != "천원"
 
     def item(fid):
         f = p["facts"][fid]
@@ -1107,6 +1240,8 @@ def _finance_check_items(p):
     eligible_ids = [fid for fid in p["facts"] if eligible(fid)]
     if not complete:
         return [item(fid) for fid in eligible_ids], None
+    if not p["facts"]:
+        return [], None
     claimed = list(
         dict.fromkeys(
             c["fact_id"]
@@ -1120,6 +1255,22 @@ def _finance_check_items(p):
             return [], "모든 절의 본문 주장(claims)이 빈 목록: 재무 본문 대조 불가"
         return [], None
     return [item(fid) for fid in claimed if eligible(fid)], None
+
+
+def _finance_unsupported_units(p):
+    """Provided money facts (unit contains 원) that the 천원-only crosscheck cannot read."""
+    out = []
+    for fid, f in p.get("facts", {}).items():
+        unit = f.get("unit")
+        if (
+            f.get("answer_state") == "provided"
+            and f.get("value") is not None
+            and isinstance(unit, str)
+            and "원" in unit
+            and unit != "천원"
+        ):
+            out.append((fid, unit))
+    return out
 
 
 def checks(root, p):
@@ -1149,7 +1300,18 @@ def checks(root, p):
                 continue
             if ref.get("revision") != s["revision"]:
                 add("source_revision", fid, "근거 개정 불일치")
-            claim = s.get("claims", {}).get(ref.get("claim_id"))
+            claims = s.get("claims")
+            if claims is None:
+                claims = {}
+            if not isinstance(claims, dict):
+                add(
+                    "source_claims_invalid",
+                    ref["id"],
+                    "원자료 claims는 객체여야 함",
+                    status="blocked",
+                )
+                continue
+            claim = claims.get(ref.get("claim_id"))
             if f["kind"] != "derived" and f["answer_state"] == "provided":
                 if claim is None:
                     add(
@@ -1227,7 +1389,7 @@ def checks(root, p):
                 add("calculation", fid, str(e))
     for sid, s in p["sections"].items():
         try:
-            raw = local(root, s["path"]).read_text()
+            raw = local(root, s["path"]).read_text(encoding="utf-8")
             text = draft(raw)
             extra = draft_marker_extra(raw)
             if extra:
@@ -1307,7 +1469,7 @@ def checks(root, p):
                     body = draft(
                         local(
                             root, p["sections"][location["section_id"]]["path"]
-                        ).read_text()
+                        ).read_text(encoding="utf-8")
                     )
                     if not location.get("quote") or location["quote"] not in body:
                         raise ValueError("적용 근거 본문 인용 없음")
@@ -1407,6 +1569,13 @@ def checks(root, p):
         for cid, reason in inspect_outputs(root, p, lineage):
             add(cid, "xlsx", reason)
         body = merged(root, p)
+        for fid, unit in _finance_unsupported_units(p):
+            add(
+                "body_finance_crosscheck",
+                fid,
+                "미지원 단위(%s): 자동 대조는 천원만 지원, 본문 수치를 수동 확인해야 함" % unit,
+                status="blocked",
+            )
         items, claims_block = _finance_check_items(p)
         if claims_block:
             add("body_finance_crosscheck", "body", claims_block, status="blocked")
@@ -1419,9 +1588,15 @@ def checks(root, p):
                     item.get("fact_id") or item["location"],
                     item["reason"],
                 )
-    except (OSError, ValueError, KeyError) as e:
+    except (OSError, ValueError, KeyError, ImportError) as e:
         add("document_parse", "body", str(e), status="blocked")
-    for name, v in p.get("views", {}).items():
+    views = p.get("views")
+    if views is None:
+        views = {}
+    if not isinstance(views, dict):
+        add("view_invalid", "views", "views는 객체여야 함", status="blocked")
+        views = {}
+    for name, v in views.items():
         try:
             if digest(local(root, name).read_bytes()) != v["hash"]:
                 add(
@@ -1859,7 +2034,7 @@ def completion(root, p, report=None):
 def merged(root, p):
     parts = []
     for s in sorted(p["sections"].values(), key=lambda x: x["order"]):
-        body = draft(local(root, s["path"]).read_text())
+        body = draft(local(root, s["path"]).read_text(encoding="utf-8"))
         title = s["title"]
         parts.append(
             body
@@ -1875,27 +2050,30 @@ def export(root, kind):
 
 
 def publish_export(staging, folder, manifest):
-    directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    directory = _DirRef(folder)
     try:
-        owner = os.stat(".publication.json", dir_fd=directory, follow_symlinks=False)
-        prepared_owner = (staging / ".publication.json").stat()
-        if (owner.st_dev, owner.st_ino) != (prepared_owner.st_dev, prepared_owner.st_ino):
+        directory.stat(".publication.json")
+        if not _same_marker(folder / ".publication.json", staging / ".publication.json"):
             raise ValueError("발행 목적지 소유권 변경")
         for name in [*manifest["files"], "manifest.json"]:
             source = local(staging, name)
             destination = local(folder, name)
             if destination.exists():
-                if not source.samefile(destination):
+                same = False
+                try:
+                    same = source.samefile(destination)
+                except OSError:
+                    same = False
+                if not same and digest(source.read_bytes()) != digest(destination.read_bytes()):
                     raise ValueError("부분 산출물 소유권/파일 변경: 복구 중단")
                 continue
-            os.link(source, name, dst_dir_fd=directory)
-        os.fsync(directory)
-        current = folder.stat()
-        opened = os.fstat(directory)
-        if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            directory.link(source, name)
+        directory.fsync()
+        current = os.lstat(folder)
+        if (current.st_dev, current.st_ino) != directory.identity():
             raise ValueError("발행 중 목적지 교체: 성공으로 등록하지 않음")
     finally:
-        os.close(directory)
+        directory.close()
 
 
 def export_locked(root, kind):
@@ -1920,7 +2098,7 @@ def export_locked(root, kind):
     owner_path = folder / ".publication.json"
     if owner_path.is_file():
         try:
-            owner = json.loads(owner_path.read_text())
+            owner = json.loads(owner_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             owner = None
         refs = _export_refs(p)
@@ -1939,7 +2117,7 @@ def export_locked(root, kind):
         stage_marker_ok = False
         if staging is not None and staging.name.startswith(".gg-export-"):
             try:
-                stage_marker_ok = owner_path.samefile(stage_marker)
+                stage_marker_ok = _same_marker(owner_path, stage_marker)
             except OSError:
                 # Marker vanished between the check and the compare: not ours.
                 stage_marker_ok = False
@@ -1980,7 +2158,7 @@ def export_locked(root, kind):
             and owner.get("input_fingerprint") == current_fingerprint
             and export_complete(staging, kind, p["revision"])
         ):
-            manifest = json.loads((staging / "manifest.json").read_text())
+            manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
             publish_export(staging, folder, manifest)
             shutil.rmtree(staging)
             return str(folder / (label + ".md"))
@@ -2064,7 +2242,11 @@ def export_locked(root, kind):
         # Reserve exclusively; even an empty late-arriving destination is preserved.
         folder.mkdir()
         reserved = True
-        os.link(staging / ".publication.json", folder / ".publication.json")
+        reserved_dir = _DirRef(folder)
+        try:
+            reserved_dir.link(staging / ".publication.json", ".publication.json")
+        finally:
+            reserved_dir.close()
         publish_export(staging, folder, manifest)
         reserved = False
         return str(folder / (label + ".md"))
@@ -2087,7 +2269,7 @@ def export_complete(folder, kind, revision):
     if not manifest.is_file():
         return False
     try:
-        data = json.loads(manifest.read_text())
+        data = json.loads(manifest.read_text(encoding="utf-8"))
         files = data["files"]
     except (OSError, ValueError, KeyError, TypeError):
         return False
@@ -2297,7 +2479,7 @@ def migrate_staged(dest, inventory):
         sorted((dest / "sections").glob("*.md"), key=lambda p: section_order(p.name))
     ):
         path = local(dest, path.relative_to(dest))
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         blocks = re.findall(
             r"^##\s+(INPUT|RESEARCH|FACTS|DRAFT|OPEN|STATUS)\b", text, re.M
         )
@@ -2427,3 +2609,260 @@ def section_order(name):
         if match
         else (99, 0, name)
     )
+
+
+# ---------------------------------------------------------------------------
+# Lock inspection / recovery, lineage history, snapshot restore, doctor.
+# Added for the audit fixes (C4, H10) and the companion GUI.
+
+
+def _pid_alive(pid):
+    """True/False when it can be decided on this host, None when unknown."""
+    if type(pid) is not int or pid <= 0:
+        return None
+    if sys.platform == "win32":
+        import ctypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            err = ctypes.get_last_error()
+            if err == 87:  # ERROR_INVALID_PARAMETER: no such process
+                return False
+            return True  # access denied etc.: assume alive (conservative)
+        try:
+            code = ctypes.c_ulong()
+            if k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return code.value == 259  # STILL_ACTIVE
+            return True
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)  # POSIX: signal 0 only probes
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
+
+
+def lock_info(root):
+    """Read-only description of <root>/.gg-lock. Never takes or alters the lock."""
+    root = Path(root)
+    lock = root / ".gg-lock"
+    info = {
+        "path": str(lock),
+        "present": False,
+        "owner": None,
+        "owner_state": "missing",
+        "host": socket.gethostname(),
+        "host_matches": None,
+        "pid_alive": None,
+        "acquired_at": None,
+        "age_seconds": None,
+        "verdict": "none",
+        "notice": "해제는 같은 기기에서 소유 프로세스가 종료된 경우에만 가능(자동 탈취 없음)",
+    }
+    try:
+        lock.lstat()
+    except FileNotFoundError:
+        return info
+    except OSError as error:
+        info.update(present=True, owner_state="unreadable: " + str(error), verdict="ambiguous")
+        return info
+    info["present"] = True
+    if lock.is_symlink() or not lock.is_dir():
+        info.update(owner_state="not_a_directory", verdict="ambiguous")
+        return info
+    try:
+        raw = (lock / "owner.json").read_bytes()
+    except FileNotFoundError:
+        info.update(owner_state="missing", verdict="ambiguous")
+        return info
+    except OSError as error:
+        info.update(owner_state="unreadable: " + str(error), verdict="ambiguous")
+        return info
+    try:
+        owner = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        owner = None
+    if not isinstance(owner, dict):
+        info.update(owner_state="corrupt", verdict="ambiguous")
+        return info
+    info["owner"] = owner
+    info["owner_state"] = "ok"
+    acquired = owner.get("acquired_at")
+    if isinstance(acquired, (int, float)):
+        info["acquired_at"] = acquired
+        info["age_seconds"] = max(0, int(time.time() - acquired))
+    info["host_matches"] = owner.get("host") == info["host"]
+    if not info["host_matches"]:
+        info["verdict"] = "foreign_host"
+        return info
+    alive = _pid_alive(owner.get("pid"))
+    info["pid_alive"] = alive
+    if alive is None:
+        info["verdict"] = "ambiguous"
+    elif alive:
+        info["verdict"] = "live"
+    else:
+        info["verdict"] = "stale_releasable"
+    return info
+
+
+def unlock(root):
+    """Release a stale lock: same host, owner process gone. Refuses everything else."""
+    root = Path(root)
+    lock = root / ".gg-lock"
+    info = lock_info(root)
+    if not info["present"]:
+        raise ValueError("잠금 없음: 해제할 것이 없음")
+    verdict = info["verdict"]
+    if verdict == "live":
+        raise ValueError(
+            "잠금 해제 거부: 소유 프로세스(pid %s)가 아직 실행 중" % info["owner"].get("pid")
+        )
+    if verdict == "foreign_host":
+        raise ValueError(
+            "잠금 해제 거부: 다른 기기(%s)의 잠금은 그 기기에서 확인해야 함"
+            % info["owner"].get("host")
+        )
+    if verdict != "stale_releasable":
+        raise ValueError("잠금 해제 거부: 소유 기록이 불명확하여 보존함 (%s)" % info["owner_state"])
+    owner_path = lock / "owner.json"
+    again = json.loads(owner_path.read_bytes().decode("utf-8"))
+    if again != info["owner"]:
+        raise ValueError("잠금 소유 기록이 방금 바뀜: 해제 중단")
+    owner_path.unlink()
+    released = lock.with_name(".gg-tmp-lock-unlock-" + uuid.uuid4().hex)
+    lock.rename(released)
+    try:
+        released.rmdir()
+    except OSError:
+        return {
+            "released": True,
+            "owner": info["owner"],
+            "leftover": str(released),
+            "notice": "잠금 디렉터리에 다른 파일이 남아 있어 이름만 바꿔 보존함",
+        }
+    return {"released": True, "owner": info["owner"], "leftover": None}
+
+
+def history(root):
+    """Lineage of project.json with snapshot availability. Read-only."""
+    root = Path(root)
+    p = load(root)
+    out = []
+    for h in p.get("history", []):
+        rel = "migration/revision-%s.json" % h.get("revision")
+        entry = dict(h, snapshot_path=rel, snapshot_ok=False)
+        try:
+            snap = json.loads(local(root, rel).read_text(encoding="utf-8"))
+            entry["snapshot_ok"] = digest(snap) == h.get("hash")
+        except (OSError, ValueError):
+            pass
+        out.append(entry)
+    out.append(
+        {
+            "revision": p["revision"],
+            "hash": digest(p),
+            "request_id": None,
+            "current": True,
+            "snapshot_path": None,
+            "snapshot_ok": None,
+        }
+    )
+    return out
+
+
+def restore(root, revision, expected_revision):
+    """Bring project.json back to an earlier snapshot as a NEW revision.
+
+    Section files, sources and build/ are untouched; only the ledger moves.
+    The current state is snapshotted first so the operation itself is
+    reversible through another restore.
+    """
+    root = Path(root)
+    if type(revision) is not int or revision < 0:
+        raise ValueError("복원할 개정 번호 필요")
+    with Lock(root):
+        p = load(root)
+        if p["revision"] != expected_revision:
+            raise ValueError("개정 충돌: 최신 정본을 다시 읽어야 함")
+        if revision >= p["revision"]:
+            raise ValueError("현재보다 앞선 개정만 복원할 수 있음")
+        entry = next((h for h in p.get("history", []) if h.get("revision") == revision), None)
+        if entry is None:
+            raise ValueError("history에 없는 개정: %s" % revision)
+        rel = "migration/revision-%s.json" % revision
+        try:
+            snap = json.loads(local(root, rel).read_text(encoding="utf-8"))
+        except OSError as error:
+            raise ValueError("스냅샷 읽기 실패: " + rel) from error
+        if digest(snap) != entry.get("hash"):
+            raise ValueError("스냅샷 해시 불일치: 복원 거부 (" + rel + ")")
+        validate(snap)
+        if snap.get("project_id") not in (None, p.get("project_id")):
+            raise ValueError("다른 프로젝트의 스냅샷: 복원 거부")
+        request = "restore:%s->%s" % (expected_revision, revision)
+        if request in p["requests"]:
+            raise ValueError("같은 복원을 이미 수행함")
+        current_rel = local(root, "migration/revision-%s.json" % p["revision"])
+        if current_rel.exists():
+            existing = json.loads(current_rel.read_text(encoding="utf-8"))
+            if digest(existing) != digest(p):
+                raise ValueError("현재 개정 스냅샷이 이미 있고 내용이 다름: 복원 중단")
+        atomic(current_rel, json.dumps(p, ensure_ascii=False, indent=2).encode())
+        new = copy.deepcopy(snap)
+        new["project_id"] = p.get("project_id") or snap.get("project_id")
+        new["parent_hash"] = digest(p)
+        new["history"] = list(p.get("history", [])) + [
+            {"revision": p["revision"], "hash": new["parent_hash"], "request_id": request}
+        ]
+        new["requests"] = dict(p.get("requests", {}))
+        new["revision"] = p["revision"] + 1
+        new["requests"][request] = {"hash": digest({"restore": revision}), "revision": new["revision"]}
+        for col in ("reviews", "approvals", "outputs"):
+            for v in new[col].values():
+                try:
+                    v["stale"] = v.get("input_fingerprint") != fingerprint(
+                        root, new, v["target_refs"]
+                    )
+                except (KeyError, OSError, ValueError, TypeError):
+                    v["stale"] = True
+        validate(new)
+        atomic(root / "project.json", json.dumps(new, ensure_ascii=False, indent=2).encode())
+        return {
+            "revision": new["revision"],
+            "restored_from": revision,
+            "pre_restore_snapshot": "migration/revision-%s.json" % p["revision"],
+            "notice": "project.json만 되돌림. 절 파일·원문·build/는 그대로이며 해시 불일치는 check에서 드러남",
+        }
+
+
+def doctor(root):
+    """Installation/lock/orphan detection. Detection is not execution proof."""
+    import importlib.util
+
+    root = Path(root)
+    return {
+        "python": sys.version,
+        "dependencies": {
+            m: bool(importlib.util.find_spec(m)) for m in ("docx", "openpyxl", "pypdf")
+        },
+        "recalculation": "not_run",
+        "render": "not_run",
+        "hwp": "unsupported",
+        "web": "not_run",
+        "model_calls": "disabled",
+        "lock_present": (root / ".gg-lock").exists(),
+        "lock": lock_info(root),
+        "orphan_files": [
+            str(p)
+            for pattern in (".gg-tmp-*", ".gg-export-*", ".gg-import-*")
+            for p in root.rglob(pattern)
+        ],
+        "notice": "설치 탐지는 실행 검증이 아님. 채팅만 가능하면 초안과 원답변 인계, 제출 후보 불가.",
+    }

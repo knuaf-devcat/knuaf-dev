@@ -5,9 +5,10 @@ silently inferred. Unsupported plans are preserved and explicitly refused.
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import copy
+import io
 import json
 from pathlib import Path
-from gg_core import digest
+from gg_core import atomic, digest
 
 D = Decimal
 FIELDS = (
@@ -751,16 +752,24 @@ def workbook(spec, path):
     # 정확값 (column C) keeps the full Decimal string on one line (28 digits).
     inv.column_dimensions["C"].width = 34
     path = Path(path)
+    manifest_path = path.with_suffix(".manifest.json")
     if path.exists():
         raise ValueError("기존 XLSX 덮어쓰기 금지")
+    if manifest_path.exists():
+        raise ValueError("기존 산출물을 덮어쓰지 않음: " + manifest_path.name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
-    path.with_suffix(".manifest.json").write_text(
+    # .gg-tmp- 스테이징 파일에 쓴 뒤 os.replace: 중단돼도 반쪽짜리 XLSX가 남지 않는다.
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+    atomic(path, xlsx_bytes)
+    atomic(
+        manifest_path,
         json.dumps(
-            dict(result, file_hash=digest(path.read_bytes())),
+            dict(result, file_hash=digest(xlsx_bytes)),
             ensure_ascii=False,
             indent=2,
-        )
+        ).encode("utf-8"),
     )
     return result
 

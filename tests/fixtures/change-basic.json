@@ -1,0 +1,19 @@
+{
+  "request_id": "fixture:basic:1",
+  "ops": [
+    {"collection": "sources", "value": {"id": "src-answers", "path": "sources/answers.md", "kind": "interview", "claims": {}}},
+    {"collection": "sections", "value": {"id": "sec-01", "title": "Ⅰ. 머리말", "order": 1, "path": "sections/01.md", "status": "drafting"}},
+    {"collection": "facts", "value": {
+      "id": "fact-area", "field_id": "farm.area", "kind": "reported_fact",
+      "value": "600", "unit": "평", "value_type": "decimal", "period": "2026", "scope": "농장A",
+      "answer_state": "provided", "verification": "unreviewed",
+      "source_refs": [{"id": "src-answers", "revision": 1, "locator": "L3"}]
+    }},
+    {"collection": "facts", "value": {
+      "id": "fact-price", "field_id": "price.kg", "kind": "reported_fact",
+      "value": null, "unit": null, "value_type": "decimal", "period": null, "scope": null,
+      "answer_state": "unknown", "verification": "unreviewed",
+      "source_refs": [{"id": "src-answers", "revision": 1, "locator": "L5"}]
+    }}
+  ]
+}

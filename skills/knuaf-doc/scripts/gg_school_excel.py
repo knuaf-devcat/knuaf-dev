@@ -1927,6 +1927,17 @@ def crosscheck_body_workbook(text, path, scope):
     return issues
 
 
+def _legacy_school_layout(names):
+    """True only for workbooks that are (or clearly derive from) the legacy
+    generated 17-sheet layout: exact sheet list, or 17 sheets with a majority
+    of the school names. A single shared sheet name is not evidence."""
+    names = list(names)
+    if names == list(SCHOOL_SHEETS):
+        return True
+    overlap = len(set(names) & set(SCHOOL_SHEETS))
+    return len(names) == len(SCHOOL_SHEETS) and overlap * 2 > len(SCHOOL_SHEETS)
+
+
 def inspect_outputs(root, p, lineage=None):
     """Inspect current XLSX outputs.
 
@@ -2082,10 +2093,18 @@ def inspect_outputs(root, p, lineage=None):
         try:
             path = local(root, output["path"])
             names = load_workbook(path, read_only=True).sheetnames
-            if len(names) != 17 and not (set(names) & set(SCHOOL_SHEETS)):
+            if not _legacy_school_layout(names):
                 continue
             for item in inspect_school_workbook(path):
                 issues.append(("school_excel_17", item["reason"]))
-        except (OSError, ValueError, KeyError, TypeError) as e:
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            UnicodeError,
+            zipfile.BadZipFile,
+            json.JSONDecodeError,
+        ) as e:
             issues.append(("school_excel_17", str(e)))
     return issues

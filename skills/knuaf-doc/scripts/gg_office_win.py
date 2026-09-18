@@ -26,6 +26,9 @@ doctor" and one real word/excel run on a Windows machine before relying on
 this path for a live submission.
 """
 
+from __future__ import annotations
+
+import json
 import sys
 
 
@@ -122,6 +125,18 @@ def run_excel(input_path: str, pdf_path: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.version_info < (3, 10):
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": "Python 3.10 이상이 필요함 (현재 %d.%d). gg_deps.py python <폴더> 가 가리키는 인터프리터로 실행"
+                    % sys.version_info[:2],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     argv = argv if argv is not None else sys.argv[1:]
     if sys.platform != "win32":
         _fail("gg_office_win.py는 Windows 전용입니다.", code=2)

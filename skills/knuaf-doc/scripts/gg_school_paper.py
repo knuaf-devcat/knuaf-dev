@@ -639,12 +639,12 @@ def main():
         if out.exists():
             raise ValueError("기존 산출물을 덮어쓰지 않음: 새 경로 지정")
         out.parent.mkdir(parents=True, exist_ok=True)
-        spec = json.loads(src.read_text())
+        spec = json.loads(src.read_text(encoding="utf-8"))
         if not isinstance(spec, dict):
             raise ValueError("논문 입력은 객체여야 함")
         spec.setdefault("school_profile", {"mode": "school", "layout": "forms_1_to_4"})
         text = paper(spec)
-        out.write_text(text)
+        out.write_text(text, encoding="utf-8")
         print(str(out))
         return 0
     except (ValueError, OSError, KeyError, TypeError) as e:

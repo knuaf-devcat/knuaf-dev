@@ -20,18 +20,18 @@
 
 ## 저장
 
-`gg.py apply <폴더> --change <변경.json> --expected-revision N`으로 저장한다. 변경 객체는 request_id와 ops 배열을 가지며 각 op는 collection/value다. 동일 요청의 동일 내용은 한 번만 반영하고 충돌 요청·낡은 개정·기존 잠금은 거부한다. 이전 정본은 migration/revision-N.json에 남고 정본은 임시파일 fsync 후 원자적으로 교체한다.
+`gg.py apply <폴더> --change <변경.json> --expected-revision N`으로 저장한다. 변경 객체는 request_id와 ops 배열을 가지며 각 op는 collection/value다. 동일 요청의 동일 내용은 한 번만 반영하고 충돌 요청·낡은 개정·기존 잠금은 거부한다. 이전 정본은 migration/revision-N.json에 남고 정본은 임시파일 fsync 후 원자적으로 교체한다. 정본에는 `project_id`(init 시 생성)와 `parent_hash`(직전 정본 해시)가 기록되어 갈라진 사본을 구분한다. `gg.py history <폴더>`는 스냅샷 목록과 해시 일치 여부를 보여주고, `gg.py restore <폴더> --revision N --expected-revision M`은 스냅샷을 새 개정으로 되돌린다(현재 상태를 먼저 스냅샷으로 저장하며 절 파일·원문·build/는 건드리지 않는다).
 
 현재 코어는 외부 편집 파일의 해시를 감지한다. 원문·DRAFT 파일 자체의 편집은 정본 트랜잭션과 별도이므로 단일 파일쓰기 주체를 유지하고 버전 파일을 먼저 저장해 등록한다. 불완전한 작업은 자동 승인하지 않는다.
 
-잠금이 남으면 doctor와 실행 프로세스를 확인한다. 살아 있는 작성자의 잠금을 삭제하지 않는다. 임시파일·이전 개정·현재 정본을 대조하고 사용자의 원문을 보존한 뒤 복구한다. 자동 잠금 탈취는 하지 않는다.
+잠금이 남으면 `gg.py doctor`(또는 `lock-info`)로 소유 기록을 확인한다. 소유 기록에는 pid·host·token·획득 시각이 있다. 살아 있는 작성자의 잠금을 삭제하지 않는다. `gg.py unlock <폴더>`는 같은 기기이고 소유 프로세스가 종료된 경우(`verdict: stale_releasable`)에만 해제하며, 다른 기기의 잠금·실행 중인 잠금·소유 기록이 없거나 손상된 잠금은 보존하고 거부한다. 임시파일·이전 개정·현재 정본을 대조하고 사용자의 원문을 보존한 뒤 복구한다. 자동 잠금 탈취는 하지 않는다.
 
 S6 후보의 잠금은 PID뿐 아니라 호스트·획득별 토큰과 디렉터리 식별자를
 대조한다. 교체되거나 소유 기록이 불명확한 잠금은 보존한다. 소유 기록
 작성은 기존 원자적 쓰기를 사용하며 실패 시 자기 임시파일과 빈 잠금
-디렉터리를 정리한다. 소유 파일 해제는 획득한 디렉터리 핸들에 묶는다.
+디렉터리를 정리한다. 소유 파일 해제는 획득한 디렉터리 핸들에 묶는다(POSIX). Windows에는 디렉터리 핸들 기반 API(`dir_fd`)가 없어 경로 기반으로 동작하며, 심볼릭 링크·정션을 거부하고 각 단계 전후로 디렉터리 식별자를 다시 비교하는 약한 보장으로 대체한다. 하드링크를 지원하지 않는 볼륨(exFAT·일부 네트워크 드라이브)에서는 발행 파일을 원자적 복사로 대신하고 해시를 재검증한다.
 강제종료 후 남은
-잠금은 자동 해제하지 않는다. 이 기록은 악의적인 동등 권한 사용자의
+잠금은 자동 해제하지 않는다(사용자가 `unlock`을 명시적으로 실행해야 한다). 이 기록은 악의적인 동등 권한 사용자의
 파일 위조를 막는 인증 수단이 아니다.
 
 외부 작업 결과의 변경 객체에는 `result_of`를 기록한다. `task_id`는
@@ -69,7 +69,7 @@ S6 후보의 잠금은 PID뿐 아니라 호스트·획득별 토큰과 디렉터
 
 rules의 output_formats에는 최종 제출 formats와 source_refs를 기록한다. outputs에는 id, format, path, file_hash, target_refs, input_fingerprint, checks를 기록한다. 출력 target_refs는 모든 절과 사실을 포함해야 하며 fingerprint는 공통 코어로 계산한다. 각 check에는 check_id, status, file_hash, input_fingerprint, evidence_path, evidence_hash가 필요하다. 실제 검사 보고서를 보존한 뒤 등록하며 임의의 pass 문자열로 실행을 대신하지 않는다.
 
-DOCX 필수 검사는 structure/font/render, XLSX는 structure/recalculation/crosscheck/render, HWP는 reopen/render/crosscheck다. HWP 필수검사는 사용자 소유(`user_finish`)로 표시하고 스킬 제출 후보 차단에서 분리한다. 글꼴·HWP 도구 부재를 N/A로 바꾸지 않는다. 제출 후보는 검증된 출력 파일을 복사하고 manifest에 해시를 남긴다. 독립 검토 기록이나 출력검사 기록 등록만으로 증거의 진실성을 자동 판정하는 것은 아니므로 원문·전체 페이지에 대한 실제 내용검토가 별도로 필요하다.
+제출 후보 게이트는 독립검토 6종(`content`, `logic`, `calculation`, `docx`, `xlsx`, `render`) 각각에 대해 유효한 검토 기록(다른 검토자, 현재 지문, 해결된 findings)을 요구한다. `logic`은 논증·인과·일관성 검토, `calculation`은 계산 입력·결과 검토, `docx`·`xlsx`·`render`는 각 출력물의 실제 파일·렌더 검토다. DOCX 필수 검사는 structure/font/render, XLSX는 structure/recalculation/crosscheck/render, HWP는 reopen/render/crosscheck다. HWP 필수검사는 사용자 소유(`user_finish`)로 표시하고 스킬 제출 후보 차단에서 분리한다. 글꼴·HWP 도구 부재를 N/A로 바꾸지 않는다. 제출 후보는 검증된 출력 파일을 복사하고 manifest에 해시를 남긴다. 독립 검토 기록이나 출력검사 기록 등록만으로 증거의 진실성을 자동 판정하는 것은 아니므로 원문·전체 페이지에 대한 실제 내용검토가 별도로 필요하다.
 
 전체 지침 목록과 항목별 적용·독립검토 연결은 [guideline-tracking.md](guideline-tracking.md)를 따른다. `output_formats`만 등록된 상태는 전체 학교 지침 적용의 증거가 아니다.
 
@@ -80,7 +80,7 @@ DOCX 필수 검사는 structure/font/render, XLSX는 structure/recalculation/cro
 `review_kinds` 목록을 포함한다. 내용 검토만 관측했다면 계산·렌더
 검토로 재사용할 수 없다. 기록이 없거나 맞지 않으면 독립 검토 미확인으로
 차단한다. 합성 관측 기록은 인터페이스 시험일 뿐 실제 독립 검토의 증거가
-아니다. 같은 OS 쓰기권한을 가진 사용자의 위조를 막는 인증 경계는 아니다.
+아니다. 현재 배포본에는 관측 기록을 자동으로 만드는 실행 어댑터가 포함되지 않으며, `gg.py observe`는 검토자가 작성한 기록을 등록하는 입구다. 같은 OS 쓰기권한을 가진 사용자의 위조를 막는 인증 경계는 아니다.
 
 ## 교수 승인 기록과 발행 충돌
 
