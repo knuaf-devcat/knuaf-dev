@@ -1,0 +1,39 @@
+appId: kr.ac.knuaf.doc.companion
+# productName must stay ASCII: Electron's helper bundles are named after it and a
+# non-ASCII helper name ("… 동반 앱 Helper.app") crashes the app at startup (SIGTRAP).
+# The Korean name students see comes from CFBundleDisplayName below.
+productName: knuaf-doc Companion
+executableName: knuaf-doc-companion
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: sidecar
+    to: sidecar
+    filter: ["**/*.py"]
+  - from: resources/skill
+    to: skill
+  - from: resources/python
+    to: python
+  - from: resources/wheelhouse
+    to: wheelhouse
+asarUnpack:
+  - "**/*.node"
+mac:
+  category: public.app-category.productivity
+  extendInfo:
+    CFBundleDisplayName: knuaf-doc 동반 앱
+  target: [dmg, zip]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  binaries:
+    - resources/python/bin/python3
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

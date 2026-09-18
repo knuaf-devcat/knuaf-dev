@@ -43,6 +43,22 @@ Windows에서 네이티브 Office 자동화를 쓰려면 `pywin32`가 추가로 
 
 Windows 지원이 열리면 실제로 써보고 문제를 발견하시면 이슈나 PR로 알려주세요.
 
+## 동반 앱 (GUI)
+
+`app/`에는 비개발자 학생용 데스크톱 동반 앱(Electron + Python 사이드카)이 있습니다. 에이전트가 인터뷰·작문을 하는 동안
+저장 상태·검사 결과(기계검사/내용검토/출력검토/교수승인 4레인)·다음 할 일·산출물을 보여주고, 잔류 잠금 해제·정본 스냅샷
+복원·패키지 준비(`.venv`)·DOCX/XLSX 생성·Office 렌더를 버튼으로 제공합니다. 앱 안에 AI는 없고 아무것도 기기 밖으로 보내지 않습니다.
+자세한 구조와 빌드 방법은 [app/README.md](app/README.md)를 보세요.
+
+## 개발·테스트
+
+```bash
+python3.13 -m venv .venv-dev && .venv-dev/bin/pip install pytest pytest-timeout -r skills/knuaf-doc/scripts/requirements-runtime.txt
+.venv-dev/bin/python -m pytest          # tests/ — 잠금·정본·인코딩·출력 스크립트·사이드카 프로토콜
+```
+
+CI(`.github/workflows/ci.yml`)는 ubuntu/macos/windows × Python 3.10/3.13에서 같은 테스트를 돌리고, Python 3.9에서는 안내 종료만 확인합니다.
+
 ## 학교 공식 지침 원문
 
 저작권이 불확실한 학교 공식 PDF/발췌본은 이 저장소에 포함되어 있지 않습니다. 사용자가 자신의 학교 공식 원문을 직접 준비해서 등록해야 합니다.

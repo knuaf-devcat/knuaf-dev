@@ -13,3 +13,5 @@ app/resources/wheelhouse/
 app/resources/skill/
 # OS
 .DS_Store
+app/test-results/
+app/playwright-report/

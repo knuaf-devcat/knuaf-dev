@@ -1,0 +1,46 @@
+{
+  "name": "knuaf-doc-companion",
+  "productName": "knuaf-doc Companion",
+  "version": "0.1.0",
+  "description": "knuaf-doc 창업논문 작성 도우미의 데스크톱 동반 GUI (에이전트가 작성, 앱은 상태·검사·발행 담당)",
+  "main": "./out/main/index.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "fetch:python": "node scripts/fetch-python.mjs",
+    "build:wheelhouse": "node scripts/build-wheelhouse.mjs",
+    "stage:skill": "node scripts/stage-skill.mjs",
+    "dist:mac": "pnpm build && pnpm stage:skill && electron-builder --mac",
+    "dist:win": "pnpm build && pnpm stage:skill && electron-builder --win",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "playwright": "^1.54.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "electron-winstaller"
+    ]
+  }
+}

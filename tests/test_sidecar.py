@@ -1,0 +1,132 @@
+"""Protocol tests for app/sidecar (JSON-lines over stdio)."""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from conftest import REPO, SCRIPTS
+
+SIDECAR_DIR = REPO / "app" / "sidecar"
+
+
+class Sidecar:
+    def __init__(self):
+        self.proc = subprocess.Popen(
+            [sys.executable, "-m", "knuaf_sidecar", "--scripts-dir", str(SCRIPTS), "--interpreter-kind", "test"],
+            cwd=str(SIDECAR_DIR), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8",
+        )
+        self.n = 0
+        ready = json.loads(self.proc.stdout.readline())
+        assert ready.get("event") == "ready", ready
+
+    def call(self, method, **params):
+        self.n += 1
+        rid = "r%d" % self.n
+        self.proc.stdin.write(json.dumps({"id": rid, "method": method, "params": params}, ensure_ascii=False) + "\n")
+        self.proc.stdin.flush()
+        events = []
+        while True:
+            line = self.proc.stdout.readline()
+            assert line, "sidecar closed: " + self.proc.stderr.read()
+            msg = json.loads(line)
+            if msg.get("id") != rid:
+                continue
+            if "event" in msg:
+                events.append(msg)
+                continue
+            msg["events"] = events
+            return msg
+
+    def close(self):
+        try:
+            self.proc.stdin.write(json.dumps({"id": "bye", "method": "shutdown"}) + "\n")
+            self.proc.stdin.flush()
+            self.proc.wait(timeout=10)
+        finally:
+            self.proc.kill()
+
+
+@pytest.fixture
+def sidecar():
+    s = Sidecar()
+    yield s
+    s.close()
+
+
+def test_hello_and_unknown_method(sidecar):
+    hello = sidecar.call("sys.hello")
+    assert hello["result"]["python_version"].startswith("3.")
+    assert hello["result"]["interpreter_kind"] == "test"
+    bad = sidecar.call("no.such")
+    assert bad["error"]["code"] == "not_found"
+
+
+def test_status_has_four_lanes_and_banner(sidecar, project):
+    st = sidecar.call("project.status", root=str(project))["result"]
+    assert st["revision"] == 1
+    assert set(st["lanes"]) == {"machine", "content_review", "output_review", "professor"}
+    assert st["lanes"]["content_review"]["independent_review_missing"] is True
+    assert st["lanes"]["professor"]["recorded"] is False
+    assert isinstance(st["user_finish_pending"], list)
+
+
+def test_sections_and_read(sidecar, project):
+    secs = sidecar.call("project.sections", root=str(project))["result"]
+    assert secs[0]["id"] == "sec-01" and secs[0]["draft_hash_ok"] is True
+    body = sidecar.call("section.read", root=str(project), id="sec-01")["result"]
+    assert "600평" in body["draft"]
+    missing = sidecar.call("section.read", root=str(project), id="nope")
+    assert missing["error"]["code"] == "not_found"
+
+
+def test_lock_info_unlock_history_restore_export(sidecar, project):
+    info = sidecar.call("lock.info", root=str(project))["result"]
+    assert info["present"] is False and info["verdict"] == "none"
+    denied = sidecar.call("lock.unlock", root=str(project))
+    assert denied["error"]["code"] == "business_rule"
+    hist = sidecar.call("project.history", root=str(project))["result"]
+    assert hist[-1]["current"] is True
+    ex = sidecar.call("project.export", root=str(project), kind="draft")["result"]
+    assert ex["path"].endswith("검토전_초안.md")
+    tree = sidecar.call("fs.build_tree", root=str(project))["result"]
+    assert tree["revisions"][0]["kinds"][0]["complete"] is True
+    again = sidecar.call("project.export", root=str(project), kind="draft")
+    assert again["error"]["code"] == "overwrite_refused"
+    res = sidecar.call("project.restore", root=str(project), revision=0, expected_revision=1)["result"]
+    assert res["revision"] == 2
+
+
+def test_stale_lock_roundtrip_via_sidecar(sidecar, project):
+    import socket
+    lock = project / ".gg-lock"
+    lock.mkdir()
+    (lock / "owner.json").write_text(json.dumps({"pid": 999999, "host": socket.gethostname(), "token": "x"}), encoding="utf-8")
+    blocked = sidecar.call("project.export", root=str(project), kind="draft")
+    assert blocked["error"]["code"] == "lock_held"
+    assert sidecar.call("lock.info", root=str(project))["result"]["verdict"] == "stale_releasable"
+    assert sidecar.call("lock.unlock", root=str(project))["result"]["released"] is True
+    assert sidecar.call("project.export", root=str(project), kind="draft")["result"]["path"]
+
+
+def test_doctor_all_shape(sidecar, project):
+    d = sidecar.call("doctor.all", root=str(project))["result"]
+    assert {"gg", "lock", "deps", "kordoc", "snapshots", "python"} <= set(d)
+    assert "ready" in d["deps"]
+
+
+def test_subprocess_method_streams_logs_and_normalises(sidecar, project):
+    (project / "paper.json").write_text('{"title": "T", "writing_year": 2026}', encoding="utf-8")
+    r = sidecar.call("paper.generate", root=str(project), input="paper.json", out="build/본문.md")
+    env = r["result"]
+    assert env["ok"] is True and env["status"] == "generated" and env["path"].endswith("본문.md")
+    assert any(e["event"] == "progress" for e in r["events"])
+    again = sidecar.call("paper.generate", root=str(project), input="paper.json", out="build/본문.md")["result"]
+    assert again["ok"] is False and "덮어쓰지" in (again["block_reason"] or "")
+
+
+def test_docx_build_without_venv_reports_deps_not_ready(sidecar, project):
+    r = sidecar.call("docx.build", root=str(project), out="build/x.docx")
+    assert r["error"]["code"] == "deps_not_ready"

@@ -45,7 +45,10 @@ def run_word(input_path: str, pdf_path: str) -> None:
     word = None
     doc = None
     try:
-        word = win32.gencache.EnsureDispatch("Word.Application")
+        # DispatchEx always creates a NEW, private Word instance. EnsureDispatch
+        # would attach to the student's running Word, and Quit() below would
+        # then close their open documents with alerts suppressed (audit C6).
+        word = win32.DispatchEx("Word.Application")
         word.Visible = False
         word.DisplayAlerts = 0  # wdAlertsNone
         doc = word.Documents.Open(input_path)
@@ -82,7 +85,9 @@ def run_word(input_path: str, pdf_path: str) -> None:
         _fail(str(exc))
     finally:
         try:
-            if word is not None:
+            # Only our own instance is ever quit; refuse if anything else is
+            # open in it (cannot happen for a DispatchEx instance, but stay safe).
+            if word is not None and word.Documents.Count == 0:
                 word.Quit()
         except Exception:
             pass
@@ -97,7 +102,8 @@ def run_excel(input_path: str, pdf_path: str) -> None:
     excel = None
     wb = None
     try:
-        excel = win32.gencache.EnsureDispatch("Excel.Application")
+        # Private instance for the same reason as run_word (audit C6).
+        excel = win32.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
         wb = excel.Workbooks.Open(input_path)
@@ -117,7 +123,7 @@ def run_excel(input_path: str, pdf_path: str) -> None:
         _fail(str(exc))
     finally:
         try:
-            if excel is not None:
+            if excel is not None and excel.Workbooks.Count == 0:
                 excel.Quit()
         except Exception:
             pass

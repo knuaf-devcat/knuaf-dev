@@ -15,6 +15,7 @@ reported, never faked. Nothing is copied from any HOME site-packages.
 import argparse
 import importlib
 import importlib.metadata
+import os
 import json
 import re
 import subprocess
@@ -274,7 +275,10 @@ def ensure(project, find_links=None, no_index=False):
     vpy = venv_python(project)
     created = False
     if not vpy:
-        venv.EnvBuilder(with_pip=True).create(venv_dir)
+        # symlinks like `python -m venv` does on POSIX: a copied interpreter
+        # loses its relative libpython path (python-build-standalone) and
+        # aborts on first run. Windows keeps copies (no symlink privilege).
+        venv.EnvBuilder(with_pip=True, symlinks=(os.name != "nt")).create(venv_dir)
         vpy = venv_python(project)
         created = True
     if not vpy:
@@ -374,7 +378,7 @@ def main(argv=None):
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return code
-    except (ValueError, OSError, subprocess.TimeoutExpired) as e:
+    except (ValueError, OSError, subprocess.SubprocessError) as e:
         print(json.dumps({"status": "blocked", "reason": str(e)}, ensure_ascii=False))
         return 2
 
