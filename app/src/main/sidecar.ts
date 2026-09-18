@@ -77,10 +77,12 @@ export class Sidecar extends EventEmitter {
     })
   }
 
-  call<T = unknown>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent']): Promise<T> {
+  /** `onId` receives the sidecar request id right after it is minted, so the caller can `cancel(id)` later. */
+  call<T = unknown>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent'], onId?: (id: string) => void): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (!this.proc) { reject({ code: 'sidecar_down', message: 'Python 사이드카가 실행 중이 아님' }); return }
       const id = `m${++this.seq}`
+      onId?.(id)
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onEvent })
       this.proc.stdin.write(JSON.stringify({ id, method, params }) + '\n')
     })

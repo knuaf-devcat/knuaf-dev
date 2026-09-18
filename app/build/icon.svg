@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- knuaf-doc Companion app icon: one bound ledger (정본 한 권) with a vermilion seal (도장). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f6b3a"/>
+      <stop offset="1" stop-color="#2b6335"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS squircle body: inner 824px, 100px transparent padding -->
+  <rect x="100" y="100" width="824" height="824" rx="229" ry="229" fill="url(#bg)"/>
+  <!-- ledger -->
+  <rect x="282" y="232" width="460" height="560" rx="28" ry="28" fill="#fbfbf9"/>
+  <!-- spine: two thin vertical lines inset 48 / 66 from the left edge -->
+  <g fill="#2f6b3a" fill-opacity="0.6">
+    <rect x="327" y="232" width="6" height="560"/>
+    <rect x="345" y="232" width="6" height="560"/>
+  </g>
+  <!-- text lines in the upper half -->
+  <g stroke="#2f6b3a" stroke-opacity="0.22" stroke-width="14" stroke-linecap="round">
+    <line x1="400" y1="330" x2="660" y2="330"/>
+    <line x1="400" y1="386" x2="628" y2="386"/>
+    <line x1="400" y1="442" x2="596" y2="442"/>
+  </g>
+  <!-- seal (도장), lower-right corner -->
+  <circle cx="630" cy="680" r="64" fill="#d9533f"/>
+  <circle cx="630" cy="680" r="46" fill="none" stroke="#fbfbf9" stroke-opacity="0.6" stroke-width="8"/>
+</svg>

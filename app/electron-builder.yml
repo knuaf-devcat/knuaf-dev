@@ -4,6 +4,9 @@ appId: kr.ac.knuaf.doc.companion
 # The Korean name students see comes from CFBundleDisplayName below.
 productName: knuaf-doc Companion
 executableName: knuaf-doc-companion
+afterSign: scripts/after-sign.mjs
+# 정식 서명·공증: Apple Developer 계정이 생기면 환경변수 CSC_LINK(.p12) / CSC_KEY_PASSWORD / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 만 넣으면
+# electron-builder가 서명하고 notarize 한다(afterSign 훅은 그때 자동으로 건너뜀).
 directories:
   output: dist
   buildResources: build
@@ -20,12 +23,21 @@ extraResources:
     to: python
   - from: resources/wheelhouse
     to: wheelhouse
+  - from: ../docs
+    to: docs
+    filter: ["*.pdf", "*.html", "*.md", "images/**"]
 asarUnpack:
   - "**/*.node"
 mac:
+  icon: build/icon.icns
   category: public.app-category.productivity
   extendInfo:
     CFBundleDisplayName: knuaf-doc 동반 앱
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: 논문 작업 폴더
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes: [public.folder]
   target: [dmg, zip]
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -33,7 +45,17 @@ mac:
   binaries:
     - resources/python/bin/python3
 win:
+  icon: build/icon.ico
   target: [nsis]
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+dmg:
+  title: knuaf-doc 동반 앱
+  iconSize: 96
+  window:
+    width: 540
+    height: 380
+  contents:
+    - { x: 140, y: 190, type: file }
+    - { x: 400, y: 190, type: link, path: /Applications }

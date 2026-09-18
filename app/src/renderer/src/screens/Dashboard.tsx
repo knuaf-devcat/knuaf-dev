@@ -1,56 +1,55 @@
 import { useProject } from '../store/project'
-import { ErrorBanner } from '../components/Banners'
-import { StatusPill } from '../components/Pills'
+import { Toolbar } from '../components/Toolbar'
+import { Feedback } from '../components/Feedback'
+import { Lane } from '../components/Lane'
+import { Stat, Stats } from '../components/Stat'
+import { Badge, StatusBadge } from '../components/Badge'
+import { EmptyState } from '../components/EmptyState'
+import { Icon } from '../components/Icon'
+import { COLLECTION_LABEL, EMPTY, LANE_COPY, REVIEW_KIND_LABEL, SCREEN_INTRO, USER_FINISH_LABEL } from '../copy'
 import type { LaneSummary } from '../../../shared/types'
 
 function Counts({ s }: { s: LaneSummary }) {
-  return <div className="row"><span className="pill pass">통과 {s.pass}</span><span className="pill fail">실패 {s.fail}</span><span className="pill blocked">보류 {s.blocked}</span>{s.other > 0 && <span className="pill">기타 {s.other}</span>}</div>
+  return <Stats><Stat value={s.pass} label="통과" tone="ok" /><Stat value={s.fail} label="실패" tone={s.fail ? 'bad' : undefined} /><Stat value={s.blocked} label="보류" tone={s.blocked ? 'blocked' : undefined} />{s.other > 0 && <Stat value={s.other} label="기타" />}</Stats>
 }
 
-/** SKILL.md:34 — four lanes, never one checkmark; user_finish is the student's own list. */
+/** SKILL.md:34 — four lanes, never one checkmark, never a percentage. */
 export function Dashboard() {
   const { status, refresh, loading, error, setScreen } = useProject()
-  if (!status) return <div><ErrorBanner error={error} /><button onClick={refresh} disabled={loading}>새로고침</button></div>
-  const L = status.lanes
-  const KIND: Record<string, string> = { content: '내용', logic: '논리', calculation: '계산', docx: 'DOCX', xlsx: 'XLSX', render: '렌더' }
+  const [L1, L2, L3, L4] = LANE_COPY
   return (
     <div>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1>대시보드 <span className="muted" style={{ fontSize: 13 }}>정본 개정 {status.revision}</span></h1>
-        <button onClick={refresh} disabled={loading}>{loading ? '읽는 중…' : '새로고침'}</button>
-      </div>
-      <ErrorBanner error={error} />
-      <div className="grid">
-        <div className="card">
-          <div className="title">1. 기계검사 {L.machine.ready ? <StatusPill status="pass" /> : <StatusPill status="blocked" />}</div>
-          <Counts s={L.machine.summary} />
-          <div className="meta">파일 해시·사실·계산·절 대조. {L.machine.ready ? '스킬 검사 완료 상태(교수 확인 전).' : '아직 스킬 검사가 끝나지 않았습니다.'}</div>
-          <button style={{ marginTop: 8 }} onClick={() => setScreen('checks')}>자세히</button>
-        </div>
-        <div className="card">
-          <div className="title">2. 내용검토(독립)</div>
-          <div className="row">{Object.entries(L.content_review.by_kind).map(([k, v]) => <span key={k} className={'pill ' + v}>{KIND[k] ?? k}</span>)}</div>
-          <div className="meta">작성자와 다른 검토자가 원문과 대조한 기록. {L.content_review.independent_review_missing ? '아직 없음.' : ''}</div>
-        </div>
-        <div className="card">
-          <div className="title">3. 실제 출력검토</div>
-          <Counts s={L.output_review.summary} />
-          <div className="meta">DOCX/XLSX 파일·글꼴·재계산·렌더 검사. 학교 지침 준비: {L.output_review.guideline_ready === null ? '미설정' : L.output_review.guideline_ready ? '준비됨' : '미완'}</div>
-        </div>
-        <div className="card">
-          <div className="title">4. 교수 승인</div>
-          <div className="meta">{L.professor.recorded ? '승인 근거 기록이 등록되어 있습니다.' : '별도 기록 확인 필요. 앱이 승인을 판정하지 않습니다.'}</div>
-        </div>
-      </div>
-      <h2>내가 할 일 (한글에서 마무리)</h2>
-      <p className="muted">아래 항목은 사람이 직접 확인하는 일이며, Ⅰ~Ⅵ 작성이나 DOCX/XLSX 작업을 막지 않습니다.</p>
-      <div className="list">
-        {status.user_finish_pending.length === 0 && <div className="item muted">없음</div>}
-        {status.user_finish_pending.map((u) => <div key={u.id} className="item"><div className="head"><strong>{u.id}</strong><StatusPill status={u.status} /></div><div className="reason">{u.reason}</div></div>)}
-      </div>
-      <h2>등록 현황</h2>
-      <div className="row">{Object.entries(status.counts).map(([k, v]) => <span key={k} className="pill">{k} {v}</span>)}</div>
-      <p className="muted" style={{ marginTop: 12 }}>{status.completion.notice}</p>
+      <Toolbar title="대시보드" sub={status && <Badge label={`개정 ${status.revision}`} />} actions={<button onClick={refresh} disabled={loading}><Icon name="refresh" size={16} /> {loading ? '읽는 중…' : '새로고침'}</button>} />
+      <p className="intro">{SCREEN_INTRO.dashboard}</p>
+      {error && <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>} />}
+      {status && (
+        <>
+          <div className="grid-2 lanes stagger">
+            <Lane number={L1.number} title={L1.title} badge={status.lanes.machine.ready ? <StatusBadge status="pass" label="검사 완료" /> : <StatusBadge status="blocked" label="진행 중" />} description={status.lanes.machine.ready ? L1.readyText : L1.notReadyText} foot={<button onClick={() => setScreen('checks', { owner: 'skill' })}>자세히</button>}>
+              <Counts s={status.lanes.machine.summary} />
+            </Lane>
+            <Lane number={L2.number} title={L2.title} description={L2.description} foot={<button onClick={() => setScreen('checks', { prefix: 'review_' })}>자세히</button>}>
+              <div className="row">{Object.entries(status.lanes.content_review.by_kind).map(([k, v]) => <StatusBadge key={k} status={v} label={REVIEW_KIND_LABEL[k] ?? k} />)}</div>
+              {status.lanes.content_review.independent_review_missing && <div className="caption">{L2.notReadyText}</div>}
+            </Lane>
+            <Lane number={L3.number} title={L3.title} description={L3.description} foot={<button onClick={() => setScreen('checks', { prefix: 'output_' })}>자세히</button>}>
+              <Counts s={status.lanes.output_review.summary} />
+              <div className="caption">학교 지침 준비: {status.lanes.output_review.guideline_ready === null ? '미설정' : status.lanes.output_review.guideline_ready ? '준비됨' : '미완'}</div>
+            </Lane>
+            <Lane number={L4.number} title={L4.title} badge={status.lanes.professor.recorded ? <Badge tone="accent" label="기록 있음" /> : <Badge label="기록 없음" />} description={L4.description}>
+              <div className="caption">{status.lanes.professor.recorded ? L4.readyText : L4.notReadyText}</div>
+            </Lane>
+          </div>
+          <h2>한글에서 마무리할 일</h2>
+          <p className="caption">사람이 직접 확인하는 일이에요. Ⅰ~Ⅵ 작성이나 DOCX/XLSX 작업을 막지 않아요.</p>
+          {status.user_finish_pending.length === 0 ? <EmptyState icon="done" title={EMPTY.user_finish.title} body={EMPTY.user_finish.body} /> : (
+            <div className="list">{status.user_finish_pending.map((u) => <div key={u.id} className="item"><div className="head"><strong>{USER_FINISH_LABEL[u.id] ?? u.id}</strong><StatusBadge status={u.status} /></div><div className="reason">{u.reason}</div></div>)}</div>
+          )}
+          <h2>등록 현황</h2>
+          <Stats>{Object.entries(status.counts).map(([k, v]) => <Stat key={k} value={v} label={COLLECTION_LABEL[k] ?? k} />)}</Stats>
+          <p className="caption" style={{ marginTop: 'var(--sp-4)' }}>{status.completion.notice}</p>
+        </>
+      )}
     </div>
   )
 }

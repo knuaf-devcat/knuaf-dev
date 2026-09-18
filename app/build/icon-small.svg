@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Small-size variant (<= 32px): ledger + seal only, no text lines.
+       Geometry is snapped to the 16px pixel grid (64 units = 1px @16, 32 units = 1px @32). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f6b3a"/>
+      <stop offset="1" stop-color="#2b6335"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="229" ry="229" fill="url(#bg)"/>
+  <!-- ledger: 4..12px × 3..13px @16 -->
+  <rect x="256" y="192" width="512" height="640" rx="40" ry="40" fill="#fbfbf9"/>
+  <!-- single spine line: exactly 1px wide @16 -->
+  <rect x="320" y="192" width="64" height="640" fill="#2f6b3a" fill-opacity="0.6"/>
+  <!-- seal: 2×2px @16, 1px in from the ledger's right/bottom edges -->
+  <circle cx="640" cy="704" r="68" fill="#d9533f"/>
+</svg>

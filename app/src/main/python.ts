@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { app } from 'electron'
 
 /** app/ in a checkout (out/main → ../..); resources live next to it when packaged. */
-const APP_ROOT = resolve(__dirname, '..', '..')
+export const APP_ROOT = resolve(__dirname, '..', '..')
 import type { SidecarInfo } from '../shared/types'
 
 /** Where the skill scripts live: repo checkout in dev, resources/skill in a packaged app. */

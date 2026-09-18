@@ -47,4 +47,9 @@ export interface Envelope {
   stdout: string; stderr: string; argv: string[]; python: string; duration_ms: number; venv_python?: string | null
 }
 export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
-export interface Settings { recent: string[]; credit_shown_at: string | null; python_override: string | null }
+export interface RecentEntry { root: string; opened_at: string }
+export interface Settings { recent: RecentEntry[]; credit_shown_at: string | null; python_override: string | null }
+/** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
+export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }
+/** Cheap look at `<root>/project.json` without starting the sidecar. */
+export interface ProjectPeek { exists: boolean; hasProject: boolean; revision: number | null; project_id: string | null; mtime: number | null }

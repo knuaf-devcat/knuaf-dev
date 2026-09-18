@@ -8,8 +8,10 @@ export class RpcFailure extends Error {
   constructor(err: RpcError) { super(err.message); this.code = err.code; this.data = err.data }
 }
 
-async function call<T>(method: string, params: Record<string, unknown> = {}, onEvent?: EventHandler): Promise<T> {
-  const r: RpcResult<T> = await window.knuaf.call(method, params, onEvent)
+let seq = 0
+
+async function call<T>(method: string, params: Record<string, unknown> = {}, onEvent?: EventHandler, clientId?: string): Promise<T> {
+  const r: RpcResult<T> = await window.knuaf.call(method, params, onEvent, clientId)
   if (r.error) throw new RpcFailure(r.error)
   return r.result as T
 }
@@ -28,7 +30,12 @@ export const rpc = {
   doctor: (root: string) => call<Record<string, any>>('doctor.all', { root }),
   buildTree: (root: string) => call<any>('fs.build_tree', { root }),
   init: (root: string) => call<{ project: unknown }>('project.init', { root }),
-  script: (method: string, params: Record<string, unknown>, onEvent?: EventHandler) => call<Envelope>(method, params, onEvent)
+  /** Long-running script; pass a `clientId` from `newClientId()` to be able to `cancel` it. */
+  script: (method: string, params: Record<string, unknown>, onEvent?: EventHandler, clientId?: string) => call<Envelope>(method, params, onEvent, clientId),
+  /** Mint a renderer-side id for a cancellable call. */
+  newClientId: () => `r${Date.now().toString(36)}-${++seq}`,
+  /** Ask main to cancel whatever is running under this clientId. Resolves true if something was in flight. */
+  cancel: (clientId: string): Promise<boolean> => window.knuaf.cancel(clientId)
 }
 
 /** Human wording for error codes; the raw message is always shown too. */

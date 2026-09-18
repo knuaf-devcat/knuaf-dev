@@ -1,7 +1,10 @@
 """Protocol tests for app/sidecar (JSON-lines over stdio)."""
 import json
+import os
+import select
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -22,13 +25,24 @@ class Sidecar:
         ready = json.loads(self.proc.stdout.readline())
         assert ready.get("event") == "ready", ready
 
-    def call(self, method, **params):
+    def send(self, method, **params):
+        """Write one request and return its id without waiting for the answer."""
         self.n += 1
         rid = "r%d" % self.n
         self.proc.stdin.write(json.dumps({"id": rid, "method": method, "params": params}, ensure_ascii=False) + "\n")
         self.proc.stdin.flush()
+        return rid
+
+    def wait(self, rid, timeout=None):
+        """Read until the response for `rid` arrives; events for it are attached under "events"."""
         events = []
+        deadline = None if timeout is None else time.monotonic() + timeout
         while True:
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, "no response for %s within %ss" % (rid, timeout)
+                ready, _, _ = select.select([self.proc.stdout], [], [], remaining)
+                assert ready, "no response for %s within %ss" % (rid, timeout)
             line = self.proc.stdout.readline()
             assert line, "sidecar closed: " + self.proc.stderr.read()
             msg = json.loads(line)
@@ -39,6 +53,9 @@ class Sidecar:
                 continue
             msg["events"] = events
             return msg
+
+    def call(self, method, **params):
+        return self.wait(self.send(method, **params))
 
     def close(self):
         try:
@@ -130,3 +147,19 @@ def test_subprocess_method_streams_logs_and_normalises(sidecar, project):
 def test_docx_build_without_venv_reports_deps_not_ready(sidecar, project):
     r = sidecar.call("docx.build", root=str(project), out="build/x.docx")
     assert r["error"]["code"] == "deps_not_ready"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="sh wrapper + select() on pipes")
+def test_cancel_terminates_running_script(sidecar, project, tmp_path):
+    # deps.ensure spawns `base_python gg_deps.py ensure <root>`; a wrapper that just sleeps stands in for it.
+    wrapper = tmp_path / "slow-python"
+    wrapper.write_text("#!/bin/sh\nexec sleep 30\n", encoding="utf-8")
+    os.chmod(wrapper, 0o755)
+    rid = sidecar.send("deps.ensure", root=str(project), base_python=str(wrapper))
+    time.sleep(0.5)
+    started = time.monotonic()
+    sidecar.proc.stdin.write(json.dumps({"id": "c", "method": "cancel", "params": {"id": rid}}) + "\n")
+    sidecar.proc.stdin.flush()
+    r = sidecar.wait(rid, timeout=5)
+    assert r["error"]["code"] == "cancelled", r
+    assert time.monotonic() - started < 5

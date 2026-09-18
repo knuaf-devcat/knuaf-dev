@@ -222,3 +222,113 @@ def test_number_formats_do_not_wrap(source, tmp_path):
     assert ws["C1"].number_format == "#,##0"
     assert not ws["C1"].alignment.wrap_text
     assert ws["C2"].alignment.wrap_text
+
+
+# --- structure preservation: odd sheet names, hidden sheets, formulas --------
+
+SHEET_SPACE = " 2. 판매계획"   # leading space on purpose
+SHEET_HIDDEN = "참고 데이터"
+
+
+def _formula_text(value):
+    """Normalise openpyxl formula values (str / ArrayFormula / DataTableFormula)."""
+    if isinstance(value, str):
+        return value if value.startswith("=") else None
+    text = getattr(value, "text", None)
+    if text is None:
+        return None
+    return (type(value).__name__, getattr(value, "ref", None), text)
+
+
+def formula_map(ws):
+    return {c.coordinate: _formula_text(c.value)
+            for row in ws.iter_rows() for c in row if _formula_text(c.value) is not None}
+
+
+def assert_structure_preserved(src, out):
+    """Sheet names/order, sheet_state, merged ranges and formulas must survive `clear`."""
+    wb_src = openpyxl.load_workbook(src)
+    wb_out = openpyxl.load_workbook(out)
+    assert wb_out.sheetnames == wb_src.sheetnames
+    for name in wb_src.sheetnames:
+        ws_src, ws_out = wb_src[name], wb_out[name]
+        assert ws_out.sheet_state == ws_src.sheet_state, name
+        assert {str(r) for r in ws_out.merged_cells.ranges} == {str(r) for r in ws_src.merged_cells.ranges}, name
+        assert formula_map(ws_out) == formula_map(ws_src), name
+
+
+def build_structured_workbook(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = SHEET_SPACE
+    ws["A1"] = "판매 계획"
+    ws.merge_cells("A1:C1")
+    ws["A2"] = "수량:"
+    ws["B2"] = 120
+    ws["A3"] = "단가:"
+    ws["B3"] = 3500.5
+    ws["A4"] = "매출"
+    ws["B4"] = "=B2*B3"
+    ws["B5"] = f"=SUM(B2:B3)+'{SHEET_HIDDEN}'!B1"
+    hidden = wb.create_sheet(SHEET_HIDDEN)
+    hidden.sheet_state = "hidden"
+    hidden["A1"] = "기준값"
+    hidden["B1"] = 42                       # literal value in hidden sheet
+    hidden["B2"] = "=B1*10"
+    hidden["A4"] = "비고"
+    hidden.merge_cells("A4:B4")
+    wb.save(path)
+
+
+@pytest.fixture
+def structured_source(tmp_path):
+    src = tmp_path / "구조 원본.xlsx"
+    build_structured_workbook(src)
+    return src
+
+
+def test_inspect_keeps_exact_sheet_names_and_lists_hidden(structured_source, tmp_path):
+    out_map = tmp_path / "map.json"
+    r = inspect(structured_source, out_map)
+    assert r.returncode == 0, r.stderr
+    assert parse_json(r.stdout)["sheets"] == 2
+    data = json.loads(out_map.read_text(encoding="utf-8"))
+    names = [s["name"] for s in data["sheets"]]
+    assert names == [SHEET_SPACE, SHEET_HIDDEN]          # exact, order kept, leading space intact
+    assert names[0].startswith(" ")
+    hidden_summary = data["sheets"][1]
+    assert hidden_summary["cellCount"] > 0 and hidden_summary["formulaCount"] == 1
+    assert {e["sheet"] for e in data["entries"]} == {SHEET_SPACE, SHEET_HIDDEN}
+
+
+def test_clear_preserves_structure_and_empties_literals(structured_source, tmp_path):
+    out_map = tmp_path / "map.json"
+    assert inspect(structured_source, out_map).returncode == 0
+    out = tmp_path / "blank.xlsx"
+    receipt = tmp_path / "receipt.json"
+    r = clear(structured_source, out_map, out, receipt)
+    assert r.returncode == 0, r.stderr
+    summary = parse_json(r.stdout)
+    assert summary["missing"] == 0
+    assert summary["cleared"] >= 3
+    assert_structure_preserved(structured_source, out)
+    wb = openpyxl.load_workbook(out)
+    ws, hidden = wb[SHEET_SPACE], wb[SHEET_HIDDEN]
+    assert hidden.sheet_state == "hidden"
+    assert ws["B2"].value is None and ws["B3"].value is None
+    assert hidden["B1"].value is None
+    assert ws["B4"].value == "=B2*B3" and hidden["B2"].value == "=B1*10"
+    assert ws["A1"].value == "판매 계획" and ws["A2"].value == "수량:"
+    assert {str(m) for m in ws.merged_cells.ranges} == {"A1:C1"}
+    assert {str(m) for m in hidden.merged_cells.ranges} == {"A4:B4"}
+    rec = json.loads(receipt.read_text(encoding="utf-8"))
+    assert rec["missingCells"] == []
+
+
+def test_assert_structure_preserved_detects_drift(structured_source, tmp_path):
+    drifted = tmp_path / "drift.xlsx"
+    wb = openpyxl.load_workbook(structured_source)
+    wb[SHEET_HIDDEN].sheet_state = "visible"
+    wb.save(drifted)
+    with pytest.raises(AssertionError):
+        assert_structure_preserved(structured_source, drifted)

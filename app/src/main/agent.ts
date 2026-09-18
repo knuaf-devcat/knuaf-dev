@@ -1,0 +1,307 @@
+/**
+ * AI agent (Claude Code / Codex CLI) discovery, skill installation and terminal launch.
+ *
+ * Deliberately free of `electron` imports: every environment-specific value (home dir, app root,
+ * packaged state, `shell.openPath`, venv lookup) is passed in through `AgentCtx`, so the module can be
+ * unit-tested from plain Node (see e2e/agent.spec.ts). ipc.ts wires `agentApi` to IPC handlers.
+ */
+import { execFile } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
+import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join } from 'node:path'
+
+// ---------------------------------------------------------------- types
+
+export type AgentKind = 'claude' | 'codex'
+export type SkillState = 'installed' | 'outdated' | 'missing'
+
+export interface AgentBinary { found: boolean; path: string | null; version: string | null }
+
+export interface AgentStatus {
+  claude: AgentBinary
+  codex: AgentBinary
+  skill: { claude: SkillState; codex: SkillState }
+  skillVersion: string
+}
+
+export interface InstallResult { action: 'installed' | 'updated' | 'unchanged'; backup?: string }
+
+export interface LaunchScriptOptions {
+  root: string
+  agent: AgentKind
+  agentPath: string
+  venvBin: string | null
+  bundledBin: string | null
+  firstPrompt: string
+}
+
+export interface LaunchOptions extends LaunchScriptOptions {
+  supportDir: string
+  /** When true the script is written but `open` is never called (env KNUAF_DRY_LAUNCH=1). */
+  dryRun?: boolean
+}
+
+export interface LaunchDeps {
+  writeFile?: (path: string, data: string, mode: number) => void
+  chmod?: (path: string, mode: number) => void
+  /** Electron `shell.openPath` injected by main; resolves to '' on success or an error string. */
+  open?: (path: string) => Promise<string>
+}
+
+export interface LaunchResult { scriptPath: string }
+
+/** Everything the main process knows that this module needs. Built once in ipc.ts. */
+export interface AgentCtx {
+  home: string
+  appRoot: string
+  isPackaged: boolean
+  resourcesPath: string
+  supportDir: string
+  dryRun: boolean
+  open: (path: string) => Promise<string>
+  venvPython: (root: string | null) => string | null
+  /** Optional: bundled interpreter, so its bin dir can be put on PATH for the agent. */
+  bundledPython?: () => string | null
+  /** Defaults to process.env; tests pass their own PATH/HOME. */
+  env?: Record<string, string | undefined>
+}
+
+// ---------------------------------------------------------------- 2. executables
+
+const EXTRA_DIRS = (home: string): string[] => [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  join(home, '.local', 'bin'),
+  join(home, '.npm-global', 'bin'),
+  join(home, '.npm', 'bin')
+]
+
+function isExecutableFile(p: string): boolean {
+  try {
+    if (!statSync(p).isFile()) return false
+    accessSync(p, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null. */
+export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
+  const home = env.HOME ?? env.USERPROFILE ?? ''
+  const sep = process.platform === 'win32' ? ';' : ':'
+  const fromPath = (env.PATH ?? '').split(sep).filter(Boolean)
+  const dirs = [...fromPath, ...EXTRA_DIRS(home)]
+  const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
+  const seen = new Set<string>()
+  for (const dir of dirs) {
+    if (seen.has(dir)) continue
+    seen.add(dir)
+    for (const n of names) {
+      const candidate = join(dir, n)
+      if (isAbsolute(candidate) && isExecutableFile(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+/** `<path> --version`, trimmed first line; null on failure or after 8s. */
+export function probeVersion(path: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      execFile(path, ['--version'], { timeout: 8000, encoding: 'utf-8', windowsHide: true }, (err, stdout) => {
+        if (err) return resolve(null)
+        const line = String(stdout).split(/\r?\n/).map((l) => l.trim()).find(Boolean)
+        resolve(line ?? null)
+      })
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+// ---------------------------------------------------------------- 3. skill source + version
+
+/** Checkout: `<appRoot>/../skills/knuaf-doc`; packaged: `<resourcesPath>/skill` (see scripts/stage-skill.mjs). */
+export function skillSource(appRoot: string, isPackaged: boolean, resourcesPath: string): string {
+  return isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-doc')
+}
+
+/** sha256(SKILL.md ‖ sorted "name:size" of scripts/*.py), first 12 hex. Stable across machines for the same content. */
+export function skillVersion(source: string): string {
+  const h = createHash('sha256')
+  const skillMd = join(source, 'SKILL.md')
+  h.update(existsSync(skillMd) ? readFileSync(skillMd) : Buffer.alloc(0))
+  const scripts = join(source, 'scripts')
+  const entries: string[] = []
+  if (existsSync(scripts)) {
+    for (const name of readdirSync(scripts)) {
+      if (!name.endsWith('.py')) continue
+      const p = join(scripts, name)
+      try {
+        const st = statSync(p)
+        if (st.isFile()) entries.push(`${name}:${st.size}`)
+      } catch { /* vanished between readdir and stat */ }
+    }
+  }
+  entries.sort()
+  for (const e of entries) h.update('\n' + e)
+  return h.digest('hex').slice(0, 12)
+}
+
+// ---------------------------------------------------------------- 4. targets + state
+
+export const VERSION_FILE = '.knuaf-doc-version'
+
+export function skillTargets(home: string): Record<AgentKind, string> {
+  return {
+    claude: join(home, '.claude', 'skills', 'knuaf-doc'),
+    codex: join(home, '.codex', 'skills', 'knuaf-doc')
+  }
+}
+
+export function skillState(target: string, version: string): SkillState {
+  if (!existsSync(target)) return 'missing'
+  try {
+    const have = readFileSync(join(target, VERSION_FILE), 'utf-8').trim()
+    return have === version ? 'installed' : 'outdated'
+  } catch {
+    return 'outdated'
+  }
+}
+
+// ---------------------------------------------------------------- 5. install
+
+function stamp(d = new Date()): string {
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+const SKIP_NAMES = new Set(['__pycache__', '.venv', '.DS_Store'])
+function copyFilter(src: string): boolean {
+  const name = basename(src)
+  return !SKIP_NAMES.has(name) && !name.endsWith('.pyc')
+}
+
+/** Copy SKILL.md + references/ + scripts/ into `target` (only ever that directory), leaving a version marker. */
+export function installSkill(source: string, target: string, version: string): InstallResult {
+  const state = skillState(target, version)
+  if (state === 'installed') return { action: 'unchanged' }
+
+  let backup: string | undefined
+  if (state === 'outdated') {
+    backup = `${target}.bak-${stamp()}`
+    let i = 1
+    while (existsSync(backup)) backup = `${target}.bak-${stamp()}-${i++}`
+    renameSync(target, backup)
+  }
+
+  mkdirSync(target, { recursive: true })
+  const skillMd = join(source, 'SKILL.md')
+  if (!existsSync(skillMd)) throw new Error('스킬 원본에 SKILL.md가 없음: ' + source)
+  cpSync(skillMd, join(target, 'SKILL.md'))
+  for (const dir of ['references', 'scripts']) {
+    const from = join(source, dir)
+    if (existsSync(from)) cpSync(from, join(target, dir), { recursive: true, filter: copyFilter })
+  }
+  writeFileSync(join(target, VERSION_FILE), version + '\n', 'utf-8')
+
+  return backup ? { action: 'updated', backup } : { action: 'installed' }
+}
+
+// ---------------------------------------------------------------- 6. launch script
+
+/** POSIX single-quote: safe for any bytes including spaces, Hangul and quotes. */
+export function sq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+export const BANNER = 'knuaf-doc 동반 앱이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
+
+export function buildLaunchScript(o: LaunchScriptOptions): string {
+  const pathParts: string[] = []
+  if (o.venvBin) pathParts.push(sq(o.venvBin))
+  if (o.bundledBin) pathParts.push(sq(o.bundledBin))
+  pathParts.push(sq('/opt/homebrew/bin'), sq('/usr/local/bin'), '"$HOME/.local/bin"', '"$PATH"')
+
+  const execLine = o.agent === 'claude'
+    ? `exec ${sq(o.agentPath)} ${sq(o.firstPrompt)}`
+    : `exec ${sq(o.agentPath)}` // codex: no positional prompt; the user types in the TUI
+
+  return [
+    '#!/bin/bash',
+    `cd ${sq(o.root)} || exit 1`,
+    `export PATH=${pathParts.join(':')}`,
+    'export KNUAF_DOC_APP=1',
+    `printf '%s\\n' ${sq(BANNER)}`,
+    "printf '%s\\n' ''",
+    execLine,
+    ''
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------- 7. launch
+
+export function firstPromptFor(revision: number | null): string {
+  return revision === null || revision < 1 ? '시작하기' : '이어서 하기'
+}
+
+export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<LaunchResult> {
+  const writeFile = deps.writeFile ?? ((p, data, mode) => writeFileSync(p, data, { encoding: 'utf-8', mode }))
+  const chmod = deps.chmod ?? chmodSync
+  mkdirSync(o.supportDir, { recursive: true })
+  const scriptPath = join(o.supportDir, `launch-${randomBytes(4).toString('hex')}.command`)
+  writeFile(scriptPath, buildLaunchScript(o), 0o755)
+  chmod(scriptPath, 0o755) // writeFile mode is masked by umask; make sure it is executable
+  if (!o.dryRun) {
+    if (!deps.open) throw new Error('launch: open() is required unless dryRun')
+    const err = await deps.open(scriptPath)
+    if (err) throw new Error('터미널을 열지 못함: ' + err)
+  }
+  return { scriptPath }
+}
+
+// ---------------------------------------------------------------- 8. composed API
+
+export async function getStatus(ctx: AgentCtx): Promise<AgentStatus> {
+  const env = ctx.env ?? process.env
+  const probe = async (name: AgentKind): Promise<AgentBinary> => {
+    const path = findExecutable(name, env)
+    return { found: !!path, path, version: path ? await probeVersion(path) : null }
+  }
+  const [claude, codex] = await Promise.all([probe('claude'), probe('codex')])
+  const version = skillVersion(skillSource(ctx.appRoot, ctx.isPackaged, ctx.resourcesPath))
+  const targets = skillTargets(ctx.home)
+  return {
+    claude,
+    codex,
+    skill: { claude: skillState(targets.claude, version), codex: skillState(targets.codex, version) },
+    skillVersion: version
+  }
+}
+
+export const agentApi = {
+  status: (ctx: AgentCtx): Promise<AgentStatus> => getStatus(ctx),
+
+  installSkill: (ctx: AgentCtx, kind: AgentKind): InstallResult => {
+    const source = skillSource(ctx.appRoot, ctx.isPackaged, ctx.resourcesPath)
+    return installSkill(source, skillTargets(ctx.home)[kind], skillVersion(source))
+  },
+
+  launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {
+    const agentPath = findExecutable(o.kind, ctx.env ?? process.env)
+    if (!agentPath) throw new Error(`${o.kind} 실행 파일을 찾지 못함 (PATH에 없음)`)
+    const venv = ctx.venvPython(o.root)
+    const bundled = ctx.bundledPython?.() ?? null
+    return launch({
+      root: o.root,
+      agent: o.kind,
+      agentPath,
+      venvBin: venv ? dirname(venv) : null,
+      bundledBin: bundled ? dirname(bundled) : null,
+      firstPrompt: firstPromptFor(o.revision),
+      supportDir: ctx.supportDir,
+      dryRun: ctx.dryRun
+    }, { open: ctx.open })
+  }
+}

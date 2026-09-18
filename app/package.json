@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "fetch:python": "node scripts/fetch-python.mjs",
     "build:wheelhouse": "node scripts/build-wheelhouse.mjs",
+    "build:icons": "node scripts/build-icons.mjs",
+    "build:guide": "node scripts/build-guide.mjs",
     "stage:skill": "node scripts/stage-skill.mjs",
     "dist:mac": "pnpm build && pnpm stage:skill && electron-builder --mac",
     "dist:win": "pnpm build && pnpm stage:skill && electron-builder --win",
