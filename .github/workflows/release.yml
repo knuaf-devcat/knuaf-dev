@@ -1,0 +1,148 @@
+name: release
+# 태그를 달면 맥용 설치본을 만들어 GitHub Releases에 **초안(draft)**으로 올린다.
+# 초안인 이유: 서명이 없는 동안에는 사람이 받아서 한 번 열어보고 공개해야 한다.
+#
+# 서명·공증은 Apple Developer 계정이 생기면 저장소 시크릿만 넣으면 켜진다
+# (CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID).
+# 없으면 electron-builder가 서명을 건너뛰고 after-sign.mjs가 임시(ad-hoc) 서명만 한다.
+# 그 빌드는 Gatekeeper가 막으므로 릴리스 본문에 해제 방법을 함께 싣는다.
+#
+# Windows는 아직 없다. 앱의 Windows 동작이 검증된 적이 없어서, 설치본을 만들어 두면
+# 열리지 않는 파일을 배포하게 된다. 이식이 끝나면 여기에 job을 추가한다.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ci.yml 은 `branches: ["**"]` 라서 태그 푸시에는 돌지 않는다.
+  # 검증되지 않은 커밋이 설치본이 되지 않도록 여기서 다시 돈다.
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: skills/knuaf-doc/scripts/requirements-runtime.txt
+      - run: python -m pip install -r skills/knuaf-doc/scripts/requirements-runtime.txt pytest pytest-timeout
+      - run: python -m pytest
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+      - run: pnpm typecheck
+        working-directory: app
+      - run: pnpm build
+        working-directory: app
+      - run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
+        working-directory: app
+        env:
+          KNUAF_PYTHON: python
+
+  macos:
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 버전이 네 군데(태그·app/package.json·두 plugin.json)에 흩어져 있고 일치를
+      # 확인하는 장치가 없었다. 어긋난 채 배포하면 학생이 받은 앱과 스킬 버전이 달라진다.
+      - name: 태그와 선언된 버전이 같은지 확인
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          fail=0
+          for f in app/package.json .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+            got=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$f")
+            [ "$got" = "$tag" ] || { echo "::error file=$f::버전 불일치 — 태그 $tag / 파일 $got"; fail=1; }
+          done
+          exit $fail
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+
+      # dist:mac = build → prepare:resources(번들 CPython·휠하우스·아이콘·안내 PDF·스킬) → electron-builder.
+      # PBS_SHA256 은 선택이다. 없으면 fetch-python.mjs 가 릴리스의 SHA256SUMS 를 받아 대조한다.
+      - name: 설치본 빌드
+        working-directory: app
+        run: pnpm dist:mac
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # 서명이 실제로 붙었는지 기록에 남긴다. adhoc 이면 릴리스 본문이 해제 안내를 달고,
+      # 정식 서명이면 그 문단을 뺀다 — 안내가 사실과 어긋나지 않게 빌드가 직접 판정한다.
+      - name: 서명 상태 확인
+        id: sign
+        working-directory: app
+        run: |
+          app=$(find dist -maxdepth 2 -name "*.app" -print -quit)
+          echo "검사 대상: $app"
+          codesign -dv "$app" 2>&1 | tee /tmp/codesign.txt || true
+          if grep -q "Signature=adhoc" /tmp/codesign.txt; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+          spctl -a -vv "$app" 2>&1 || true
+
+      - name: 체크섬 생성
+        working-directory: app/dist
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: 릴리스 초안 올리기
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+        working-directory: app/dist
+        run: |
+          {
+            echo "## 설치"
+            echo
+            echo "\`.dmg\` 를 내려받아 여세요."
+            echo
+            if [ "$SIGNED" != "true" ]; then
+              cat ../../docs/설치-안내-macOS.md
+            fi
+            echo
+            echo "## 확인"
+            echo
+            echo "이 빌드는 서명 상태를 빌드가 직접 판정해 기록합니다 — 정식 서명: \`$SIGNED\`."
+            echo "파일 무결성은 \`SHA256SUMS.txt\` 로 확인할 수 있습니다."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            *.dmg *.zip SHA256SUMS.txt

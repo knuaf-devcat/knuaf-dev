@@ -64,6 +64,28 @@ def test_init_creates_documented_layout(empty_folder):
         assert (empty_folder / rel).is_dir(), rel
 
 
+def test_init_works_in_a_folder_that_already_holds_the_students_files(empty_folder):
+    """SKILL.md:30 tells the model to init in the folder the student picked.
+
+    The app opens one folder and then reads `<root>/project.json`; if the model
+    digs a sub-folder because the picked one is not empty, the app shows an empty
+    project forever and never says why. That instruction is only safe because
+    init refuses on an existing canon and otherwise touches nothing else.
+    """
+    keep = empty_folder / "모스틱팜_영농창업계획.hwp"
+    keep.write_bytes(b"\xd0\xcf\x11\xe0 hwp")
+    (empty_folder / "_참고자료").mkdir()
+    before = keep.read_bytes()
+
+    assert run_gg(empty_folder, "init").returncode == 0
+    assert (empty_folder / "project.json").is_file(), "지정한 폴더에 정본이 생기지 않음"
+    assert keep.read_bytes() == before, "학생 원본이 바뀜"
+    assert (empty_folder / "_참고자료").is_dir(), "학생 폴더가 사라짐"
+
+    again = run_gg(empty_folder, "init")
+    assert again.returncode != 0, "기존 정본을 덮어씀"
+
+
 def test_paper_runs_from_the_project_dir(project, tmp_path):
     """Bisects the sidecar's paper.generate hang on Windows.
 
