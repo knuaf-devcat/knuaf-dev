@@ -9,10 +9,11 @@ import { Sheet } from '../components/Sheet'
 import { Icon } from '../components/Icon'
 import { EMPTY, READ_ONLY_NOTE, SCREEN_INTRO, STATUS_LABEL, describeError, type DescribedError } from '../copy'
 import type { SectionRow } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 /** Read-only by design (interview-ui.md): the agent writes, the transcript is the record. */
 export function Sections() {
-  const { root } = useProject()
+  const { root } = useProject(useShallow((s) => ({ root: s.root })))
   const [rows, setRows] = useState<SectionRow[]>([])
   const [sel, setSel] = useState<{ id: string; title: string; draft: string } | null>(null)
   const [err, setErr] = useState<DescribedError | null>(null)

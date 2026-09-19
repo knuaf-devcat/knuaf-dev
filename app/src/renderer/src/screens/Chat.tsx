@@ -10,6 +10,7 @@ import { SegmentedControl } from '../components/SegmentedControl'
 import { AgentTerminal } from '../components/Terminal'
 import { CHAT, SCREEN_INTRO, relativeTime } from '../copy'
 import type { ChatMessage } from '../../../shared/chat'
+import { useShallow } from 'zustand/react/shallow'
 
 function Message({ m, onResend }: { m: ChatMessage; onResend?: () => void }) {
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
@@ -32,7 +33,7 @@ export function Chat() {
   const projectRoot = useProject((s) => s.root)
   const settings = useProject((s) => s.settings)
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
-  const { root, snapshot, status, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat()
+  const { root, snapshot, status, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
   const logRef = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
 

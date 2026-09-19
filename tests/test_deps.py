@@ -1,8 +1,6 @@
 """gg_deps.ensure: project-local venv that actually runs (symlinked interpreter), offline wheelhouse path."""
-import json
 import os
 import subprocess
-import sys
 
 import pytest
 

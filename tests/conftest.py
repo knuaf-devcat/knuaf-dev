@@ -84,7 +84,7 @@ def project(empty_folder):
 
     root = empty_folder
     core.init(root)
-    (root / "sources").mkdir()
+    (root / "sources").mkdir(exist_ok=True)  # gg_core.init already creates it
     (root / "sources" / "answers.md").write_text(
         "# 원답변\n\n재배 면적: 600평\n\n수취가격: 모름\n", encoding="utf-8"
     )

@@ -14,6 +14,7 @@ app/resources/wheelhouse/
 app/resources/skill/
 # OS
 .DS_Store
+*.tsbuildinfo
 app/test-results/
 app/playwright-report/
 app/e2e/artifacts/

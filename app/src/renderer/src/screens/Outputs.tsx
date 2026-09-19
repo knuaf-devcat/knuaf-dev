@@ -12,6 +12,7 @@ import { ProgressPanel } from '../components/ProgressPanel'
 import { ResultCard } from '../components/ResultCard'
 import { useRunner } from '../components/useRunner'
 import { COMPLETION, EMPTY, FIELD_HINT, FIELD_LABEL, NOT_APPROVAL_NOTE, NO_OVERWRITE_NOTE, SCREEN_INTRO, describeError, officeHint, type DescribedError } from '../copy'
+import { useShallow } from 'zustand/react/shallow'
 
 type Tab = 'export' | 'paper' | 'docx' | 'excel' | 'office' | 'tree'
 const TABS: { id: Tab; label: string }[] = [{ id: 'export', label: '검토본' }, { id: 'paper', label: '논문 골격' }, { id: 'docx', label: 'DOCX' }, { id: 'excel', label: '재무 엑셀' }, { id: 'office', label: 'Office 렌더' }, { id: 'tree', label: 'build 폴더' }]
@@ -27,7 +28,7 @@ export function versioned(path: string, taken: (p: string) => boolean): string {
 const isAbs = (p: string) => p.startsWith('/') || /^[A-Za-z]:/.test(p)
 
 export function Outputs() {
-  const { root, status, refresh } = useProject()
+  const { root, status, refresh } = useProject(useShallow((s) => ({ root: s.root, status: s.status, refresh: s.refresh })))
   const platform = window.knuaf.platform
   const joinPath = (a: string, b: string) => isAbs(b) ? b : `${a}${platform === 'win32' ? '\\' : '/'}${b}`
   const [tab, setTab] = useState<Tab>('export')
@@ -36,7 +37,7 @@ export function Outputs() {
   const [kind, setKind] = useState('review')
   const [exportResult, setExportResult] = useState<{ path: string } | null>(null)
   const [exportErr, setExportErr] = useState<DescribedError | null>(null)
-  const [form, setForm] = useState<Record<string, string>>({ paper_in: 'paper-input.json', paper_out: 'build/검토전_본문.md', docx_in: 'build/본문_통합.md', docx_out: 'build/검토전_논문.docx', font: '신명조', xl_source: '', xl_map: 'build/template-review/source-map.json', xl_blank: 'build/template-review/blank-v1.xlsx', xl_values: '', xl_writemap: '', xl_filled: 'build/template-review/filled-v1.xlsx', xl_final: '', xl_receipts: '', of_input: '', of_out: 'build/native' })
+  const [form, setForm] = useState<Record<string, string>>({ paper_in: 'paper-input.json', paper_out: 'build/검토전_본문.md', docx_in: 'build/검토전_본문.md', docx_out: 'build/검토전_논문.docx', font: '신명조', xl_source: '', xl_map: 'build/template-review/source-map.json', xl_blank: 'build/template-review/blank-v1.xlsx', xl_values: '', xl_writemap: '', xl_filled: 'build/template-review/filled-v1.xlsx', xl_final: '', xl_receipts: '', of_input: '', of_out: 'build/native' })
   const existing = useMemo(() => {
     const s = new Set<string>()
     tree?.revisions?.forEach((r: any) => r.kinds.forEach((k: any) => k.files.forEach((f: any) => s.add(`build/${r.revision}/${k.kind}/${f.name}`))))

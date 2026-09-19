@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -177,6 +178,11 @@ def init(root):
         atomic(
             root / "project.json", json.dumps(p, ensure_ascii=False, indent=2).encode()
         )
+        # Directories the references tell the model to write into. Creating them
+        # here keeps the documented layout and the real one in agreement; before
+        # this they existed only in prose, so nothing ever checked them.
+        for rel in ("sources/extracts", "audit/model-routing"):
+            (root / rel).mkdir(parents=True, exist_ok=True)
     return p
 
 
@@ -188,6 +194,9 @@ _FD_LOCKING = (
     and os.unlink in os.supports_dir_fd
 )
 _REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT
+# POSIX rename() replaces an existing empty directory; Windows MoveFileEx
+# does not. Module-level so tests can exercise the Windows branch anywhere.
+_DIR_RENAME_REPLACES = sys.platform != "win32"
 
 
 class _DirRef:
@@ -1369,12 +1378,15 @@ def checks(root, p):
                 elif op in {"multiply", "divide", "add", "subtract"}:
                     if len(vals) != 2 or not f["formula"].get("unit_reason"):
                         raise ValueError("이항 산식/단위 근거 필요")
-                    value = {
-                        "multiply": lambda: vals[0] * vals[1],
-                        "divide": lambda: vals[0] / vals[1],
-                        "add": lambda: vals[0] + vals[1],
-                        "subtract": lambda: vals[0] - vals[1],
-                    }[op]()
+                    a, b = vals
+                    if op == "multiply":
+                        value = a * b
+                    elif op == "divide":
+                        value = a / b
+                    elif op == "add":
+                        value = a + b
+                    else:
+                        value = a - b
                 else:
                     raise ValueError("미지원 산식")
                 if value != Decimal(f["value"]):
@@ -2317,9 +2329,18 @@ def migrate(src, dest):
         # Exclusive reservation prevents replacing another import/user workspace.
         dest.mkdir()
         try:
-            os.replace(staged, dest)
+            if _DIR_RENAME_REPLACES:
+                os.replace(staged, dest)
+            else:
+                # Windows rename cannot target an existing directory, not even an
+                # empty one. Release the reservation immediately before the move;
+                # os.rename still refuses to overwrite, so a racing creation is
+                # reported instead of silently replaced.
+                dest.rmdir()
+                os.rename(staged, dest)
         except OSError:
-            dest.rmdir()  # Only the empty directory reserved above; never recursive.
+            if dest.is_dir() and not any(dest.iterdir()):
+                dest.rmdir()  # Only the empty directory reserved above; never recursive.
             raise
         return p
 
@@ -2842,16 +2863,46 @@ def restore(root, revision, expected_revision):
         }
 
 
+def _dependency_probe(root):
+    """Real per-interpreter probe, not find_spec.
+
+    gg_deps owns the contract that "installed somewhere else" is not usable: it
+    imports each dependency inside the project's own .venv interpreter and
+    checks the version range. gg.py doctor must not answer from the interpreter
+    that happens to be running the CLI, which is what find_spec reported before.
+    Mirrors what the app's doctor.all already does.
+    """
+    try:
+        import gg_deps
+    except ImportError:
+        return None, {"probe": "unavailable"}
+    try:
+        report = gg_deps.doctor(root)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as e:
+        return None, {"probe": "failed", "reason": str(e)}
+    installed = {
+        row["import_name"]: row["status"] == "installed"
+        for row in report.get("dependencies", ())
+    }
+    return installed, report
+
+
 def doctor(root):
     """Installation/lock/orphan detection. Detection is not execution proof."""
     import importlib.util
 
     root = Path(root)
+    installed, deps_report = _dependency_probe(root)
+    if installed is None:
+        # Last resort only: says nothing about the project venv, so label it.
+        installed = {
+            m: bool(importlib.util.find_spec(m)) for m in ("docx", "openpyxl", "pypdf")
+        }
+        deps_report = dict(deps_report, notice="현재 CLI 인터프리터 기준 탐지. 프로젝트 .venv 검증 아님.")
     return {
         "python": sys.version,
-        "dependencies": {
-            m: bool(importlib.util.find_spec(m)) for m in ("docx", "openpyxl", "pypdf")
-        },
+        "dependencies": installed,
+        "deps": deps_report,
         "recalculation": "not_run",
         "render": "not_run",
         "hwp": "unsupported",

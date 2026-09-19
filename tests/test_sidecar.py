@@ -5,7 +5,6 @@ import select
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import pytest
 
@@ -56,6 +55,12 @@ class Sidecar:
 
     def call(self, method, **params):
         return self.wait(self.send(method, **params))
+
+    def ok(self, method, **params):
+        """call() that fails with the sidecar's error instead of a bare KeyError."""
+        r = self.call(method, **params)
+        assert "result" in r, "%s 실패: %s" % (method, json.dumps(r.get("error"), ensure_ascii=False))
+        return r
 
     def close(self):
         try:
@@ -143,12 +148,29 @@ def test_doctor_all_shape(sidecar, project):
 
 def test_subprocess_method_streams_logs_and_normalises(sidecar, project):
     (project / "paper.json").write_text('{"title": "T", "writing_year": 2026}', encoding="utf-8")
-    r = sidecar.call("paper.generate", root=str(project), input="paper.json", out="build/본문.md")
+    r = sidecar.ok("paper.generate", root=str(project), input="paper.json", out="build/본문.md")
     env = r["result"]
     assert env["ok"] is True and env["status"] == "generated" and env["path"].endswith("본문.md")
     assert any(e["event"] == "progress" for e in r["events"])
     again = sidecar.call("paper.generate", root=str(project), input="paper.json", out="build/본문.md")["result"]
     assert again["ok"] is False and "덮어쓰지" in (again["block_reason"] or "")
+
+
+def test_project_owned_paths_cannot_escape_the_working_folder(sidecar, project):
+    """The renderer gates output fields, but the sidecar is the real boundary."""
+    for params in (
+        {"input": "paper.json", "out": "../탈출.md"},
+        {"input": "paper.json", "out": "/tmp/탈출.md"},
+    ):
+        r = sidecar.call("paper.generate", root=str(project), **params)
+        assert r["error"]["code"] == "invalid_params", params
+        assert "작업 폴더 밖" in r["error"]["message"]
+
+
+def test_positional_value_cannot_pose_as_an_option(sidecar, project):
+    r = sidecar.call("office.word", root=str(project), input="--help", out_dir="build/native")
+    assert r["error"]["code"] == "invalid_params"
+    assert "'-'" in r["error"]["message"]
 
 
 def test_docx_build_without_venv_reports_deps_not_ready(sidecar, project):

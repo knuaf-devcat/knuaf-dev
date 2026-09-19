@@ -33,7 +33,10 @@ export class ClaudeConnection implements AgentConnection {
     this.controller = new AbortController()
     const q = this.active = query({ prompt: sessionId ? text : `/knuaf-doc ${text}`, options: {
       cwd: this.options.root, pathToClaudeCodeExecutable: this.options.binary,
-      env: this.options.env, settingSources: ['user', 'project', 'local'],
+      // Same scope as the in-app terminal (see agentArgs in ../terminal.ts): the
+      // project's own skill copy stays authoritative, so a stale ~/.claude/skills
+      // cannot shadow or mix with it.
+      env: this.options.env, settingSources: ['project', 'local'],
       resume: sessionId, abortController: this.controller, permissionMode: 'default',
       systemPrompt: { type: 'preset', preset: 'claude_code', append: '이 세션은 개인용 knuaf-doc GUI입니다. knuaf-doc 스킬과 참조 지침을 그대로 따르세요. 질문과 답변은 채팅 텍스트로 유지하고 인터뷰 원문과 해석을 스킬의 로그 계약대로 기록하세요.' },
       canUseTool: async (name, input, options): Promise<PermissionResult> => {

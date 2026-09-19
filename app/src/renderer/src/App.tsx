@@ -17,6 +17,7 @@ import { Sidebar, type NavGroup, type NavItem } from './components/Sidebar'
 import { Feedback } from './components/Feedback'
 import { HelperSheet } from './components/HelperSheet'
 import { INDEPENDENT_REVIEW_MISSING, NAV as NAV_COPY } from './copy'
+import { useShallow } from 'zustand/react/shallow'
 
 const NAV: NavItem[] = [
   { id: 'home', label: '홈', icon: 'folder' },
@@ -45,7 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_NAV: NavItem[] = [...NAV, ...NAV_GROUPS.flatMap((g) => g.items)]
 
 export function App() {
-  const { screen, setScreen, root, hasProject, status, loadSettings, pushLog, open, refresh } = useProject()
+  const { screen, setScreen, root, hasProject, status, loadSettings, pushLog, open, refresh } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open, refresh: s.refresh })))
   const [dragging, setDragging] = React.useState(false)
   useEffect(() => {
     void loadSettings()

@@ -1,17 +1,10 @@
 """Baseline CLI behaviour that must keep working while we fix the audit items."""
 import json
-import sys
 
-import pytest
 
 from conftest import parse_json, run_gg
 
-WIN_LOCK = pytest.mark.xfail(
-    sys.platform == "win32", reason="audit C1: Lock uses O_DIRECTORY/dir_fd (Unix only)", strict=True
-)
 
-
-@WIN_LOCK
 def test_init_status_next_check_flow(project):
     st = run_gg(project, "status")
     assert st.returncode == 0, st.stderr
@@ -25,7 +18,6 @@ def test_init_status_next_check_flow(project):
     assert isinstance(parse_json(ck.stdout), list)
 
 
-@WIN_LOCK
 def test_export_draft_creates_versioned_folder(project):
     ex = run_gg(project, "export", "--kind", "draft")
     assert ex.returncode == 0, ex.stdout + ex.stderr
@@ -42,7 +34,6 @@ def test_doctor_reports_lock_and_orphans(project):
     assert data["model_calls"] == "disabled"
 
 
-@WIN_LOCK
 def test_wrong_expected_revision_is_blocked_json(project, tmp_path):
     change = tmp_path / "c.json"
     change.write_text(json.dumps({"request_id": "x", "ops": []}), encoding="utf-8")
@@ -64,3 +55,26 @@ def test_malformed_source_claims_yields_blocked_json_not_traceback(project):
         assert out["status"] == "blocked"
     else:
         assert any(row["check_id"] == "source_claims_invalid" for row in out)
+
+
+def test_init_creates_documented_layout(empty_folder):
+    """section-ledger.md lists these; before, they existed only in prose."""
+    assert run_gg(empty_folder, "init").returncode == 0
+    for rel in ("sources", "sources/extracts", "audit/model-routing"):
+        assert (empty_folder / rel).is_dir(), rel
+
+
+def test_paper_runs_from_the_project_dir(project, tmp_path):
+    """Bisects the sidecar's paper.generate hang on Windows.
+
+    The sidecar runs `gg.py paper` with cwd set to the project (a Korean-named
+    folder), not to scripts/. If this passes where the sidecar call times out,
+    the fault is in the sidecar's runner rather than in gg.py itself.
+    """
+    (project / "paper.json").write_text(
+        '{"title": "T", "writing_year": 2026}', encoding="utf-8"
+    )
+    r = run_gg(project, "paper", "--input", "paper.json", "--out", "build/본문.md",
+               cwd=project, timeout=60)
+    assert r.returncode == 0, "stdout=%r stderr=%r" % (r.stdout, r.stderr)
+    assert (project / "build" / "본문.md").is_file()

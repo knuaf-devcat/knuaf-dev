@@ -7,17 +7,25 @@ import json
 from pathlib import Path
 import re
 import sys
-from docx import Document
-from docx.shared import Pt, Mm, RGBColor, Twips
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
-from docx.enum.section import WD_SECTION
-from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from gg_document import parse, spans, SCI, FRONT, school_toc_range, school_frontmatter_plan
+from gg_document import parse, spans, SCI, school_toc_range, school_frontmatter_plan
 from gg_core import atomic, digest, local
-import gg_docx_table_layout
+
+# python-docx is a runtime dependency, not a packaging one: a missing install is
+# reported as a dependency hold (package-install.md), never as a traceback.
+try:
+    from docx import Document
+    from docx.shared import Pt, Mm, RGBColor, Twips
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    from docx.enum.section import WD_SECTION
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    import gg_docx_table_layout
+except ImportError as _e:
+    DOCX_IMPORT_ERROR = _e
+else:
+    DOCX_IMPORT_ERROR = None
 
 FONT = "신명조"
 # 소제목(6~9단계: (1)/(가)/①/㉮)은 gg_school_format의 OG-016 허용 범위
@@ -534,10 +542,14 @@ def convert(md_text, font=FONT, base=".", table_reports=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("base")
-    ap.add_argument("--in", dest="inp", default="build/본문_통합.md")
+    ap.add_argument("--in", dest="inp", default="build/검토전_본문.md")
     ap.add_argument("--out", default="build/검토전_논문.docx")
     ap.add_argument("--font", default=FONT)
     a = ap.parse_args()
+    if DOCX_IMPORT_ERROR is not None:
+        print("의존성 미설치로 보류: python-docx (%s). "
+              "gg_deps.py ensure <폴더> 후 그 인터프리터로 다시 실행" % DOCX_IMPORT_ERROR)
+        return 2
     try:
         src = local(a.base, a.inp)
         out = local(a.base, a.out)
@@ -598,8 +610,11 @@ def main():
             print("경고: " + w, file=sys.stderr)
         print(str(out))
         return 0
-    except (ValueError, OSError) as e:
-        print(str(e))
+    except (ValueError, KeyError, IndexError, OSError, TypeError,
+            AttributeError, RecursionError) as e:
+        # Same breadth as gg.py: malformed input must not reach the student as a
+        # traceback. Unexpected types still surface, so real bugs stay visible.
+        print("%s: %s" % (type(e).__name__, e))
         return 2
 
 

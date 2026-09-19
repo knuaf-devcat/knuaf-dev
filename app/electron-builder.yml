@@ -5,8 +5,11 @@ appId: kr.ac.knuaf.doc.companion
 productName: knuaf-doc Companion
 executableName: knuaf-doc-companion
 afterSign: scripts/after-sign.mjs
-# 정식 서명·공증: Apple Developer 계정이 생기면 환경변수 CSC_LINK(.p12) / CSC_KEY_PASSWORD / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 만 넣으면
-# electron-builder가 서명하고 notarize 한다(afterSign 훅은 그때 자동으로 건너뜀).
+# 정식 서명·공증: Apple Developer 계정이 생기면 CSC_LINK(.p12) / CSC_KEY_PASSWORD /
+# APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 를 넣는다. 서명이 있으면
+# afterSign 훅의 임시(ad-hoc) 서명은 자동으로 건너뛰고, 아래 mac.notarize 설정에 따라
+# 공증까지 진행된다. electron-builder 26에서는 notarize 를 명시하지 않으면 공증하지
+# 않으므로(서명만 된 앱은 Gatekeeper가 계속 막는다) 이 키를 지우지 말 것.
 directories:
   output: dist
   buildResources: build
@@ -43,8 +46,20 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # hardenedRuntime + 공증에서는 번들 안의 모든 Mach-O가 서명돼야 한다. 번들 python의
+  # 실행파일뿐 아니라 libpython 과 lib-dynload 확장모듈도 포함한다(entitlements 의
+  # disable-library-validation 은 '로드'만 허용할 뿐 공증 요건을 대신하지 않는다).
+  notarize: true
   binaries:
     - resources/python/bin/python3
+    - resources/python/lib/libpython3.12.dylib
+    - resources/python/lib/libtcl8.6.dylib
+    - resources/python/lib/libtk8.6.dylib
+    - resources/python/lib/thread2.8.9/libthread2.8.9.dylib
+    - resources/python/lib/itcl4.2.4/libitcl4.2.4.dylib
+    - resources/python/lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so
+    - resources/python/lib/python3.12/lib-dynload/_ctypes_test.cpython-312-darwin.so
+    - resources/python/lib/python3.12/lib-dynload/_crypt.cpython-312-darwin.so
 win:
   icon: build/icon.ico
   target: [nsis]

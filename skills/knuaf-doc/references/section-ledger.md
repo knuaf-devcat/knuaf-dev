@@ -2,6 +2,29 @@
 
 `project.json`이 기계 판정 정본이다. sources/facts/sections/questions/tasks/reviews/rules/approvals/outputs 컬렉션을 사용한다. 원답변·원문 파일은 출처 위치와 해시로 연결한다. 출처 ID·권한·물리 페이지·재검토 예외는 [source-contract.md](source-contract.md)에 정의한다. 상태판·가정표는 보기이며 정본 대신 편집하지 않는다.
 
+## 작업폴더 구성
+
+`gg.py init`이 만드는 구조다. 여기 없는 원장 파일을 새로 만들지 않는다.
+
+| 경로 | 내용 | 누가 쓰나 |
+|---|---|---|
+| `project.json` | 기계 판정 정본. 모든 컬렉션 | `gg.py apply`만 |
+| `.gg-lock/owner.json` | 쓰기 잠금. pid·host·token·획득 시각 | 잠금 관리자 |
+| `.gg-observations/` | 검토 관측 기록 (`observe` 명령) | `gg.py observe` |
+| `.venv/` | 프로젝트 전용 실행환경 | `gg_deps.py ensure` |
+| `sections/*.md` | 절 본문. DRAFT 경계 안쪽만 편집 대상 | 작성자 |
+| `sources/` | 원답변·학교 원문·참고자료 원본 | 작성자 (읽기 전용 보존) |
+| `sources/extracts/` | 실제로 읽은 자료의 발췌본 | 자료 담당 |
+| `sources/guidelines/inventory.json` | 학교 지침 항목 목록 | `gg_guidelines.py` |
+| `audit/model-routing/` | 위임 호출 기록 (요청/실효 모델 구분) | 메인 |
+| `migration/revision-N.json` | 이전 정본 스냅샷 | `apply`가 자동 |
+| `migration/original-sections/`, `comparison.json`, `inputs.json` | 가져오기 보존본과 대조 결과 | `gg.py import` |
+| `build/<개정>/<종류>/` | 발행 산출물과 `manifest.json` | `gg.py export` |
+| `build/검토전_본문.md`, `검토전_논문.docx`, `검토전_재무.xlsx` | 저수준 생성물 (검토 전) | 생성 스크립트 |
+
+`audit/model-routing/`의 기록은 감사 증거이며 `project.json`의 품질 상태를
+대신하지 않는다. 기록된 문자열 자체는 승인 근거가 아니다.
+
 기존 절 원장에 STATUS, INPUT, RESEARCH, FACTS, DRAFT, OPEN 블록이 있으면 보존한다. 상태·적용 여부의 정본은 project.json이며, 이 블록의 유무나 체크 표시만으로 준수를 판정하지 않는다. 편집 본문은 다음 명시적 경계 안에 둔다. 내부 Markdown 제목은 본문을 끊지 않는다.
 
 ```text
@@ -26,7 +49,7 @@
 
 잠금이 남으면 `gg.py doctor`(또는 `lock-info`)로 소유 기록을 확인한다. 소유 기록에는 pid·host·token·획득 시각이 있다. 살아 있는 작성자의 잠금을 삭제하지 않는다. `gg.py unlock <폴더>`는 같은 기기이고 소유 프로세스가 종료된 경우(`verdict: stale_releasable`)에만 해제하며, 다른 기기의 잠금·실행 중인 잠금·소유 기록이 없거나 손상된 잠금은 보존하고 거부한다. 임시파일·이전 개정·현재 정본을 대조하고 사용자의 원문을 보존한 뒤 복구한다. 자동 잠금 탈취는 하지 않는다.
 
-S6 후보의 잠금은 PID뿐 아니라 호스트·획득별 토큰과 디렉터리 식별자를
+`submission_candidate` 후보의 잠금은 PID뿐 아니라 호스트·획득별 토큰과 디렉터리 식별자를
 대조한다. 교체되거나 소유 기록이 불명확한 잠금은 보존한다. 소유 기록
 작성은 기존 원자적 쓰기를 사용하며 실패 시 자기 임시파일과 빈 잠금
 디렉터리를 정리한다. 소유 파일 해제는 획득한 디렉터리 핸들에 묶는다(POSIX). Windows에는 디렉터리 핸들 기반 API(`dir_fd`)가 없어 경로 기반으로 동작하며, 심볼릭 링크·정션을 거부하고 각 단계 전후로 디렉터리 식별자를 다시 비교하는 약한 보장으로 대체한다. 하드링크를 지원하지 않는 볼륨(exFAT·일부 네트워크 드라이브)에서는 발행 파일을 원자적 복사로 대신하고 해시를 재검증한다.
@@ -84,7 +107,7 @@ rules의 output_formats에는 최종 제출 formats와 source_refs를 기록한�
 
 ## 교수 승인 기록과 발행 충돌
 
-S6 후보의 교수 승인 범위는 `scope=project_outputs`와 유효한 `superseded_by`
+`submission_candidate` 후보의 교수 승인 범위는 `scope=project_outputs`와 유효한 `superseded_by`
 계보가 산출하는 현재 출력 집합의 `target_refs`로 명시한다. 유효한 이력
 출력은 승인 대상에서 제외하며, invalid 계보나 stale 상태의 현재 출력이
 남아 있으면 어떤 승인 기록도 성립하지 않는다. 실제 근거 파일의 `evidence_path`와

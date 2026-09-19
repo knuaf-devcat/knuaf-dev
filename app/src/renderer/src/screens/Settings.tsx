@@ -4,9 +4,10 @@ import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
 import { CHAT, PRIVACY_NOTE, SCREEN_INTRO } from '../copy'
+import { useShallow } from 'zustand/react/shallow'
 
 export function SettingsScreen() {
-  const { settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper } = useProject()
+  const { settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper } = useProject(useShallow((s) => ({ settings: s.settings, loadSettings: s.loadSettings, sidecar: s.sidecar, refreshSidecar: s.refreshSidecar, logs: s.logs, clearLogs: s.clearLogs, openHelper: s.openHelper })))
   const [override, setOverride] = useState('')
   const [info, setInfo] = useState<{ version: string; packaged: boolean; logs: string; electron: string } | null>(null)
   useEffect(() => { void window.knuaf.appInfo().then(setInfo) }, [])

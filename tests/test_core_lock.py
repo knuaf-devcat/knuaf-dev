@@ -2,24 +2,17 @@
 import json
 import os
 import socket
-import sys
 
 import pytest
 
 import gg_core as core
 from conftest import parse_json, run_gg
 
-WIN_LOCK = pytest.mark.xfail(
-    sys.platform == "win32", reason="audit C1: Lock uses O_DIRECTORY/dir_fd (Unix only)", strict=True
-)
 
-
-@WIN_LOCK
 def test_lock_is_released_after_apply(project):
     assert not (project / ".gg-lock").exists()
 
 
-@WIN_LOCK
 def test_concurrent_lock_is_refused(project):
     with core.Lock(project):
         with pytest.raises(ValueError, match="쓰기 잠금"):
@@ -28,7 +21,6 @@ def test_concurrent_lock_is_refused(project):
     assert not (project / ".gg-lock").exists()
 
 
-@WIN_LOCK
 def test_init_on_windows_style_paths_and_korean_names(project):
     # the fixture folder already contains Korean + space; make sure nothing is left behind
     assert (project / "project.json").exists()
@@ -98,7 +90,7 @@ def test_doctor_shows_lock_owner(project):
 def test_lock_roundtrip_in_path_mode(project, monkeypatch):
     """The Windows branch of _DirRef (no dir_fd) must give the same lifecycle."""
     monkeypatch.setattr(core, "_FD_LOCKING", False)
-    with core.Lock(project) as lock:
+    with core.Lock(project):
         assert (project / ".gg-lock" / "owner.json").exists()
         with pytest.raises(ValueError, match="쓰기 잠금"):
             with core.Lock(project):

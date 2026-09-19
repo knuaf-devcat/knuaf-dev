@@ -75,7 +75,8 @@ def render_forms(doc,nodes,plan,font):
     title_parts=cover[2:-4]
     if not 1<=len(title_parts)<=2: raise ValueError('학교 제목과 부제는 각 한 문단으로 입력')
     title=title_parts[0];subtitle=title_parts[1] if len(title_parts)>1 else ''
-    import math, unicodedata
+    import math
+    import unicodedata
     def units(text): return sum(1 if unicodedata.east_asian_width(ch) in {'W','F'} else .55 for ch in text)
     required_height=math.ceil(units(title)/22)*8.573+(math.ceil(units(subtitle)/29)*6.668 if subtitle else 0)
     if required_height>55: raise ValueError('표지 제목/부제가 허용 영역을 초과함: 제목을 줄이거나 별도 양식 프로필 필요')

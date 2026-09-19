@@ -32,16 +32,16 @@ Windows에서 네이티브 Office 자동화를 쓰려면 `pywin32`가 추가로 
 
 ## 플랫폼 지원
 
-핵심 로직(사실 관리·지침 검사·DOCX/XLSX 생성)은 순수 Python이며 Python 3.10 이상에서 macOS와 Linux(UTF-8 로캘)로 검증되었습니다. **Windows에서는 아직 잠금(`.gg-lock`) 코드가 Unix 전용 API를 사용해 `gg.py init`부터 실패합니다.** 이식 작업이 진행 중이며 그전까지 Windows에서는 사용하지 마세요.
+핵심 로직(사실 관리·지침 검사·DOCX/XLSX 생성)은 순수 Python이며 Python 3.10 이상에서 macOS와 Linux(UTF-8 로캘)로 검증되었습니다. 잠금(`.gg-lock`)과 가져오기(`import`)의 Windows 경로는 이식을 마쳤고, 해당 분기를 강제로 켜는 테스트가 모든 OS에서 실행됩니다(`tests/test_core_lock.py`, `tests/test_core_migrate.py`). **다만 실제 Windows 기기에서의 실사용 검증은 아직 없습니다.** CI 매트릭스에 `windows-latest`가 있으므로 워크플로를 원격 저장소에서 한 번 실행하면 확인됩니다.
 
 다만 "네이티브 Office로 실제 재계산·페이지 렌더까지 검증"하는 마무리 단계(`scripts/gg_office.py`)는 실제 Word/Excel 앱을 직접 구동합니다.
 
 | 플랫폼 | 구현 | 실사용 검증 |
 |---|---|---|
 | macOS | AppleScript(osascript) | 완료 — 실제 Word/Excel로 반복 검증됨 |
-| Windows | COM 자동화(pywin32) | 코드만 작성됨. 자동 테스트도 실사용 검증도 아직 없음. 또한 위의 코어 잠금 문제로 현재 Windows 전체가 미지원 |
+| Windows | COM 자동화(pywin32) | 코드만 작성됨. 실제 Word/Excel로 실행한 검증은 아직 없음(정적 검사만). 코어 로직은 위 설명대로 별개 |
 
-Windows 지원이 열리면 실제로 써보고 문제를 발견하시면 이슈나 PR로 알려주세요.
+Windows에서 실제로 써보고 문제를 발견하시면 이슈나 PR로 알려주세요.
 
 ## 동반 앱 (GUI)
 

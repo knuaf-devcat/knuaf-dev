@@ -8,6 +8,7 @@ import { Feedback } from '../components/Feedback'
 import { Preview } from '../components/Preview'
 import { ARTIFACTS, EMPTY, SCREEN_INTRO, describeError, formatBytes, relativeTime, type DescribedError } from '../copy'
 import type { ArtifactItem, CheckRow } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 const KIND_LABEL: Record<string, string> = { docx: 'DOCX', xlsx: 'XLSX', pdf: 'PDF', md: 'MD' }
 
@@ -21,7 +22,7 @@ function CheckBadge({ name, checks }: { name: string; checks: CheckRow[] | null 
 }
 
 export function Artifacts() {
-  const { root, status, setScreen } = useProject()
+  const { root, status, setScreen } = useProject(useShallow((s) => ({ root: s.root, status: s.status, setScreen: s.setScreen })))
   const platform = window.knuaf.platform
   const joinPath = (rel: string) => `${root}${platform === 'win32' ? '\\' : '/'}${rel}`
   const [items, setItems] = useState<ArtifactItem[] | null>(null)

@@ -5,7 +5,11 @@ This checker supports DOCX files generated with the school body bookmark. It mea
 DOCX package as XML (including style inheritance) and never rewrites it.
 """
 from __future__ import annotations
-import argparse, hashlib, json, re, sys
+import argparse
+import hashlib
+import json
+import re
+import sys
 from collections import Counter
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
@@ -212,7 +216,7 @@ def check(path: Path, *, output_json: Path | None = None):
     # accepted school sequence while leaving all measurement evidence visible.
     top_tables = [x for x in list(body) if x.tag == QN("tbl")]
     front_table_limit = min(3, len(top_tables))
-    toc_done = False; front_done = False; records=[]; top_table_seen=0
+    records=[]; top_table_seen=0
     raw=[]
     for child in list(body):
         if child.tag == QN("tbl"):
@@ -220,9 +224,7 @@ def check(path: Path, *, output_json: Path | None = None):
             walk_paragraphs(child, {"table": True, "table_index": top_table_seen, "front": top_table_seen <= front_table_limit}, raw)
             continue
         if child.tag == QN("p"):
-            txt = text_of(child)
             raw.append((child, {"table": False, "front": False}))
-            if txt.strip() and top_table_seen >= front_table_limit: front_done=True
     # Reclassify by the renderer's body bookmarks.  The pre-body run contains
     # cover/signature tables, TOC fields, and summary; ``gg_body_1`` is the
     # first actual chapter and is safer than guessing from page-number text.
@@ -232,7 +234,6 @@ def check(path: Path, *, output_json: Path | None = None):
     if body_start is None:
         structural_violations.append({"requirement_id":"OG-004","code":"body_bookmark_missing","location":"word/document.xml","expected":"bookmark gg_body_1","actual":None,"message":"본문 시작 bookmark가 없어 본문 서식 검사를 수행할 수 없음"})
     for i,(p,ctx) in enumerate(raw,1):
-        stripped=text_of(p).strip()
         if ctx.get("table") and ctx.get("front"):
             kind="front"
         elif ctx.get("table"):
@@ -248,7 +249,6 @@ def check(path: Path, *, output_json: Path | None = None):
     body_records=[r for r in records if body_start is not None and r["kind"]=="body" and r["text"].strip() and not is_heading(r["style_id"],r["text"].strip(),r) and not r["text"].strip().startswith(("표 ","그림 "))]
     if body_start is not None and not body_records:
         structural_violations.append({"requirement_id":"OG-005","code":"body_prose_missing","location":"word/document.xml","expected":"at least one body prose paragraph","actual":0,"message":"본문 시작 bookmark 뒤 산문 문단이 없어 본문 서식을 검증할 수 없음"})
-        violations = structural_violations
     table_records=[r for r in records if r["kind"]=="table" and r["text"].strip()]
     summary_records=[r for r in records if r["kind"]=="summary" and r["text"].strip()]
     front_records=[r for r in records if r["kind"]=="front" and r["text"].strip()]

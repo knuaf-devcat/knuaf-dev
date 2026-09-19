@@ -4,9 +4,10 @@ import { Badge, StatusBadge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Icon } from '../components/Icon'
 import { EMPTY, SCREEN_INTRO } from '../copy'
+import { useShallow } from 'zustand/react/shallow'
 
 export function Tasks() {
-  const { status, refresh, loading } = useProject()
+  const { status, refresh, loading } = useProject(useShallow((s) => ({ status: s.status, refresh: s.refresh, loading: s.loading })))
   if (!status) return null
   const groups = [['needs_user', '내 답변이 필요한 일', 'tasks_needs_user'], ['needs_evidence', '근거가 필요한 일', 'tasks_needs_evidence'], ['ready', '진행 가능한 일', 'tasks_ready']] as const
   const all = status.tasks.length

@@ -7,7 +7,7 @@ plans as 'unsupported'. Narrowly permits #N/A only in 2. 중장기영농목표 C
 year sales is verified zero.
 """
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter

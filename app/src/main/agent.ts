@@ -127,23 +127,35 @@ export function skillSource(appRoot: string, isPackaged: boolean, resourcesPath:
   return isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-doc')
 }
 
-/** sha256(SKILL.md ‖ sorted "name:size" of scripts/*.py), first 12 hex. Stable across machines for the same content. */
+/** Walk `abs`, collecting "rel/path:sha256(content)" for the files installSkill copies. */
+function skillFingerprint(abs: string, rel: string, out: string[]): void {
+  if (!existsSync(abs)) return
+  for (const name of readdirSync(abs)) {
+    const child = join(abs, name)
+    if (!copyFilter(child)) continue
+    try {
+      const st = statSync(child)
+      if (st.isDirectory()) skillFingerprint(child, `${rel}/${name}`, out)
+      else if (st.isFile()) out.push(`${rel}/${name}:${createHash('sha256').update(readFileSync(child)).digest('hex')}`)
+    } catch { /* vanished between readdir and stat */ }
+  }
+}
+
+/**
+ * sha256 over the CONTENT of every installed file, first 12 hex. Stable across
+ * machines for the same content.
+ *
+ * This used to hash SKILL.md plus `name:size` of scripts/*.py, which left two blind
+ * spots: references/ was not hashed at all (replacing all 21 documents produced the
+ * same version), and a same-length script edit was invisible. installSkill then
+ * reported 'unchanged' and a project kept a stale copy of the rules.
+ */
 export function skillVersion(source: string): string {
   const h = createHash('sha256')
   const skillMd = join(source, 'SKILL.md')
   h.update(existsSync(skillMd) ? readFileSync(skillMd) : Buffer.alloc(0))
-  const scripts = join(source, 'scripts')
   const entries: string[] = []
-  if (existsSync(scripts)) {
-    for (const name of readdirSync(scripts)) {
-      if (!name.endsWith('.py')) continue
-      const p = join(scripts, name)
-      try {
-        const st = statSync(p)
-        if (st.isFile()) entries.push(`${name}:${st.size}`)
-      } catch { /* vanished between readdir and stat */ }
-    }
-  }
+  for (const dir of ['references', 'scripts']) skillFingerprint(join(source, dir), dir, entries)
   entries.sort()
   for (const e of entries) h.update('\n' + e)
   return h.digest('hex').slice(0, 12)
@@ -184,6 +196,17 @@ function copyFilter(src: string): boolean {
   return !SKIP_NAMES.has(name) && !name.endsWith('.pyc')
 }
 
+/**
+ * Where a superseded copy goes. It must NOT be a sibling of `target`: a backup left
+ * inside `<root>/.claude/skills/` is itself discovered as a skill, so the project ends
+ * up with two near-identical knuaf-doc entries competing to be loaded.
+ * `target` is `<root>/<.claude|.agents>/skills/knuaf-doc` (see skillTargets).
+ */
+export function skillBackupDir(target: string): string {
+  const root = dirname(dirname(dirname(target)))
+  return join(root, '.knuaf-gui', 'skill-backups')
+}
+
 /** Copy SKILL.md + references/ + scripts/ into `target` (only ever that directory), leaving a version marker. */
 export function installSkill(source: string, target: string, version: string): InstallResult {
   const state = skillState(target, version)
@@ -191,9 +214,12 @@ export function installSkill(source: string, target: string, version: string): I
 
   let backup: string | undefined
   if (state === 'outdated') {
-    backup = `${target}.bak-${stamp()}`
+    const dir = skillBackupDir(target)
+    mkdirSync(dir, { recursive: true })
+    const kind = basename(dirname(dirname(target)))  // '.claude' | '.agents'
+    backup = join(dir, `${kind}-${stamp()}`)
     let i = 1
-    while (existsSync(backup)) backup = `${target}.bak-${stamp()}-${i++}`
+    while (existsSync(backup)) backup = join(dir, `${kind}-${stamp()}-${i++}`)
     renameSync(target, backup)
   }
 

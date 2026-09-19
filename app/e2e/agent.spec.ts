@@ -1,29 +1,38 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import {
   agentApi, buildLaunchScript, findExecutable, firstPromptFor, installSkill, launch, probeVersion,
-  skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
+  skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
 
+// Where `claude` lives is machine-specific (Homebrew prefix, ~/.local/bin, a CI
+// runner without it at all), so these assert the resolution behaviour rather than
+// one developer's absolute path.
+const claudePath = findExecutable('claude', process.env)
+
 test.describe('findExecutable / probeVersion', () => {
-  test('finds claude on this Mac and null for a bogus name', async () => {
-    const p = findExecutable('claude', process.env)
-    expect(p).toBe('/opt/homebrew/bin/claude')
+  test('resolves an executable claude when installed, and null for a bogus name', async () => {
+    if (claudePath) {
+      expect(existsSync(claudePath)).toBe(true)
+      expect(claudePath.endsWith('/claude') || claudePath.endsWith('\\claude.exe')).toBe(true)
+    }
     expect(findExecutable('definitely-not-a-real-binary-xyz', process.env)).toBeNull()
   })
 
   test('falls back to the extra dirs when PATH is empty', () => {
-    expect(findExecutable('claude', { PATH: '', HOME: process.env.HOME })).toBe('/opt/homebrew/bin/claude')
+    // Same answer without PATH: the fallback dirs must cover the usual installs.
+    expect(findExecutable('claude', { PATH: '', HOME: process.env.HOME })).toBe(claudePath)
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {
-    const v = await probeVersion('/opt/homebrew/bin/claude')
+    test.skip(!claudePath, 'claude is not installed on this machine')
+    const v = await probeVersion(claudePath!)
     expect(typeof v).toBe('string')
     expect(v!.length).toBeGreaterThan(0)
     expect(v).not.toContain('\n')
@@ -49,6 +58,42 @@ test.describe('skill source + version', () => {
     const v1 = skillVersion(fake)
     writeFileSync(join(fake, 'SKILL.md'), '# y\n')
     expect(skillVersion(fake)).not.toBe(v1)
+  })
+
+  test('a references-only change moves the version', () => {
+    // It did not before: references/ was left out of the hash entirely, so replacing
+    // every rule document still read as 'installed' and projects kept a stale copy.
+    const fake = mkdtempSync(join(tmpdir(), 'kd-skill-refs-'))
+    writeFileSync(join(fake, 'SKILL.md'), '# same\n')
+    mkdirSync(join(fake, 'references'))
+    writeFileSync(join(fake, 'references', 'workflow-order.md'), '원래 내용\n')
+    const before = skillVersion(fake)
+    writeFileSync(join(fake, 'references', 'workflow-order.md'), '바뀐 내용\n')
+    expect(skillVersion(fake)).not.toBe(before)
+  })
+
+  test('a same-length script edit moves the version', () => {
+    // The old hash used name:size, so an equal-length edit was invisible.
+    const fake = mkdtempSync(join(tmpdir(), 'kd-skill-size-'))
+    writeFileSync(join(fake, 'SKILL.md'), '# same\n')
+    mkdirSync(join(fake, 'scripts'))
+    writeFileSync(join(fake, 'scripts', 'gg_core.py'), 'VERSION = "1.0"\n')
+    const before = skillVersion(fake)
+    writeFileSync(join(fake, 'scripts', 'gg_core.py'), 'VERSION = "9.9"\n')
+    expect(skillVersion(fake)).not.toBe(before)
+  })
+
+  test('bytecode and OS junk do not move the version', () => {
+    // installSkill never copies these, so they must not make a project look outdated.
+    const fake = mkdtempSync(join(tmpdir(), 'kd-skill-junk-'))
+    writeFileSync(join(fake, 'SKILL.md'), '# same\n')
+    mkdirSync(join(fake, 'scripts'))
+    writeFileSync(join(fake, 'scripts', 'gg_core.py'), 'x = 1\n')
+    const before = skillVersion(fake)
+    mkdirSync(join(fake, 'scripts', '__pycache__'))
+    writeFileSync(join(fake, 'scripts', '__pycache__', 'gg_core.cpython-313.pyc'), 'junk')
+    writeFileSync(join(fake, 'scripts', '.DS_Store'), 'junk')
+    expect(skillVersion(fake)).toBe(before)
   })
 })
 
@@ -78,12 +123,31 @@ test.describe('installSkill', () => {
     expect(skillState(targets.claude, version)).toBe('outdated')
     const third = installSkill(source, targets.claude, version)
     expect(third.action).toBe('updated')
-    expect(third.backup).toMatch(/knuaf-doc\.bak-\d{8}-\d{6}$/)
     expect(existsSync(third.backup!)).toBe(true)
     expect(readFileSync(join(third.backup!, VERSION_FILE), 'utf-8')).toBe('tampered\n')
     expect(readFileSync(join(targets.claude, VERSION_FILE), 'utf-8').trim()).toBe(version)
-    // sibling skills untouched
-    expect(readdirSync(join(root, '.claude', 'skills')).sort()).toEqual([`knuaf-doc`, `knuaf-doc.bak-${third.backup!.split('.bak-')[1]}`].sort())
+
+    // The backup must not be a sibling of the skill: anything under skills/ is
+    // discovered as its own skill, so a sibling backup competes with the real one.
+    expect(readdirSync(join(root, '.claude', 'skills'))).toEqual(['knuaf-doc'])
+    expect(third.backup).toBe(join(skillBackupDir(targets.claude), basename(third.backup!)))
+    expect(basename(third.backup!)).toMatch(/^\.claude-\d{8}-\d{6}$/)
+    expect(third.backup!.startsWith(join(root, '.knuaf-gui'))).toBe(true)
+  })
+
+  test('a codex backup is named apart from a claude one', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kd-root-bak-'))
+    const targets = skillTargets(root)
+    const version = skillVersion(source)
+    for (const kind of ['claude', 'codex'] as const) {
+      installSkill(source, targets[kind], version)
+      writeFileSync(join(targets[kind], VERSION_FILE), 'tampered\n')
+      installSkill(source, targets[kind], version)
+    }
+    const backups = readdirSync(join(root, '.knuaf-gui', 'skill-backups')).sort()
+    expect(backups).toHaveLength(2)
+    expect(backups.some((n) => n.startsWith('.claude-'))).toBe(true)
+    expect(backups.some((n) => n.startsWith('.agents-'))).toBe(true)
   })
 })
 
@@ -150,8 +214,9 @@ test.describe('agentApi', () => {
     // no project open: skill state reports missing for both agents
     expect((await agentApi.status(ctx, null)).skill).toEqual({ claude: 'missing', codex: 'missing' })
     const st = await agentApi.status(ctx, root)
-    expect(st.claude).toMatchObject({ found: true, path: '/opt/homebrew/bin/claude' })
-    expect(typeof st.claude.version).toBe('string')
+    // Whether claude is installed is a property of the machine, not of agentApi.
+    expect(st.claude).toMatchObject({ found: claudePath !== null, path: claudePath })
+    if (claudePath) expect(typeof st.claude.version).toBe('string')
     expect(st.skill).toEqual({ claude: 'missing', codex: 'missing' })
     expect(st.skillVersion).toBe(skillVersion(source))
 
@@ -159,11 +224,16 @@ test.describe('agentApi', () => {
     expect(existsSync(join(root, '.agents', 'skills', 'knuaf-doc', 'SKILL.md'))).toBe(true)
     expect((await agentApi.status(ctx, root)).skill).toEqual({ claude: 'missing', codex: 'installed' })
 
-    const r = await agentApi.launch(ctx, { root: '/tmp/논문 폴더', kind: 'claude', revision: 2 })
-    const script = readFileSync(r.scriptPath, 'utf-8')
-    expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
-    expect(script).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':`)
-    expect(script).toContain(`exec '/opt/homebrew/bin/claude' '이어서 하기'`)
-    expect(opened).toEqual([])
+    // launch resolves the real binary, so it only runs where claude is installed.
+    // buildLaunchScript is covered separately with a fixed path, so the script
+    // contents stay asserted on every machine.
+    if (claudePath) {
+      const r = await agentApi.launch(ctx, { root: '/tmp/논문 폴더', kind: 'claude', revision: 2 })
+      const script = readFileSync(r.scriptPath, 'utf-8')
+      expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
+      expect(script).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':`)
+      expect(script).toContain(`exec '${claudePath}' '이어서 하기'`)
+      expect(opened).toEqual([])
+    }
   })
 })

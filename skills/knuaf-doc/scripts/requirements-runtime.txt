@@ -7,4 +7,8 @@
 openpyxl>=3.1,<4
 python-docx>=1.1,<2
 pypdf>=6,<7
-pywin32>=306,<307; sys_platform == "win32"
+# pywin32 releases are build numbers (306, 307, 308…), not semver, so an upper
+# bound pins one build: <307 meant "exactly 306", which has no wheel for
+# Python 3.13 and broke the Windows install. Only win32com.client.DispatchEx
+# is used, and that is stable across these builds.
+pywin32>=306; sys_platform == "win32"

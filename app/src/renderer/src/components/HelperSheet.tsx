@@ -3,10 +3,11 @@ import { Sheet } from './Sheet'
 import { Feedback } from './Feedback'
 import { Badge } from './Badge'
 import { HELPER } from '../copy'
+import { useShallow } from 'zustand/react/shallow'
 
 /** "AI 도우미 열기": detect Claude Code / Codex, install the skill, open a Terminal session. */
 export function HelperSheet() {
-  const { helper, closeHelper, launchHelper } = useProject()
+  const { helper, closeHelper, launchHelper } = useProject(useShallow((s) => ({ helper: s.helper, closeHelper: s.closeHelper, launchHelper: s.launchHelper })))
   const st = helper.status
   const none = st && !st.claude.found && !st.codex.found
   const both = st && st.claude.found && st.codex.found

@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState'
 import { Feedback } from '../components/Feedback'
 import { EMPTY, MATERIALS, SCREEN_INTRO, describeError, formatBytes, relativeTime, type DescribedError } from '../copy'
 import type { MaterialFact, MaterialsData } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 const UNDECIDED = new Set(['unknown', 'not_provided', 'withheld'])
 
@@ -41,8 +42,8 @@ function FactRow({ label, fact }: { label: string; fact: MaterialFact }) {
 }
 
 export function Materials() {
-  const { root, setScreen } = useProject()
-  const { insertPath } = useChat()
+  const { root, setScreen } = useProject(useShallow((s) => ({ root: s.root, setScreen: s.setScreen })))
+  const { insertPath } = useChat(useShallow((s) => ({ insertPath: s.insertPath })))
   const platform = window.knuaf.platform
   const joinPath = (rel: string) => `${root}${platform === 'win32' ? '\\' : '/'}${rel}`
   const [data, setData] = useState<MaterialsData | null>(null)

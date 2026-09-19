@@ -48,13 +48,25 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 
 - `KNUAF_TERM_SHELL=/bin/sh` — 내장 터미널이 claude/codex 대신 이 셸을 인자 없이 실행합니다(테스트 전용).
 - `KNUAF_CLAUDE_SDK=1` — Claude 채팅 SDK 경로를 여는 개발용 플래그. 기본 동작(학생용)에서는 Claude는 터미널 모드만 씁니다.
+- `KNUAF_TERM_MODEL=sonnet` — 내장 Claude 터미널에 `--model`을 고정합니다(테스트 전용). 지정하지 않으면 플래그를 붙이지 않습니다.
+- `KNUAF_DRY_LAUNCH=1` — 외부 터미널 실행 스크립트를 쓰기만 하고 열지 않습니다(테스트 전용).
+- `KNUAF_LIVE=1` — `e2e/live-*.spec.ts`를 포함해 실행합니다. 실제 Claude/Codex 로그인과 구독 사용량이 필요하므로 기본 실행에서는 제외됩니다.
 
 ## 패키징 (Phase 6)
 
 ```bash
+pnpm dist:mac           # 또는 pnpm dist:win
+```
+
+`dist:*`는 필요한 리소스(번들 python, 휠하우스, 아이콘, 학생용 안내 PDF, 스테이징된 스킬)를
+먼저 준비합니다. 개별로 돌리려면:
+
+```bash
 pnpm fetch:python       # python-build-standalone 3.12 → resources/python
 pnpm build:wheelhouse   # openpyxl·python-docx·lxml·pypdf 휠 → resources/wheelhouse
-pnpm dist:mac           # 또는 pnpm dist:win
+pnpm build:icons        # build/icon.svg → icns·ico·png
+pnpm build:guide        # docs/학생용-사용안내.md → .html·.pdf
+pnpm stage:skill        # ../skills/knuaf-doc → resources/skill
 ```
 
 번들 python은 `gg_deps.py ensure`의 base 인터프리터로만 쓰이고, 패키지는 계약대로 `<프로젝트>/.venv`에 설치됩니다.

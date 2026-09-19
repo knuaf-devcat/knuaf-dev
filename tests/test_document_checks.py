@@ -1,7 +1,6 @@
 """audit H1: merge markers '<' / '^' must not count as filled cells."""
 import re
 
-import pytest
 
 import gg_document
 

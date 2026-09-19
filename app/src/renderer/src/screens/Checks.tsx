@@ -10,11 +10,12 @@ import { Disclosure } from '../components/Disclosure'
 import { Icon } from '../components/Icon'
 import { EMPTY, OWNER_LABEL, SCREEN_INTRO, SEVERITY_LABEL, describeError, type DescribedError } from '../copy'
 import type { CheckRow } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 const ORDER: [string, string][] = [['fail', '실패'], ['blocked', '보류'], ['not_configured', '미설정'], ['pending', '대기'], ['pass', '통과']]
 
 export function Checks() {
-  const { status, root, refresh, loading, checksPreset } = useProject()
+  const { status, root, refresh, loading, checksPreset } = useProject(useShallow((s) => ({ status: s.status, root: s.root, refresh: s.refresh, loading: s.loading, checksPreset: s.checksPreset })))
   const [scope, setScope] = useState<'all' | 'submission'>('all')
   const [rows, setRows] = useState<CheckRow[] | null>(null)
   const [filter, setFilter] = useState({ status: '', severity: '', owner: checksPreset?.owner ?? '', q: checksPreset?.prefix ?? '' })

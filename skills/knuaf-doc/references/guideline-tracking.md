@@ -40,7 +40,7 @@
 
 학생은 사실·자료·계획과 미결 답변을 제공한다. 아래 파일·ID·해시·검토 메타데이터는 스킬이 작성하고 검사한다. 학생에게 JSON 작성이나 모델 선택을 요구하지 않는다.
 
-- 작업폴더의 현재 출처는 `project.json.sources`에서 읽는다. `.work/reference-library/sources.json`은 개발용 출처 인덱스이며 학생 프로젝트의 정본이 아니다.
+- 작업폴더의 현재 출처는 `project.json.sources`에서 읽는다. 이것이 유일한 출처 정본이며, 개발 과정에서 쓰인 별도 인덱스 파일은 학생 프로젝트의 근거가 아니다.
 - 목록 파일의 권장 위치는 `sources/guidelines/inventory.json`이다. 실제 읽기 경로는 `rules.guideline_profile.inventory.path` 한 곳에서 정하고 `sha256`을 비교한다.
 - 목록은 `schema: "gg-guideline-inventory/v1"`, `source: {id, sha256, physical_page_count}`, `requirements`, `conflicts`를 가진다. 항목의 필드는 `id`, `page`, `locator`, `requirement`, `applies_to`, `kind`, `authority`, `condition`, `verification`, `source_role`, `certainty`이며 `gg_guidelines.py`는 모든 항목에서 마지막 두 필드도 요구한다. `applies_to`는 적용 대상 설명이며 학생 프로젝트의 절 ID로 단정하지 않는다.
 - 2020 원문 목록은 페이지 역할 `source_role: instructions|forms_examples`와 근거 성격 `certainty: explicit|explicit_annotation|template|inferred`도 보존한다. 뒤쪽의 명시적 작성 안내와 단순 예시를 구분한다.

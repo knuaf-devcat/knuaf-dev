@@ -44,12 +44,34 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   /** renderer clientId → in-flight sidecar request, for `rpc:cancel` and the agent-busy gate. */
   const inflight = new Map<string, { id: string; method: string }>()
 
+  /**
+   * The generic `rpc` channel forwards a method name and a params object straight
+   * to the sidecar, so it is the one wide spot in an otherwise narrow preload API.
+   * Params that name a program to execute are decided by main (see `deps:ensure`,
+   * which calls the sidecar directly and is unaffected); a renderer value for them
+   * is dropped rather than passed through as argv[0]. `timeout` is clamped so a
+   * huge value cannot disable the sidecar's wall-clock kill.
+   */
+  const EXECUTABLE_PARAMS = ['base_python', 'node', 'pnpm', 'kordoc'] as const
+  const MAX_TIMEOUT_SECONDS = 1800
+  function sanitiseRpcParams(params: Record<string, unknown>): Record<string, unknown> {
+    const out = { ...(params ?? {}) }
+    for (const key of EXECUTABLE_PARAMS) delete out[key]
+    if ('timeout' in out) {
+      const n = Number(out.timeout)
+      if (!Number.isFinite(n) || n <= 0) delete out.timeout
+      else out.timeout = Math.min(n, MAX_TIMEOUT_SECONDS)
+    }
+    return out
+  }
+
   const AGENT_BUSY_MESSAGE = 'AI 도우미가 작업 중이에요. 답변이 끝난 뒤(터미널은 출력이 멈춘 뒤) 다시 시도해 주세요.'
   // chat/terminal are created below; handlers only run after registerIpc returns, so the closure is safe.
   const agentBusy = (root: string | null): boolean => !!root && (chat.busy(root) || terminal.activeWithin(root, 5000))
 
-  ipcMain.handle('rpc', async (_e, method: string, params: Record<string, unknown>, clientId: string) => {
+  ipcMain.handle('rpc', async (_e, method: string, rawParams: Record<string, unknown>, clientId: string) => {
     const w = win()
+    const params = sanitiseRpcParams(rawParams)
     const root = typeof params.root === 'string' ? params.root : currentRoot
     if (sidecar.isWrite(method) && agentBusy(root)) return { error: { code: 'agent_busy', message: AGENT_BUSY_MESSAGE } }
     try {

@@ -29,6 +29,9 @@ def run_script(ctx, python, script_path, args, cwd, timeout: float, env_extra=No
         argv,
         cwd=str(cwd) if cwd else None,
         env=env,
+        # The scripts never read stdin. Inheriting the sidecar's stdin would hand
+        # the child the host's request pipe, which it must never see.
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

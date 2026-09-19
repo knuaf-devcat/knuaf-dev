@@ -9,7 +9,6 @@ complies.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 SCHEMA = "gg-guideline-inventory/v1"
 KINDS = {"machine", "content", "visual", "user_finish"}

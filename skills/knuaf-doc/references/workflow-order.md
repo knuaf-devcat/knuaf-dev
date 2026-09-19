@@ -1,8 +1,7 @@
 # 입력 의존성에 따른 진행
 
-자료 계약은 [source-contract.md](source-contract.md), 제출 엑셀 템플릿 CLI 경로는
-[excel-template.md](excel-template.md)를 따른다. 상세한 시트·계산 구조는 개발
-환경에서만 `references/excel-submission.md`를 참고한다. 이 문서는
+자료 계약은 [source-contract.md](source-contract.md), 제출 엑셀 템플릿 CLI 경로와
+시트·계산 구조는 [excel-template.md](excel-template.md)를 따른다. 이 문서는
 순서와 재검산 게이트만 정한다.
 
 1. [intake-selection.md](intake-selection.md)에 따라 현재 작성물과 참고자료를 구분하고 작성 기준을 확인한다. 확인된 작업폴더의 정본·원답변·현재 절을 읽는다. 기존에 명확히 확인된 선택과 답변은 다시 묻지 않는다.
@@ -27,12 +26,9 @@
 진행한다. 학생 화자와 내용 확장은 [narrative-expansion.md](narrative-expansion.md),
 질문 표현 예시는 [interview-guide.md](interview-guide.md)가 소유한다.
 
-질문은 현재 판단을 바꿀 필수 공백에만 사용한다. 이미 받은 모름·없음·거부를
-다른 표현으로 되묻지 않는다. 미응답은 값이나 0으로 바꾸지 않는다.
-같은 field ID의 값 요청은 개방 질문과 필요한 도움 제시를 합쳐 최대 두 번이며,
-확인 질문이라는 이름으로 횟수 제한을 우회하지 않는다.
-정정은 횟수 초과를 이유로 거부하지 않고 원답변과 이전 값을 보존해 새 개정으로
-등록한다. 질문 재개는 새 근거·사용자 변경·명시적 재개 요청이 있을 때만 한다.
+질문은 현재 판단을 바꿀 필수 공백에만 사용한다. 미응답은 값이나 0으로 바꾸지 않는다.
+질문 횟수·결정 버전·재개 조건은 [mid-work-questions.md](mid-work-questions.md)가
+소유하며, 이 문서에서 별도 한도를 만들지 않는다.
 
 외부 근거 부족은 그 근거에 의존하는 계산·주장·출력만 보류한다.
 조사값을 자동 승인된 가정으로 올리지 않는다. 사용자가 허용한 검토용 가정은

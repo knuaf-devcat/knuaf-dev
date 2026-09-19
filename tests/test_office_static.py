@@ -9,8 +9,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import shutil
-import sys
 import zipfile
 from pathlib import Path
 

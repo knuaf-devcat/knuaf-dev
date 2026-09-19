@@ -11,9 +11,10 @@ import { useRunner } from '../components/useRunner'
 import { Icon } from '../components/Icon'
 import { COMPLETION, EMPTY, KORDOC_SENTENCE, LOCK_VERDICT_COPY, SCREEN_INTRO, describeError, relativeTime, type DescribedError } from '../copy'
 import type { HistoryRow, LockInfo } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 export function Troubleshoot() {
-  const { root, hasProject, status, refresh, refreshSidecar, refreshDeps, sidecar, open } = useProject()
+  const { root, hasProject, status, refresh, refreshSidecar, refreshDeps, sidecar, open } = useProject(useShallow((s) => ({ root: s.root, hasProject: s.hasProject, status: s.status, refresh: s.refresh, refreshSidecar: s.refreshSidecar, refreshDeps: s.refreshDeps, sidecar: s.sidecar, open: s.open })))
   const [doc, setDoc] = useState<Record<string, any> | null>(null)
   const [err, setErr] = useState<DescribedError | null>(null)
   const [msg, setMsg] = useState<{ title: string; body?: string } | null>(null)

@@ -475,7 +475,7 @@ export const FIELD_LABEL: Record<string, string> = {
 export const FIELD_HINT: Record<string, string> = {
   paper_input: '에이전트가 만든 paper-input.json. 폴더 안 상대경로로 적어요.',
   paper_out: '기본값 build/검토전_본문.md. 같은 이름이 있으면 "새 버전 경로"로 바꿔요.',
-  docx_in: '절을 하나로 합친 Markdown(build/본문_통합.md).',
+  docx_in: 'gg_school_paper.py가 만든 본문 Markdown(build/검토전_본문.md).',
   out_path: '폴더 안 상대경로. 기존 파일은 덮어쓰지 않아요.',
   font: '기본 신명조. 최종 글꼴 확인은 한글에서 직접 해요.',
   xl_source: '학교가 준 예시 XLSX. 원본은 읽기만 하고 바꾸지 않아요.',

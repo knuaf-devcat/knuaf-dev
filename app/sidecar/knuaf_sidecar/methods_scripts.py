@@ -23,13 +23,44 @@ def _root(params) -> Path:
     return Path(root)
 
 
+# Paths the project owns — outputs and project-authored inputs — must stay inside
+# the working folder. Params naming a user-supplied original (a native file-picker
+# result, the school's XLSX template) may legitimately be absolute and are not here.
+CONFINED = frozenset({
+    "in", "out", "out_dir", "out_map", "map", "values",
+    "report", "receipt", "receipts", "legacy_map",
+})
+
+
+def _confine(root, params):
+    """Reject project-owned paths that escape the working folder.
+
+    methods_core routes every path through gg_core.local(); the script methods did
+    not, so an `out` of "../../../thesis.docx" reached the CLI unchecked.
+    """
+    import gg_core
+
+    for key in CONFINED.intersection(params):
+        value = params[key]
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            gg_core.local(root, str(value))
+        except ValueError as e:
+            raise RpcError("invalid_params", "%s: %s" % (key, e)) from e
+
+
 def _flags(params, names, positional=()):
     """Build argv from params: positional keys first, then --kebab-case flags."""
     argv = []
     for key in positional:
         if key not in params:
             raise RpcError("invalid_params", "%s 필요" % key)
-        argv.append(str(params[key]))
+        value = str(params[key])
+        if value.startswith("-"):
+            # argparse would read this as an option instead of the file.
+            raise RpcError("invalid_params", "%s 값이 '-'로 시작할 수 없음" % key)
+        argv.append(value)
     for key in names:
         if key in params and params[key] is not None:
             value = params[key]
@@ -55,6 +86,7 @@ def _python_for(root: Path, needs_deps: bool):
 
 def _run(ctx, params, script, argv, needs_deps=False, timeout_key="default", python=None):
     root = _root(params)
+    _confine(root, params)
     py = python or _python_for(root, needs_deps)
     timeout = float(params.get("timeout") or TIMEOUTS[timeout_key])
     return run_script(ctx, py, _scripts_dir() / script, argv, cwd=root, timeout=timeout)

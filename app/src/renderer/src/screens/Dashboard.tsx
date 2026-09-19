@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState'
 import { Icon } from '../components/Icon'
 import { COLLECTION_LABEL, EMPTY, LANE_COPY, REVIEW_KIND_LABEL, SCREEN_INTRO, USER_FINISH_LABEL } from '../copy'
 import type { LaneSummary } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 function Counts({ s }: { s: LaneSummary }) {
   return <Stats><Stat value={s.pass} label="통과" tone="ok" /><Stat value={s.fail} label="실패" tone={s.fail ? 'bad' : undefined} /><Stat value={s.blocked} label="보류" tone={s.blocked ? 'blocked' : undefined} />{s.other > 0 && <Stat value={s.other} label="기타" />}</Stats>
@@ -15,7 +16,7 @@ function Counts({ s }: { s: LaneSummary }) {
 
 /** SKILL.md:34 — four lanes, never one checkmark, never a percentage. */
 export function Dashboard() {
-  const { status, refresh, loading, error, setScreen } = useProject()
+  const { status, refresh, loading, error, setScreen } = useProject(useShallow((s) => ({ status: s.status, refresh: s.refresh, loading: s.loading, error: s.error, setScreen: s.setScreen })))
   const [L1, L2, L3, L4] = LANE_COPY
   return (
     <div>

@@ -34,7 +34,7 @@
   },
   {
    "dist": "pywin32",
-   "spec": "pywin32>=306,<307",
+   "spec": "pywin32>=306",
    "import_name": "win32com",
    "purpose": "Windows Word/Excel COM 자동화 — gg_office_win.py의 win32com 구동(Windows 전용)",
    "used_by": [

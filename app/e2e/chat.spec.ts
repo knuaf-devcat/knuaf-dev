@@ -101,7 +101,9 @@ test('an outdated project skill copy is reinstalled with a system notice and a b
   expect(notice[0].text).toContain('규칙집이 갱신됐어요')
   // the copy was reinstalled to the current version and the old one backed up
   expect(readFileSync(join(root, '.agents', 'skills', 'knuaf-doc', VERSION_FILE), 'utf-8').trim()).toBe(s.skillHash)
-  expect(readdirSync(join(root, '.agents', 'skills')).some((n) => n.startsWith('knuaf-doc.bak-'))).toBe(true)
+  // The backup lives outside skills/, so it is not discovered as a second skill.
+  expect(readdirSync(join(root, '.agents', 'skills'))).toEqual(['knuaf-doc'])
+  expect(readdirSync(join(root, '.knuaf-gui', 'skill-backups')).some((n) => n.startsWith('.agents-'))).toBe(true)
   await svc.close()
 })
 

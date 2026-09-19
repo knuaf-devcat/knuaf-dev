@@ -1,23 +1,18 @@
 """audit H10 + GUI prerequisite: lineage (project_id/parent_hash), history, restore."""
 import json
-import sys
 
 import pytest
 
 import gg_core as core
 from conftest import parse_json, run_gg
 
-WIN_LOCK = pytest.mark.xfail(sys.platform == "win32", reason="audit C1", strict=True)
 
-
-@WIN_LOCK
 def test_init_assigns_project_id_and_apply_records_parent_hash(project):
     p = core.load(project)
     assert len(p["project_id"]) == 32
     assert p["parent_hash"] == p["history"][-1]["hash"]
 
 
-@WIN_LOCK
 def test_tampered_parent_hash_is_rejected_on_load(project):
     pj = project / "project.json"
     p = json.loads(pj.read_text(encoding="utf-8"))
@@ -36,7 +31,6 @@ def test_legacy_project_without_parent_hash_still_loads(project):
     assert core.load(project)["revision"] == 1
 
 
-@WIN_LOCK
 def test_history_lists_snapshots_and_current(project):
     r = run_gg(project, "history")
     assert r.returncode == 0, r.stdout + r.stderr
@@ -45,7 +39,6 @@ def test_history_lists_snapshots_and_current(project):
     assert hist[-1]["current"] is True and hist[-1]["revision"] == 1
 
 
-@WIN_LOCK
 def test_restore_creates_new_revision_and_preserves_current_snapshot(project):
     r = run_gg(project, "restore", "--revision", "0", "--expected-revision", "1")
     assert r.returncode == 0, r.stdout + r.stderr
@@ -63,7 +56,6 @@ def test_restore_creates_new_revision_and_preserves_current_snapshot(project):
     assert core.load(project)["sections"]["sec-01"]["title"] == "Ⅰ. 머리말"
 
 
-@WIN_LOCK
 def test_restore_refuses_tampered_snapshot(project):
     snap = project / "migration" / "revision-0.json"
     data = json.loads(snap.read_text(encoding="utf-8"))
@@ -74,7 +66,6 @@ def test_restore_refuses_tampered_snapshot(project):
     assert "해시" in parse_json(r.stdout)["reason"]
 
 
-@WIN_LOCK
 def test_restore_refuses_stale_expected_revision_and_held_lock(project):
     r = run_gg(project, "restore", "--revision", "0", "--expected-revision", "5")
     assert r.returncode == 2 and "개정" in parse_json(r.stdout)["reason"]

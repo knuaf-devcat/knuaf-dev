@@ -17,9 +17,10 @@
     "build:guide": "node scripts/build-guide.mjs",
     "stage:skill": "node scripts/stage-skill.mjs",
     "postinstall": "node scripts/fix-pty-helper.mjs",
-    "dist:mac": "pnpm build && pnpm stage:skill && electron-builder --mac",
-    "dist:win": "pnpm build && pnpm stage:skill && electron-builder --win",
-    "test:e2e": "playwright test"
+    "dist:mac": "pnpm build && pnpm prepare:resources && electron-builder --mac",
+    "dist:win": "pnpm build && pnpm prepare:resources && electron-builder --win",
+    "test:e2e": "playwright test",
+    "prepare:resources": "pnpm fetch:python && pnpm build:wheelhouse && pnpm build:icons && pnpm build:guide && pnpm stage:skill"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.275",

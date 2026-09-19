@@ -2,10 +2,14 @@ import { test, expect } from '@playwright/test'
 import { existsSync, readdirSync, readFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { findExecutable } from '../src/main/agent'
 import { launch, navTo, openProject, synthProject } from './helpers'
 
 // KNUAF_DRY_LAUNCH=1: the .command file is written but Terminal is not opened.
 test('external terminal button installs the skill into the project and writes a launch script (dry run)', async () => {
+  // The chooser only offers Claude when the CLI is actually installed, so this
+  // whole flow is a developer-machine test. CI runners have no agent CLI.
+  test.skip(findExecutable('claude', process.env) === null, 'claude is not installed on this machine')
   process.env.KNUAF_DRY_LAUNCH = '1'
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const root = synthProject({ withContent: false })
@@ -17,7 +21,7 @@ test('external terminal button installs the skill into the project and writes a 
   await page.click('button:has-text("앱 밖 터미널로 AI 도우미 열기")')
   const sheet = page.locator('dialog.sheet')
   await expect(sheet).toBeVisible()
-  // this Mac has claude and codex → chooser appears; pick Claude
+  // claude is installed (checked above) → chooser appears; pick Claude
   const claudeBtn = sheet.locator('button:has-text("Claude Code 열기")')
   await claudeBtn.waitFor({ timeout: 30_000 }) // status probe is async (claude --version)
   await claudeBtn.click()

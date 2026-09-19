@@ -1,7 +1,7 @@
 """audit C5: Python 3.9 must get a friendly guard, and gg_office must import on 3.10+."""
 import pytest
 
-from conftest import SCRIPTS, parse_json, python39, run_gg, run_script
+from conftest import parse_json, python39, run_gg, run_script
 
 py39 = python39()
 needs39 = pytest.mark.skipif(py39 is None, reason="no Python 3.9 interpreter reachable (set PY39)")

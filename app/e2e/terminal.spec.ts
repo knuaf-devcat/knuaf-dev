@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { TerminalService } from '../src/main/terminal'
+import { TerminalService, agentArgs } from '../src/main/terminal'
 import { skillSource } from '../src/main/agent'
 
 const appRoot = resolve(__dirname, '..')
@@ -49,4 +49,39 @@ test('a /bin/sh terminal echoes, replays, resizes, logs ANSI-free, installs the 
   } finally {
     svc.closeAll()
   }
+})
+
+// The composed argv had no committed coverage: the shell shim used by the test
+// above short-circuits to an empty arg list, so these assert it directly.
+test.describe('agentArgs', () => {
+  test('claude gets the project setting scope, no AskUserQuestion, and a first prompt', () => {
+    expect(agentArgs('claude', { revision: null })).toEqual([
+      '--setting-sources', 'project,local',
+      '--disallowedTools', 'AskUserQuestion',
+      '시작하기'
+    ])
+  })
+
+  test('an opened project resumes instead of sending a first prompt', () => {
+    const args = agentArgs('claude', { revision: 3, resume: true })
+    expect(args).toContain('--continue')
+    expect(args).not.toContain('시작하기')
+    expect(args).not.toContain('이어서 하기')
+  })
+
+  test('a revision with no resume asks to continue the existing work', () => {
+    expect(agentArgs('claude', { revision: 3 })).toContain('이어서 하기')
+  })
+
+  test('--model is only added when one is pinned', () => {
+    expect(agentArgs('claude', { revision: null })).not.toContain('--model')
+    const args = agentArgs('claude', { revision: null, model: 'sonnet' })
+    expect(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2)).toEqual(['--model', 'sonnet'])
+  })
+
+  test('codex takes no flags, and the shell shim takes none either', () => {
+    expect(agentArgs('codex', { revision: null })).toEqual([])
+    expect(agentArgs('codex', { revision: null, model: 'sonnet' })).toEqual([])
+    expect(agentArgs('claude', { revision: null, shell: true })).toEqual([])
+  })
 })

@@ -1,11 +1,8 @@
 """audit C2: every text read/write must name encoding="utf-8"."""
-import sys
 
-import pytest
 
 from conftest import parse_json, run_gg
 
-WIN_LOCK = pytest.mark.xfail(sys.platform == "win32", reason="audit C1", strict=True)
 STRICT_ENC = {"PYTHONWARNDEFAULTENCODING": "1", "PYTHONWARNINGS": "error::EncodingWarning"}
 
 

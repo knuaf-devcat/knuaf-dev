@@ -9,7 +9,6 @@ planning fields and by an empty approval name in the renderer.
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any, Mapping
 
 PENDING = "[확인 필요]"

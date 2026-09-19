@@ -7,9 +7,10 @@ import { EmptyState } from '../components/EmptyState'
 import { Disclosure } from '../components/Disclosure'
 import { CREDIT, EMPTY, ONBOARDING_STEPS, SCREEN_INTRO, relativeTime } from '../copy'
 import type { ProjectPeek, RecentEntry } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
 
 export function Home() {
-  const { open, settings, error, loading, root, hasProject, status, peek, depsReady, setScreen, loadSettings } = useProject()
+  const { open, settings, error, loading, root, hasProject, status, peek, depsReady, setScreen, loadSettings } = useProject(useShallow((s) => ({ open: s.open, settings: s.settings, error: s.error, loading: s.loading, root: s.root, hasProject: s.hasProject, status: s.status, peek: s.peek, depsReady: s.depsReady, setScreen: s.setScreen, loadSettings: s.loadSettings })))
   const [showCredit, setShowCredit] = useState(false)
   const [typed, setTyped] = useState('')
   const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})

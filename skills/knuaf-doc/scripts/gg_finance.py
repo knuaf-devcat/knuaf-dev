@@ -605,7 +605,7 @@ def workbook(spec, path):
     calc.append(
         [
             0,
-            f"=C2-D2",
+            "=C2-D2",
             0,
             f"={R['land']}+{R['facility']}",
             "=C2",

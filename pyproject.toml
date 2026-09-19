@@ -3,3 +3,24 @@ testpaths = ["tests"]
 addopts = "-q -ra --timeout=300"
 xfail_strict = true
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+# The skill scripts use a deliberately compact style (E701/E702 semicolons and
+# one-line ifs), so this selects correctness rules rather than formatting: E4
+# imports, E9 syntax/runtime, F pyflakes, B bugbear.
+line-length = 120
+extend-exclude = ["app/dist", "app/out", "backups", ".venv-dev"]
+
+[tool.ruff.lint]
+select = ["E4", "E9", "F", "B"]
+ignore = [
+  # Chained tracebacks would surface library internals in the student-facing
+  # JSON error path; these raises deliberately replace the cause with a Korean
+  # message. gg.py already reports the original text.
+  "B904",
+  # zip(strict=) changes behaviour on length mismatch; the call sites here pair
+  # values that are validated as equal-length beforehand.
+  "B905",
+  # Unpacking for readability (`for sid, s in ...`) even when one half is unused.
+  "B007",
+]

@@ -84,7 +84,6 @@ Spec schema and contract:
 
 import argparse
 import json
-from pathlib import Path
 
 from gg_core import local
 from gg_frontmatter import frontmatter_lines, normalize_school_profile

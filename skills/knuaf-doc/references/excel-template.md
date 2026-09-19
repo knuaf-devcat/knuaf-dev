@@ -1,12 +1,11 @@
-# Reusable XLSX template workflow
+# 재사용 가능한 XLSX 양식 작업
 
-Source identity, author/authority separation, physical sheet ranges, and task
-records follow [source-contract.md](source-contract.md). This page documents
-only the reusable CLI contract.
+출처 식별, 작성자·권한 구분, 물리 시트 범위, 작업 기록은
+[source-contract.md](source-contract.md)를 따른다. 이 문서는 재사용 가능한
+CLI 계약만 정한다.
 
-`scripts/gg_excel_template.py` creates a local, source-bound blank copy of an
-existing school workbook. It does not generate a new 17-sheet model and does
-not correct legacy formulas.
+`scripts/gg_excel_template.py`는 기존 학교 양식의 출처에 묶인 로컬 빈 사본을
+만든다. 새 17시트 모델을 생성하지 않으며 기존 수식의 오류를 고치지도 않는다.
 
 ```text
 python3 scripts/gg_excel_template.py inspect \
@@ -21,247 +20,268 @@ python3 scripts/gg_excel_template.py clear \
   --receipt build/template-review/receipt-v1.json
 ```
 
-`inspect` records the source SHA-256, all observed cells/formulas, sheet order,
-and an explicit per-sheet map derived from that inventory (`entries_source:
-"inventory"` on stdout): every non-formula, non-merged-non-anchor literal cell
-becomes a `clear` entry with `role: "input_candidate"`, while label-like text
-(ends with a colon, sits in column A, or is a short all-Korean header) and
-narrative reference text become `preserve` entries. Review the map before
-`clear`; the heuristic marks candidates, not verified inputs. `--legacy-map`
-instead writes the hard-coded map for the original 17-sheet school workbook
-(`entries_source: "legacy"`) and fails at inspect time with `map references
-missing sheet` when the source lacks any of those sheets. The map records
-`semanticField`, `role`, `reason`, and `action` (`clear` or `preserve`).
-`clear` refuses a source whose SHA-256 no longer matches the map and refuses to
-overwrite an existing output or receipt. A mapped cell with no `<c>` node in
-the source cannot be cleared: `clear` fails closed with `매핑된 셀이 원본에 없음`
-unless `--allow-missing` is passed, in which case the receipt lists them under
-`missingCells`, stdout reports `missing: N`, and the status stays `partial`.
+`inspect`는 원본의 SHA-256, 관측된 모든 셀·수식, 시트 순서, 그리고 그 목록에서
+유도한 시트별 명시적 매핑을 기록한다(stdout에 `entries_source: "inventory"`).
+수식이 아니고 병합 비앵커도 아닌 리터럴 셀은 전부 `role: "input_candidate"`인
+`clear` 항목이 되고, 라벨로 보이는 텍스트(콜론으로 끝나거나 A열에 있거나 짧은
+한글 머리글)와 서술형 참고 텍스트는 `preserve` 항목이 된다. `clear` 전에 매핑을
+검토한다. 이 판별은 후보를 표시할 뿐 확인된 입력이 아니다. `--legacy-map`을
+주면 원래 17시트 학교 양식용 하드코딩 매핑을 대신 쓴다(`entries_source: "legacy"`).
+원본에 그 시트 중 하나라도 없으면 inspect 단계에서
+`map references missing sheet`로 실패한다. 매핑은 `semanticField`, `role`,
+`reason`, `action`(`clear` 또는 `preserve`)을 기록한다.
 
-The copy operation removes values only from mapped non-formula cells. Formula
-expressions, cell styles, merged ranges, sheet names/order, print settings,
-drawings, images and links remain in the copied archive. Formula cached values
-are invalidated and the workbook is marked for recalculation when opened, so a
-blank template does not show stale financial results. Existing formulas are
-never repaired or rewritten.
+`clear`는 SHA-256이 매핑과 더 이상 맞지 않는 원본을 거부하고, 기존 출력이나
+영수증을 덮어쓰는 것도 거부한다. 매핑된 셀에 원본의 `<c>` 노드가 없으면 비울 수
+없다. 이때 `clear`는 `매핑된 셀이 원본에 없음`으로 닫히며 실패하고,
+`--allow-missing`을 준 경우에만 진행해 영수증의 `missingCells`에 해당 셀을
+나열하고 stdout에 `missing: N`을 보고하며 상태를 `partial`로 유지한다.
 
-The receipt reports cleared cells, mapped formulas protected, merged-cell
-protection, formula caches invalidated, and hard-coded numeric cells left
-outside the map as `ambiguousCount`. A `partial` status is expected when such
-legacy constants remain; it is not a clean financial model or a submission
-approval. The reference model-farm sheet is explicitly preserved as an
-example-only reference. Shared-string entries and other private sample data
-are not anonymized or publication-ready by this utility.
+복제 작업은 매핑된 비수식 셀에서 값만 제거한다. 수식 식, 셀 서식, 병합 범위,
+시트 이름·순서, 인쇄 설정, 도형, 이미지, 링크는 복제본에 그대로 남는다. 수식의
+캐시된 값은 무효화되고 통합문서는 열릴 때 재계산하도록 표시되므로, 빈 양식이
+낡은 재무 결과를 보여주지 않는다. 기존 수식은 절대 수리하거나 다시 쓰지 않는다.
 
-Choose a new output directory or versioned filenames for each run. Counts and
-status must come from that run's source-bound map and receipt. A previous
-developer's template, receipt, school workbook or private sample is not a
-dependency of the installed plugin. Register the workbook supplied for the
-current project and retain its hash and source role. The source workbook is
-never written. An NFD filename is resolved when an NFC path is supplied.
+영수증은 비운 셀, 보호된 매핑 수식, 병합 셀 보호, 무효화된 수식 캐시, 그리고
+매핑 밖에 남은 하드코딩 숫자 셀을 `ambiguousCount`로 보고한다. 그런 레거시
+상수가 남으면 `partial` 상태가 정상이다. 이것은 깨끗한 재무 모델도, 제출 승인도
+아니다. 참고용 모델 농장 시트는 예시 전용 참고 자료로 명시적으로 보존된다. 공유
+문자열 항목이나 그 밖의 비공개 예시 데이터는 이 도구가 익명화하거나 배포 가능
+상태로 만들어 주지 않는다.
 
-## Input-sheet roles in the supplied school template
+실행할 때마다 새 출력 폴더나 버전이 붙은 파일명을 고른다. 개수와 상태는 그
+실행의 출처에 묶인 매핑과 영수증에서 나와야 한다. 이전 개발자의 양식·영수증·학교
+통합문서·비공개 예시는 설치된 플러그인의 의존성이 아니다. 현재 프로젝트에
+제공된 통합문서를 등록하고 그 해시와 출처 역할을 보존한다. 원본 통합문서는 절대
+쓰지 않는다. NFC 경로를 주면 NFD 파일명도 해석한다.
 
-User-confirmed on 2026-09-15: in the current numbered 17-sheet school workbook,
-excluding the contents sheet, red input sheets are 1, 3, 4, 5, 6, 7, 8, 9 and 10.
-They cover initial finances, investment, loan repayment, sales, production,
-materials, labor, expenses and depreciation. Yellow and green sheets contain
-linked calculations. Confirm the actual sheet names, tab colors and source hash
-when applying this mapping; a different template needs its own role map.
+## 제공된 학교 양식의 입력 시트 역할
 
-Write plan values only to reviewed input cells on those red sheets. A red tab
-does not make every cell editable: preserve formulas, merges and labels unless
-a separately documented correction is required. Do not type desired totals into
-yellow/green calculation cells. Recalculate them and reconcile them to the inputs
-and manuscript. An input quantity may legitimately be a numeric constant whose
-calculation is explained in the manuscript or evidence; do not demand that every
-student input become an Excel formula.
+사용자 확인 2026-09-15: 현재 번호가 매겨진 17시트 학교 통합문서에서 목차 시트를
+제외하면 빨간 입력 시트는 1·3·4·5·6·7·8·9·10번이다. 각각 초기 자금, 투자,
+차입금 상환, 매출, 생산, 자재, 노동, 경비, 감가상각을 다룬다. 노란색과 초록색
+시트는 연결된 계산이다. 이 매핑을 적용할 때 실제 시트명·탭 색·원본 해시를
+확인한다. 다른 양식에는 그 양식의 역할 매핑이 따로 필요하다.
 
-An inherited formula defect is separate from missing student input. Compare it
-with the supplied original, record whether it was inherited or introduced, and
-use the reviewed formula-correction workflow below on a copy. Do not treat tab
-color as approval for arbitrary formula changes. Investment analysis absent from
-the prescribed workbook can be verified in a separate calculation artifact;
-do not add sheets to the submission form merely to satisfy a preferred model.
+계획값은 그 빨간 시트에서 검토를 마친 입력 셀에만 쓴다. 탭이 빨갛다고 모든 셀이
+편집 대상이 되는 것은 아니다. 별도로 문서화된 수정이 필요한 경우가 아니면
+수식·병합·라벨을 보존한다. 원하는 합계를 노란색·초록색 계산 셀에 직접 입력하지
+않는다. 그 값들은 재계산해서 입력값 및 원고와 대조한다. 입력 수량이 본문이나
+증거에서 계산을 설명한 숫자 상수인 것은 정당하다. 모든 학생 입력이 엑셀 수식이
+되어야 한다고 요구하지 않는다.
 
-## Saved-file compatibility verification
+물려받은 수식 결함은 학생 입력 누락과 별개다. 제공된 원본과 대조해 물려받은
+것인지 이번에 생긴 것인지 기록하고, 아래의 검토된 수식 수정 절차를 사본에
+적용한다. 탭 색을 임의의 수식 변경에 대한 승인으로 취급하지 않는다. 지정된
+통합문서에 없는 투자 분석은 별도 계산 산출물에서 검증할 수 있다. 선호하는 모델을
+맞추려고 제출 양식에 시트를 추가하지 않는다.
 
-The generator preserves original XML namespace prefixes and declarations with
-DOM edits. Markup Compatibility attribute values (including unqualified
-`mc:Choice/@Requires`) must resolve in their original namespace scope. Invalid
-references fail before publication. ZIP integrity and generic XML parsing alone
-do not establish that Excel can open a workbook.
+## 저장 파일 호환성 검증
 
-Before recommending a generated copy as usable, open an isolated read-only copy
-in the target spreadsheet application with repair alerts enabled, confirm the
-expected worksheets, and inspect a native preview/render. Bind that evidence to
-the delivered file hash. Record application/OS scope; unavailable native checks
-remain unverified. A successful open is separate from financial recalculation
-and submission approval.
+생성기는 DOM 편집으로 원본의 XML 네임스페이스 접두사와 선언을 보존한다. Markup
+Compatibility 속성값(정규화되지 않은 `mc:Choice/@Requires` 포함)은 원래
+네임스페이스 범위에서 해석되어야 한다. 유효하지 않은 참조는 발행 전에 실패한다.
+ZIP 무결성과 일반 XML 파싱만으로는 엑셀이 통합문서를 열 수 있다는 근거가 되지
+않는다.
 
-## Fill the reviewed copy with current inputs
+생성한 사본을 사용 가능하다고 권하기 전에, 대상 스프레드시트 앱에서 복구 경고를
+켠 채 격리된 읽기 전용 사본을 열고, 기대한 워크시트를 확인하고, 네이티브
+미리보기·렌더를 확인한다. 그 증거를 전달한 파일 해시에 묶는다. 앱·OS 범위를
+기록하며, 수행할 수 없었던 네이티브 검사는 미검증으로 남긴다. 열기 성공은 재무
+재계산이나 제출 승인과 별개다.
 
-Blanking and filling are separate operations. A cell preserved during blanking
-may contain an exemplar year, price or ratio. It becomes a student input only
-after its role, period and source are reviewed. Never silently reuse it.
+## 검토한 사본에 현재 입력값 채우기
 
-Run `python3 scripts/gg_excel_fill.py --template blank.xlsx --map write-map.json
---values current-values.json --out filled-v1.xlsx --receipt filled-v1-receipt.json`
-with real paths. Always retain the receipt for the project workflow.
+비우기와 채우기는 별개 작업이다. 비우기 때 보존된 셀에 예시 연도·가격·비율이
+들어 있을 수 있다. 그 셀은 역할·기간·출처를 검토한 뒤에야 학생 입력이 된다.
+말없이 재사용하지 않는다.
 
-The write-map schema is `gg-xlsx-fill-map/v1`. Its `template.sha256` must match
-the actual input copy. Each `entries` item names an exact `sheet`, `cell` or
-`range`, semantic `role`, applicable `period`, `source_note`, and explicit
-`editable: true`. This is not the `inspect|clear` map schema.
+실제 경로로 `python3 scripts/gg_excel_fill.py --template blank.xlsx
+--map write-map.json --values current-values.json --out filled-v1.xlsx
+--receipt filled-v1-receipt.json`을 실행한다. 영수증은 프로젝트 작업을 위해 항상
+보존한다.
 
-The values schema is `gg-xlsx-fill-values/v1`. Each item in `values` names an
-exact `sheet` and `cell`, `value`, `value_type` (`string`, `integer`, `number`,
-`boolean`, or `blank` with null), and `evidence_ref` containing `source_id`,
-`revision`, `locator`, and `origin` (`factual`, `assumption`, or `synthetic`).
-Register those source IDs/revisions in the project and read the actual source;
-the utility checks the supplied structure, not whether a citation is true.
-Synthetic inputs belong only to clearly labeled development fixtures.
+쓰기 매핑 스키마는 `gg-xlsx-fill-map/v1`이다. `template.sha256`이 실제 입력
+사본과 일치해야 한다. `entries`의 각 항목은 정확한 `sheet`, `cell` 또는 `range`,
+의미 역할 `role`, 적용 기간 `period`, `source_note`, 그리고 명시적인
+`editable: true`를 지정한다. 이것은 `inspect|clear` 매핑 스키마와 다르다.
 
-Unknown values stay unresolved in the project. An explicit blank removes the
-cell value; the spreadsheet may calculate a zero, partial sum or error. None
-of these proves that the unknown equals zero. Keep affected conclusions
-blocked and explain the limit in the manuscript. Omitted mapped cells remain
-unchanged and are counted in the receipt.
+값 스키마는 `gg-xlsx-fill-values/v1`이다. `values`의 각 항목은 정확한 `sheet`와
+`cell`, `value`, `value_type`(`string`, `integer`, `number`, `boolean`, 또는
+null과 함께 쓰는 `blank`), 그리고 `source_id`·`revision`·`locator`·`origin`
+(`factual`, `assumption`, `synthetic`)을 담은 `evidence_ref`를 지정한다. 그
+출처 ID와 개정을 프로젝트에 등록하고 실제 원문을 읽는다. 이 도구는 주어진
+구조를 검사할 뿐 인용이 사실인지는 검사하지 않는다. `synthetic` 입력은 명확히
+표시된 개발용 픽스처에만 쓴다.
 
-The utility refuses stale hashes, duplicate/overlapping targets, unknown
-sheets/cells, formula writes and merged non-anchor writes. It preserves
-formulas/formatting and invalidates formula caches. The receipt binds template,
-map, values and output hashes and records each old/new value with its evidence.
-It may contain private inputs and is not a public artifact.
+모르는 값은 프로젝트에서 미해결로 남는다. 명시적 blank는 셀 값을 지우며,
+스프레드시트는 0이나 부분 합계, 오류를 계산할 수 있다. 그중 어느 것도 모르는
+값이 0이라는 증명이 아니다. 영향을 받는 결론은 보류로 두고 본문에 그 한계를
+설명한다. 매핑됐지만 생략한 셀은 그대로 유지되며 영수증에 개수로 기록된다.
 
-After filling, recalculate in the spreadsheet application and compare the
-saved 17-sheet values with the manuscript. Check inherited formulas, including
-channel/grade ratios and period offsets. `filled` means mapped values were
-written; it is not calculation or content approval. Formula corrections need
-a separate reviewed change and dependent checks; this utility never rewrites
-formulas. Corrections create a new input/output revision and invalidate old
-review claims through the project ledger.
+이 도구는 낡은 해시, 중복·중첩 대상, 없는 시트·셀, 수식 쓰기, 병합 비앵커 쓰기를
+거부한다. 수식과 서식은 보존하고 수식 캐시는 무효화한다. 영수증은 양식·매핑·값·
+출력의 해시를 묶고 각 셀의 이전/새 값을 증거와 함께 기록한다. 영수증에는 비공개
+입력이 담길 수 있으므로 공개 산출물이 아니다.
 
-## Declare display rounding where the manuscript shows rounded numbers
+채운 뒤에는 스프레드시트 앱에서 재계산하고 저장된 17시트 값을 원고와 대조한다.
+판로·등급 비율과 기간 오프셋을 포함해 물려받은 수식을 확인한다. `filled`는
+매핑된 값이 쓰였다는 뜻이며 계산 승인도 내용 승인도 아니다. 수식 수정에는 별도의
+검토된 변경과 의존 검사가 필요하다. 이 도구는 절대 수식을 다시 쓰지 않는다.
+수정은 새 입력·출력 개정을 만들고 프로젝트 원장을 통해 이전 검토 주장을
+무효화한다.
 
-When the recalculated workbook is compared with the manuscript, every figure
-is checked digit for digit: the printed number must equal the stored workbook
-value exactly. If a passage deliberately prints a rounded figure, the rounding
-has to be declared right next to that figure; without a declaration the
-comparison stays exact and reports a mismatch.
+## 원고가 반올림한 수를 보일 때는 표시 반올림을 선언한다
 
-Write the declaration in the same clause as the claim, or in the owning
-table's own caption or note, naming the unit and the number of decimal places
-kept:
+재계산한 통합문서를 원고와 대조할 때 모든 수치는 자리 단위로 검사한다. 인쇄된
+숫자는 저장된 통합문서 값과 정확히 같아야 한다. 어떤 문장이 의도적으로 반올림한
+수치를 적는다면, 그 반올림을 해당 수치 바로 옆에 선언해야 한다. 선언이 없으면
+대조는 정확 일치로 남고 불일치로 보고한다.
+
+선언은 주장과 같은 절에 쓰거나, 그 수치를 소유한 표의 캡션이나 주석에 쓴다.
+단위와 유지한 소수 자릿수를 함께 적는다.
 
 - `… 당기순이익은 4,289.7 천원(소수 1자리까지 반올림하여 표시)이다.`
 - `표 1. 농장A 손익 (단위: 천원, 소수 1자리까지 반올림하여 표시)`
-- `주) 천원은 소수 3자리까지 반올림하여 표시한다.` — a table note works too
-- `소수 0자리까지` or `정수로 반올림하여 표시` for whole-number display
+- `주) 천원은 소수 3자리까지 반올림하여 표시한다.` — 표 주석도 유효하다
+- 정수 표시에는 `소수 0자리까지` 또는 `정수로 반올림하여 표시`
 
-반올림 here is the everyday rule: at the cut position a discarded digit of 5
-or more raises the last kept digit, so `14532.549` becomes `14532.5` and
-`14532.550` becomes `14532.6`. Negative amounts round away from zero in the
-same manner (`-14532.55 → -14532.6`).
+여기서 반올림은 일상적인 규칙이다. 자르는 자리에서 버리는 숫자가 5 이상이면
+남기는 마지막 자리를 올린다. 그래서 `14532.549`는 `14532.5`가 되고
+`14532.550`은 `14532.6`이 된다. 음수도 같은 방식으로 0에서 멀어지는 쪽으로
+반올림한다(`-14532.55 → -14532.6`).
 
-The declaration is local and is applied strictly:
+선언은 지역적이며 엄격하게 적용한다.
 
-- It governs only its own claim clause or its own table. A neighbouring
-  sentence, clause or table cannot borrow it.
-- The unit tied to the declaration must be the unit of the figure being
-  compared; a declaration written about `원` does not apply to a `천원`
-  figure.
-- The number of places must be explicit. A bare `반올림하여 표시` with no
-  place count, two different place counts for the same unit, or an
-  unreasonable count is not a usable declaration: the figure is reported as
-  a mismatch instead of being quietly compared exactly.
-- With a valid declaration, the workbook value is rounded to the declared
-  places for comparison only — the printed figure itself is never
-  re-rounded. Printing the full-precision value (`14,532.549`) or a
-  differently rounded one (`14,532.4`) under a one-place declaration still
-  fails.
+- 자기 주장 절이나 자기 표에만 적용된다. 이웃한 문장·절·표가 빌려 쓸 수 없다.
+- 선언에 묶인 단위는 대조하는 수치의 단위여야 한다. `원`에 대해 쓴 선언은
+  `천원` 수치에 적용되지 않는다.
+- 자릿수는 명시해야 한다. 자릿수 없는 `반올림하여 표시`, 같은 단위에 서로 다른
+  두 자릿수, 비상식적인 자릿수는 쓸 수 있는 선언이 아니다. 그런 수치는 조용히
+  정확 대조되는 대신 불일치로 보고한다.
+- 유효한 선언이 있으면 통합문서 값을 선언한 자릿수로 반올림해 **대조만** 한다.
+  인쇄된 수치 자체를 다시 반올림하지 않는다. 1자리 선언 아래에서 전체 정밀도
+  값(`14,532.549`)이나 다르게 반올림한 값(`14,532.4`)을 적으면 여전히 실패한다.
 
-The stored workbook values and every formula keep full precision at all
-times. A rounded display figure is presentation only; never reuse it as an
-input to another calculation.
+저장된 통합문서 값과 모든 수식은 항상 전체 정밀도를 유지한다. 반올림한 표시
+수치는 표현일 뿐이며, 다른 계산의 입력으로 절대 재사용하지 않는다.
 
-Accounting-style negatives are read only inside table cells: a cell whose
-whole value is `(N)` — one matched ASCII parenthesis pair around an
-unsigned integer or decimal, e.g. `(121,246.7)` — is compared as `-N`,
-and `(N) 천원`-style trailing units follow the same unit rules as plain
-cells. Signed forms inside or before the parentheses (`(-N)`, `(+N)`,
-`-(N)`), nested or unbalanced parentheses, malformed commas, letters or
-units inside the parentheses, and trailing junk are rejected rather than
-interpreted. Sentence claims and workbook prose comparisons do not read
-parenthesized negatives — there they still need an explicit `-` sign.
-Fullwidth parentheses and other notations are unsupported.
+회계식 음수 표기는 표 셀 안에서만 읽는다. 셀의 값 전체가 `(N)` 꼴 — 부호 없는
+정수나 소수를 감싼 짝 맞는 ASCII 괄호 한 쌍, 예를 들어 `(121,246.7)` — 이면
+`-N`으로 대조하고, `(N) 천원`처럼 뒤에 붙은 단위는 일반 셀과 같은 단위 규칙을
+따른다. 괄호 안이나 앞에 부호가 붙은 형태(`(-N)`, `(+N)`, `-(N)`), 중첩되거나
+짝이 맞지 않는 괄호, 잘못된 쉼표, 괄호 안의 문자나 단위, 뒤에 붙은 잡음은
+해석하지 않고 거부한다. 문장 주장과 통합문서 산문 대조에서는 괄호 음수를 읽지
+않는다. 거기서는 여전히 명시적인 `-` 부호가 필요하다. 전각 괄호와 그 밖의 표기는
+지원하지 않는다.
 
 
-## Correct a verified formula defect in a copy
+## 확인된 수식 결함을 사본에서 고치기
 
-Preserving formulas during blanking/filling does not certify the example's
-arithmetic. If a formula uses the wrong area, period or loan condition, record
-the evidence and exact old/new expression before modifying a new copy. Never
-silently alter the student's plan to fit an example formula.
+비우기·채우기에서 수식을 보존했다는 것이 그 예시의 계산이 옳다는 보증은 아니다.
+수식이 잘못된 면적·기간·대출 조건을 쓰고 있으면, 근거와 정확한 이전/새 수식 식을
+기록한 뒤 새 사본을 수정한다. 예시 수식에 맞추려고 학생의 계획을 말없이 바꾸지
+않는다.
 
-`gg_excel_formula_patch.py --source copy.xlsx --map formula-map.json --out
-patched.xlsx --receipt patch-receipt.json` accepts `gg-xlsx-formula-patch-map/v1`
-with `source.sha256` and `patches`: exact `sheet`, `cell`, `expected_formula`,
-`new_formula`, `reason`, and `evidence_ref` (`source_id`, `revision`, `locator`).
-Ordinary existing formulas use `expected_formula`. An explicitly reviewed numeric constant can instead use `expected_value` (finite number, exact decimal match) to restore a missing calculation; this must never be an implicit conversion. The receipt records the original numeric text and `value_to_formula` operation. For a shared-formula target, the utility materializes only its complete rectangular shared group using the unique anchor and relative/absolute reference translation, then checks the exact effective `expected_formula`. The receipt lists every materialized member in `expanded_shared_formulas`; unrequested members must retain their effective formulas. Missing or ambiguous anchors/ranges, incomplete groups, array formulas and unsafe translations are refused. Materialization is not permission to alter unrequested formulas. The source is preserved and mismatched formulas,
-external formulas, duplicate targets and overwrite attempts are refused.
-Both old/new formulas are recorded and caches are invalidated. A patch receipt
-is an execution record; independent arithmetic and native checks still apply.
-Update the fill map hash to the patched copy before filling it.
+`gg_excel_formula_patch.py --source copy.xlsx --map formula-map.json
+--out patched.xlsx --receipt patch-receipt.json`은 `source.sha256`과 `patches`를
+가진 `gg-xlsx-formula-patch-map/v1`을 받는다. 각 패치는 정확한 `sheet`, `cell`,
+`expected_formula`, `new_formula`, `reason`, 그리고 `source_id`·`revision`·
+`locator`를 담은 `evidence_ref`를 지정한다. 일반적인 기존 수식은
+`expected_formula`를 쓴다. 명시적으로 검토한 숫자 상수는 빠진 계산을 되살리기
+위해 `expected_value`(유한한 수, 정확한 십진 일치)를 대신 쓸 수 있다. 이것은
+절대 암묵적 변환이어서는 안 된다. 영수증은 원래 숫자 텍스트와
+`value_to_formula` 작업을 기록한다.
 
-For native output from a supplied template, use `gg_office.py excel filled.xlsx
---template-receipt filled-receipt.json --out-dir native-v1`. This checks the fill
-receipt's input binding and compares saved sheet order, visibility, merges,
-print ranges, formulas and values against this copy. It does not apply the
-legacy generator's fixed cell contract. Native number-format changes are listed
-for visual review; fonts, row/column layout and full pages still require render
-inspection. `financial_content_validation: not_run` remains explicit until the
-separate current-input financial/body comparison is recorded. Do not combine
-this option with a legacy generated-workbook `--spec`.
+공유 수식 대상에 대해서는, 고유 앵커와 상대/절대 참조 변환을 써서 그 완전한
+직사각형 공유 그룹만 실체화한 다음 정확한 유효 `expected_formula`를 검사한다.
+영수증은 실체화한 모든 구성원을 `expanded_shared_formulas`에 나열하며, 요청하지
+않은 구성원은 유효 수식을 그대로 유지해야 한다. 앵커·범위가 없거나 모호한 경우,
+불완전한 그룹, 배열 수식, 안전하지 않은 변환은 거부한다. 실체화는 요청하지 않은
+수식을 바꿔도 된다는 허가가 아니다.
 
-### Print-layout copy
+원본은 보존되며 일치하지 않는 수식, 외부 수식, 중복 대상, 덮어쓰기 시도는
+거부한다. 이전/새 수식을 모두 기록하고 캐시를 무효화한다. 패치 영수증은 실행
+기록이며, 독립적인 계산 검토와 네이티브 검사는 여전히 필요하다. 패치한 사본을
+채우기 전에 쓰기 매핑의 해시를 그 사본으로 갱신한다.
 
-Native PDF inspection may reveal orphaned columns or split table blocks even when all cells and formulas are correct. Prepare a `gg-xlsx-print-map/v1` map bound to `source.sha256`, with explicit sheet names, `fit_width` (positive integer), `fit_height` (0 for unlimited or positive), optional orientation and existing print-area rectangle, optional `row_breaks` (unique positive row numbers; `fit_height: 0`) to keep complete table blocks together, and a reason for each change. Run `python3 scripts/gg_excel_print.py --source copy.xlsx --map print-map.json --out print-copy.xlsx --receipt print-receipt.json` before typed input filling. It changes only print settings in a new copy and records the change; render every final PDF page to judge readability. Do not shrink a long table to an unreadable page merely to reduce page count. An original exemplar footer, year, crop, source attribution or percentage is editable case data when it describes the previous author's case: explicitly replace it from current evidence and record provenance, instead of retaining a misleading example claim.
+제공된 양식에서 네이티브 출력을 낼 때는 `gg_office.py excel filled.xlsx
+--template-receipt filled-receipt.json --out-dir native-v1`을 쓴다. 이 경로는
+채우기 영수증의 입력 결합을 검사하고, 저장된 시트 순서·표시 여부·병합·인쇄 범위·
+수식·값을 이 사본과 대조한다. 레거시 생성기의 고정 셀 계약은 적용하지 않는다.
+네이티브 표시 형식 변경은 육안 검토용으로 나열한다. 글꼴, 행·열 배치, 전체
+페이지는 여전히 렌더 확인이 필요하다. 별도의 현재 입력 기준 재무·본문 대조를
+기록하기 전까지 `financial_content_validation: not_run`이 명시적으로 남는다. 이
+옵션을 레거시 생성 통합문서용 `--spec`과 함께 쓰지 않는다.
 
-A plan may also provide explicit `row_heights` and `wrap_cells` entries when a native preview exposes a local readability defect. `row_heights` is a list of `{ "row": <existing row number>, "height": <finite number> }`; heights must be greater than 0 and at most Excel's 409.5-point limit. `wrap_cells` is a list of exact existing cell references (for example `B6`). The utility rejects missing rows/cells, duplicate targets, out-of-range values, and merged non-anchor cells. Wrapping clones the selected cell's `xf`, appends a unique style record, and sets `alignment wrapText="1"`; it never mutates a shared style or cell value/formula. Receipts list row-height and style changes separately while `cell_changes` remains zero. No global row or column formatting is inferred. If `cellXfs` uses an `AlternateContent` with more than one effective `xf` branch (for example both `Choice` and `Fallback`), wrapping is refused because branch selection is application-dependent; no style is guessed.
+### 인쇄 배치 사본
 
-### Meaning and yearly references
+네이티브 PDF 확인에서 모든 셀과 수식이 맞는데도 열이 혼자 떨어지거나 표 덩어리가
+갈라지는 것이 드러날 수 있다. `source.sha256`에 묶인 `gg-xlsx-print-map/v1`
+매핑을 준비한다. 명시적 시트명, `fit_width`(양의 정수), `fit_height`(제한 없음은
+0, 아니면 양수), 선택적 방향과 기존 인쇄 영역 사각형, 표 덩어리를 온전히 유지하기
+위한 선택적 `row_breaks`(중복 없는 양의 행 번호. `fit_height: 0`일 때), 그리고
+변경마다 이유를 담는다. 타이핑 입력을 채우기 전에
+`python3 scripts/gg_excel_print.py --source copy.xlsx --map print-map.json
+--out print-copy.xlsx --receipt print-receipt.json`을 실행한다. 새 사본의 인쇄
+설정만 바꾸고 변경을 기록한다. 최종 PDF는 모든 페이지를 렌더해 가독성을 판단한다.
+페이지 수를 줄이려고 긴 표를 읽을 수 없는 페이지로 축소하지 않는다.
 
-For a verified rate displayed as zero by an integer format, an explicit
-`number_formats` entry can use `0.00%`. The stored fraction and its dependent
-formulas remain unchanged; verify the displayed rate in the native PDF.
-Fractional labor days can use an explicit `#,##0.00` override without rounding
-the stored days or changing the labor-cost formula. A `number_formats` override
-clones the cell style and changes only `numFmtId`; it does not set wrap text.
-List the same cell under `wrap_cells` when wrapping is also wanted.
+원본 예시의 꼬리말·연도·작목·출처 표기·비율이 이전 작성자의 사례를 설명하는
+것이라면 그것은 편집 대상 사례 데이터다. 오해를 부르는 예시 주장을 남겨두지 말고
+현재 근거로 명시적으로 교체하고 출처를 기록한다.
 
-A zero error-cell count is not a financial review. Check first-year ratios and subtotals against the remaining years; trace each yearly rent, tools, other expense, subsidy and investment row to that same year, including subtotal-to-detail links and cumulative balances. Compare written rate/period notes with formulas. Use a separate nonzero, different-per-year probe or inspect every corresponding reference: all-zero sample costs can hide copied first-year references. Keep probe values out of the student plan. A hidden reference/helper cell must never influence a printed result without a labeled input and source. Record the tested assumptions and applicability of each correction; do not force a student's loan, depreciation, rent or grant-accounting conditions to match the exemplar. Explicit no-expense answers in a synthetic fixture may be zero; missing real answers remain unknown.
+계획은 네이티브 미리보기에서 국소적인 가독성 결함이 드러날 때 명시적
+`row_heights`와 `wrap_cells` 항목을 함께 줄 수 있다. `row_heights`는
+`{ "row": <기존 행 번호>, "height": <유한한 수> }`의 목록이며, 높이는 0보다 크고
+엑셀의 상한인 409.5포인트 이하여야 한다. `wrap_cells`는 정확한 기존 셀 참조의
+목록이다(예: `B6`). 이 도구는 없는 행·셀, 중복 대상, 범위를 벗어난 값, 병합
+비앵커 셀을 거부한다. 줄바꿈은 선택한 셀의 `xf`를 복제하고 고유한 스타일 레코드를
+추가한 뒤 `alignment wrapText="1"`을 설정한다. 공유 스타일이나 셀 값·수식은 절대
+바꾸지 않는다. 영수증은 행 높이 변경과 스타일 변경을 따로 나열하며 `cell_changes`는
+0으로 남는다. 전역 행·열 서식은 추론하지 않는다. `cellXfs`가 유효한 `xf` 분기를
+둘 이상 가진 `AlternateContent`를 쓰면(예: `Choice`와 `Fallback` 둘 다) 분기 선택이
+앱에 따라 달라지므로 줄바꿈을 거부한다. 스타일을 추측하지 않는다.
 
+### 의미와 연차 참조
 
-### Registering a verified supplied-template output
+정수 서식 때문에 0으로 표시되는 확인된 비율에는 명시적 `number_formats` 항목으로
+`0.00%`를 쓸 수 있다. 저장된 분수와 그에 의존하는 수식은 그대로 두고, 표시되는
+비율을 네이티브 PDF에서 확인한다. 소수점이 있는 노동 일수에는 저장된 일수를
+반올림하거나 노무비 수식을 바꾸지 않고 명시적 `#,##0.00` 재정의를 쓸 수 있다.
+`number_formats` 재정의는 셀 스타일을 복제해 `numFmtId`만 바꾸며 줄바꿈은
+설정하지 않는다. 줄바꿈도 원하면 같은 셀을 `wrap_cells`에도 나열한다.
 
-After the native Excel conversion, copy its manifest into the project workspace.
-Register the current XLSX output with `layout_kind: "provided_template"` and
-`native_manifest: {"path": "<workspace-relative manifest>", "sha256": "<actual hash>"}`.
-The manifest must bind the current workbook hash, a successful Microsoft Excel
-run, `validation.excel.valid: true`, and `school_validation:
-"source_template_preservation_only"`, with no structure/school issues. The
-runtime also scans the 17-sheet workbook for formula and cached error cells.
-This route preserves the supplied form's coordinates; it does not certify
-financial interpretation or replace independent content and print review.
-Do not label an unverified workbook or an old output with this tag to bypass
-checks. Native Excel is the verified adapter currently implemented for this
-route; another application requires its own tested adapter and evidence.
+오류 셀이 0개인 것은 재무 검토가 아니다. 1년차 비율과 소계를 나머지 연차와
+대조한다. 연차별 임차료·소도구·기타 경비·보조금·투자 행을 소계-상세 연결과 누적
+잔액을 포함해 같은 연차로 추적한다. 서술한 비율·기간 설명과 수식을 대조한다.
+연차마다 다른 0이 아닌 별도 탐침값을 쓰거나 대응하는 참조를 전부 확인한다. 표본
+비용이 전부 0이면 1년차 참조를 복사한 것이 가려질 수 있다. 탐침값은 학생 계획에
+남기지 않는다. 숨겨진 참조·보조 셀이 라벨 붙은 입력과 출처 없이 인쇄되는 결과에
+영향을 주어서는 안 된다. 각 수정에서 시험한 가정과 적용 범위를 기록한다. 학생의
+대출·감가상각·임차료·보조금 회계 조건을 예시에 억지로 맞추지 않는다. 개발용
+픽스처에서 명시적으로 "지출 없음"이라고 답한 항목은 0일 수 있다. 실제 답변이
+없는 항목은 모름으로 남는다.
 
-### Verify the complete operation lineage
+### 확인된 제공 양식 출력 등록
 
-After all filling, formula/layout changes and native saves, check the ordered
-receipt chain rather than refreshing an old receipt's output hash:
+네이티브 엑셀 변환 뒤에는 그 매니페스트를 프로젝트 작업영역으로 복사한다. 현재
+XLSX 출력을 `layout_kind: "provided_template"`과
+`native_manifest: {"path": "<작업영역 기준 상대 매니페스트>", "sha256": "<실제 해시>"}`로
+등록한다. 매니페스트는 현재 통합문서 해시, 성공한 Microsoft Excel 실행,
+`validation.excel.valid: true`,
+`school_validation: "source_template_preservation_only"`를 묶어야 하며 구조·학교 관련 문제가 없어야
+한다. 런타임은 17시트 통합문서에서 수식 오류 셀과 캐시된 오류 셀도 검사한다.
+
+이 경로는 제공된 양식의 좌표를 보존한다. 재무 해석을 보증하지 않으며 독립적인
+내용 검토와 인쇄 검토를 대신하지도 않는다. 검증하지 않은 통합문서나 낡은 출력에
+이 태그를 붙여 검사를 우회하지 않는다. 네이티브 엑셀은 이 경로에 현재 구현된
+검증 어댑터다. 다른 앱을 쓰려면 그 앱의 시험된 어댑터와 증거가 따로 필요하다.
+
+### 전체 작업 계보 검증
+
+채우기, 수식·배치 변경, 네이티브 저장을 모두 마친 뒤에는 낡은 영수증의 출력
+해시를 갱신하는 대신 순서가 있는 영수증 사슬을 검사한다.
 
 ```text
 python3 scripts/gg_office.py verify-template-lineage final.xlsx \
@@ -269,26 +289,25 @@ python3 scripts/gg_office.py verify-template-lineage final.xlsx \
   native/final.office.manifest.json --json
 ```
 
-List every intervening operation in execution order, including intermediate
-native manifests. The chain must begin with a clear or fill receipt. Every
-declared input, map, values file, output and native PDF must still match its
-recorded hash; each operation's source must match the preceding output.
-Native manifests must bind the preceding operation receipt. Relative artifact
-paths resolve beside their receipt. Missing paths, omitted transformations,
-wrong ordering and a different final workbook are refused.
+중간 네이티브 매니페스트를 포함해 그 사이의 모든 작업을 실행 순서대로 나열한다.
+사슬은 clear 또는 fill 영수증으로 시작해야 한다. 선언된 모든 입력·매핑·값 파일·
+출력·네이티브 PDF가 기록된 해시와 여전히 일치해야 하며, 각 작업의 원본은 직전
+출력과 일치해야 한다. 네이티브 매니페스트는 직전 작업의 영수증에 묶여야 한다.
+상대 산출물 경로는 각자의 영수증 옆에서 해석한다. 없는 경로, 빠뜨린 변환, 잘못된
+순서, 다른 최종 통합문서는 거부한다.
 
-The result's `authority: operation_lineage_only` proves file linkage, not
-independent truth, arithmetic, privacy, readability or professor approval.
-Receipts are local records from the selected project. The CLI may resolve an
-absolute artifact path when a source and its receipt live in different
-folders; that path is checked for existence and exact hash, not certified as
-an approved source merely because it was named. Do not adopt receipts found
-in an unrelated reference folder as the current project's records. Inspect
-the selected source role and operation chain before using the result. This
-local trust model does not prevent a user with equal filesystem write access
-from forging all records; it is not a signature or professor identity service.
-A clear operation's `partial` status remains visible in the result and is
-not promoted. Hash-only legacy receipts can support the older single-operation
-binding but cannot establish complete lineage. Do not manufacture a missing
-native receipt after manual recovery; preserve the gap and re-execute that
-stage through the observed adapter before claiming an unbroken chain.
+결과의 `authority: operation_lineage_only`는 파일 연결을 증명할 뿐 독립적인 사실,
+계산, 개인정보, 가독성, 교수 승인을 증명하지 않는다. 영수증은 선택한 프로젝트의
+로컬 기록이다. 원본과 그 영수증이 다른 폴더에 있으면 CLI가 절대 산출물 경로를
+해석할 수 있다. 그 경로는 존재와 정확한 해시를 검사할 뿐, 이름이 적혔다는 이유로
+승인된 출처로 인정되는 것이 아니다. 무관한 참고 폴더에서 발견한 영수증을 현재
+프로젝트의 기록으로 채택하지 않는다. 결과를 쓰기 전에 선택한 출처 역할과 작업
+사슬을 확인한다.
+
+이 로컬 신뢰 모델은 같은 파일시스템 쓰기 권한을 가진 사용자가 모든 기록을
+위조하는 것을 막지 못한다. 서명도 교수 신원 확인 서비스도 아니다. clear 작업의
+`partial` 상태는 결과에 그대로 보이며 승격되지 않는다. 해시만 있는 레거시
+영수증은 예전의 단일 작업 결합은 뒷받침할 수 있지만 완전한 계보를 세우지는
+못한다. 수동 복구 뒤에 빠진 네이티브 영수증을 지어내지 않는다. 그 공백을
+보존하고, 끊기지 않은 사슬을 주장하기 전에 관측된 어댑터로 해당 단계를 다시
+실행한다.

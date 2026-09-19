@@ -78,7 +78,7 @@ DBpia(dbpia.co.kr)는 기관 인증이 필요하다. **KCI·ScienceON을 먼저 
 3. 약용작물이면 생약명 확인: 식약처 의약품통합정보시스템 nedrug.mfds.go.kr,
    국가한의임상정보포털 nikom.or.kr
 4. KAMIS·KOSIS에서 그 작목이 **어느 상위 품목에 묶여 있는지** 확인한다
-5. 찾은 별칭을 `04_research_log.md` 맨 앞에 기록한다
+5. 찾은 별칭을 조사 원문 파일 맨 앞에 적고, 그 파일을 정본의 `sources`에 등록한다
 
 ### 결과 없음 판정 규칙
 
