@@ -1,4 +1,4 @@
-import type { Envelope, HistoryRow, LockInfo, RpcError, RpcResult, SectionRow, Status } from '../../shared/types'
+import type { ArtifactItem, ArtifactPreview, Envelope, HistoryRow, LockInfo, MaterialsData, RpcError, RpcResult, SectionRow, Status } from '../../shared/types'
 
 export type EventHandler = (event: string, data: unknown) => void
 
@@ -29,6 +29,9 @@ export const rpc = {
   unlock: (root: string) => call<{ released: boolean; owner: unknown; leftover: string | null; notice?: string }>('lock.unlock', { root }),
   doctor: (root: string) => call<Record<string, any>>('doctor.all', { root }),
   buildTree: (root: string) => call<any>('fs.build_tree', { root }),
+  materials: (root: string) => call<MaterialsData>('materials.list', { root }),
+  artifacts: (root: string) => call<{ items: ArtifactItem[] }>('artifact.list', { root }),
+  artifactPreview: (root: string, path: string) => call<ArtifactPreview>('artifact.preview', { root, path }),
   init: (root: string) => call<{ project: unknown }>('project.init', { root }),
   /** Long-running script; pass a `clientId` from `newClientId()` to be able to `cancel` it. */
   script: (method: string, params: Record<string, unknown>, onEvent?: EventHandler, clientId?: string) => call<Envelope>(method, params, onEvent, clientId),

@@ -153,10 +153,11 @@ export function skillVersion(source: string): string {
 
 export const VERSION_FILE = '.knuaf-doc-version'
 
-export function skillTargets(home: string): Record<AgentKind, string> {
+/** Project-local install dirs: the skill lives inside the open project, never in the user's home. */
+export function skillTargets(root: string): Record<AgentKind, string> {
   return {
-    claude: join(home, '.claude', 'skills', 'knuaf-doc'),
-    codex: join(home, '.codex', 'skills', 'knuaf-doc')
+    claude: join(root, '.claude', 'skills', 'knuaf-doc'),
+    codex: join(root, '.agents', 'skills', 'knuaf-doc')
   }
 }
 
@@ -218,11 +219,18 @@ export function sq(s: string): string {
 
 export const BANNER = 'knuaf-doc 동반 앱이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
 
+/** Directories an agent process needs ahead of PATH: project venv, bundled runtime, user installs. */
+export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBin'>): string[] {
+  const dirs: string[] = []
+  if (o.venvBin) dirs.push(o.venvBin)
+  if (o.bundledBin) dirs.push(o.bundledBin)
+  dirs.push('/opt/homebrew/bin', '/usr/local/bin')
+  return dirs
+}
+
 export function buildLaunchScript(o: LaunchScriptOptions): string {
-  const pathParts: string[] = []
-  if (o.venvBin) pathParts.push(sq(o.venvBin))
-  if (o.bundledBin) pathParts.push(sq(o.bundledBin))
-  pathParts.push(sq('/opt/homebrew/bin'), sq('/usr/local/bin'), '"$HOME/.local/bin"', '"$PATH"')
+  const pathParts = agentBinDirs(o).map(sq)
+  pathParts.push('"$HOME/.local/bin"', '"$PATH"')
 
   const execLine = o.agent === 'claude'
     ? `exec ${sq(o.agentPath)} ${sq(o.firstPrompt)}`
@@ -263,7 +271,8 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
 
 // ---------------------------------------------------------------- 8. composed API
 
-export async function getStatus(ctx: AgentCtx): Promise<AgentStatus> {
+/** `root` is the open project; with no project open the skill reports 'missing'. */
+export async function getStatus(ctx: AgentCtx, root: string | null): Promise<AgentStatus> {
   const env = ctx.env ?? process.env
   const probe = async (name: AgentKind): Promise<AgentBinary> => {
     const path = findExecutable(name, env)
@@ -271,21 +280,25 @@ export async function getStatus(ctx: AgentCtx): Promise<AgentStatus> {
   }
   const [claude, codex] = await Promise.all([probe('claude'), probe('codex')])
   const version = skillVersion(skillSource(ctx.appRoot, ctx.isPackaged, ctx.resourcesPath))
-  const targets = skillTargets(ctx.home)
+  const targets = root ? skillTargets(root) : null
   return {
     claude,
     codex,
-    skill: { claude: skillState(targets.claude, version), codex: skillState(targets.codex, version) },
+    skill: {
+      claude: targets ? skillState(targets.claude, version) : 'missing',
+      codex: targets ? skillState(targets.codex, version) : 'missing'
+    },
     skillVersion: version
   }
 }
 
 export const agentApi = {
-  status: (ctx: AgentCtx): Promise<AgentStatus> => getStatus(ctx),
+  status: (ctx: AgentCtx, root: string | null): Promise<AgentStatus> => getStatus(ctx, root),
 
-  installSkill: (ctx: AgentCtx, kind: AgentKind): InstallResult => {
+  installSkill: (ctx: AgentCtx, kind: AgentKind, root: string | null): InstallResult => {
+    if (!root) throw new Error('먼저 작업 폴더를 열어 주세요.')
     const source = skillSource(ctx.appRoot, ctx.isPackaged, ctx.resourcesPath)
-    return installSkill(source, skillTargets(ctx.home)[kind], skillVersion(source))
+    return installSkill(source, skillTargets(root)[kind], skillVersion(source))
   },
 
   launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {

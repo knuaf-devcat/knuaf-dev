@@ -1,6 +1,6 @@
 import type { ReactElement, SVGProps } from 'react'
 
-export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'mark'
+export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'mark' | 'files' | 'tool'
 
 const PATHS: Record<IconName, ReactElement> = {
   folder: <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />,
@@ -21,7 +21,9 @@ const PATHS: Record<IconName, ReactElement> = {
   done: <><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></>,
   circle: <circle cx="12" cy="12" r="8.5" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></>,
-  mark: <><rect x="5" y="3.5" width="13" height="17" rx="2" /><path d="M8 3.5v17" /><circle cx="15" cy="16" r="2" fill="currentColor" stroke="none" /></>
+  mark: <><rect x="5" y="3.5" width="13" height="17" rx="2" /><path d="M8 3.5v17" /><circle cx="15" cy="16" r="2" fill="currentColor" stroke="none" /></>,
+  files: <><rect x="8" y="3.5" width="11" height="14" rx="1.5" /><path d="M5 6.5v12A1.5 1.5 0 0 0 6.5 20H16" /></>,
+  tool: <><path d="M14.5 4.5a4.5 4.5 0 0 0-5.8 5.4L4 14.6V19h4.4l4.7-4.7a4.5 4.5 0 0 0 5.4-5.8l-3.2 3.2-2.1-.5-.5-2.1 1.8-4.6z" /></>
 }
 
 export function Icon({ name, size = 18, ...rest }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {

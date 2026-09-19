@@ -213,6 +213,253 @@ def doctor_all(ctx, params):
     return out
 
 
+# --- materials / artifacts (read-only views over sources/ and build/) --------
+
+MATERIAL_FIELDS = (
+    "intake.current_manuscript",
+    "intake.current_finance",
+    "intake.reference_materials",
+    "intake.work_basis",
+)
+
+ARTIFACT_KINDS = {".docx": "docx", ".xlsx": "xlsx", ".pdf": "pdf", ".md": "md"}
+
+XLSX_MAX_ROWS = 200
+XLSX_MAX_COLS = 40
+TEXT_PREVIEW_LIMIT = 200 * 1024
+
+
+def _visible_files(base: Path):
+    """Files under `base`, skipping hidden names (incl. .knuaf-gui)."""
+    if not base.is_dir():
+        return
+    for f in sorted(base.rglob("*")):
+        if not f.is_file():
+            continue
+        try:
+            rel_parts = f.relative_to(base).parts
+        except ValueError:
+            continue
+        if any(part.startswith(".") for part in rel_parts):
+            continue
+        yield f
+
+
+def _latest_fact(p, field_id):
+    """Newest fact (highest revision) recorded for a field_id, or None."""
+    facts = [f for f in (p.get("facts") or {}).values() if f.get("field_id") == field_id]
+    if not facts:
+        return None
+    return max(facts, key=lambda f: (f.get("revision") or 0, str(f.get("id") or "")))
+
+
+def _fact_path(fact):
+    """Where the recorded file lives: `path`, `value.path`, or a path-like string value."""
+    path = fact.get("path")
+    if isinstance(path, str) and path:
+        return path
+    value = fact.get("value")
+    if isinstance(value, dict):
+        inner = value.get("path")
+        if isinstance(inner, str) and inner:
+            return inner
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _fact_entry(fact):
+    if fact is None:
+        return {"provided": False, "path": None, "value": None, "note": None, "answer_state": None}
+    value = fact.get("value")
+    return {
+        "provided": fact.get("answer_state") == "provided",
+        "path": _fact_path(fact),
+        "value": value if isinstance(value, str) else None,
+        "note": fact.get("note") if isinstance(fact.get("note"), str) else None,
+        "answer_state": fact.get("answer_state"),
+    }
+
+
+def _is_current_file(file: Path, current_paths):
+    """A sources/ file counts as `current` only when it is the recorded manuscript/finance file itself.
+    Same-named files elsewhere stay `reference`: names alone never confirm the current work."""
+    return file.resolve() in current_paths["resolved"]
+
+
+def materials_list(ctx, params):
+    """Intake facts + sources/ listing. Display only — nothing is adopted or written here."""
+    core = _core()
+    root = _root(params).resolve()
+    p = core.load(root)
+    manuscript = _fact_entry(_latest_fact(p, "intake.current_manuscript"))
+    finance = _fact_entry(_latest_fact(p, "intake.current_finance"))
+    references = _fact_entry(_latest_fact(p, "intake.reference_materials"))
+    basis = _latest_fact(p, "intake.work_basis")
+    work_basis = None
+    if basis is not None:
+        v = basis.get("value")
+        work_basis = v if isinstance(v, str) else (basis.get("note") if isinstance(basis.get("note"), str) else None)
+
+    current_paths = {"resolved": set()}
+    for entry in (manuscript, finance):
+        if not entry["provided"]:
+            continue
+        raw = entry["path"] or entry["value"]
+        if not raw:
+            continue
+        cand = Path(raw)
+        if cand.is_absolute():
+            try:
+                current_paths["resolved"].add(cand.resolve())
+            except OSError:
+                pass
+        else:
+            try:
+                current_paths["resolved"].add((root / cand).resolve())
+            except OSError:
+                pass
+
+    files = []
+    sources = root / "sources"
+    for f in _visible_files(sources) or ():
+        try:
+            rel = f.relative_to(root).as_posix()
+            st = f.stat()
+        except (ValueError, OSError):
+            continue
+        files.append(
+            {
+                "path": rel,
+                "bytes": st.st_size,
+                "mtime": st.st_mtime,
+                "role": "current" if _is_current_file(f, current_paths) else "reference",
+            }
+        )
+    return {
+        "current_manuscript": manuscript,
+        "current_finance": finance,
+        "reference_materials": references,
+        "work_basis": work_basis,
+        "files": files,
+    }
+
+
+def artifact_list(ctx, params):
+    """Previewable files under build/, newest first; `revision` from the outputs collection when known."""
+    core = _core()
+    root = _root(params).resolve()
+    p = core.load(root)
+    revisions = {}
+    for out in (p.get("outputs") or {}).values():
+        path = out.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        key = Path(path).as_posix()
+        rev = out.get("revision")
+        if isinstance(rev, int) and rev > (revisions.get(key) or 0):
+            revisions[key] = rev
+    items = []
+    for f in _visible_files(root / "build") or ():
+        kind = ARTIFACT_KINDS.get(f.suffix.lower())
+        if kind is None:
+            continue
+        try:
+            rel = f.relative_to(root).as_posix()
+            st = f.stat()
+        except (ValueError, OSError):
+            continue
+        items.append(
+            {
+                "path": rel,
+                "name": f.name,
+                "kind": kind,
+                "bytes": st.st_size,
+                "mtime": st.st_mtime,
+                "revision": revisions.get(rel),
+            }
+        )
+    items.sort(key=lambda i: i["mtime"], reverse=True)
+    return {"items": items}
+
+
+def _xlsx_preview(path: Path):
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return {"kind": "unavailable", "reason": "재무 미리보기에는 프로젝트 패키지가 필요해요. 패키지 준비를 먼저 실행해 주세요."}
+    sheets = []
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        for ws in wb.worksheets:
+            max_row = ws.max_row or 0
+            max_col = ws.max_column or 0
+            rows = []
+            for row in ws.iter_rows(min_row=1, max_row=min(max_row, XLSX_MAX_ROWS), max_col=min(max_col, XLSX_MAX_COLS)):
+                rows.append(["" if cell.value is None else str(cell.value) for cell in row])
+            sheets.append(
+                {
+                    "name": ws.title,
+                    "max_row": max_row,
+                    "max_col": max_col,
+                    "rows": rows,
+                    "truncated": max_row > XLSX_MAX_ROWS or max_col > XLSX_MAX_COLS,
+                }
+            )
+    finally:
+        wb.close()
+    # Second pass with formulas visible: how many formula cells lack a cached value?
+    formulas = 0
+    uncalculated = 0
+    wbf = load_workbook(path, read_only=True, data_only=False)
+    try:
+        for ws in wbf.worksheets:
+            sheet = next((s for s in sheets if s["name"] == ws.title), None)
+            max_row = min(ws.max_row or 0, XLSX_MAX_ROWS)
+            max_col = min(ws.max_column or 0, XLSX_MAX_COLS)
+            for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col)):
+                for c_idx, cell in enumerate(row):
+                    if cell.data_type != "f":
+                        continue
+                    formulas += 1
+                    if sheet is not None and r_idx < len(sheet["rows"]) and c_idx < len(sheet["rows"][r_idx]) and sheet["rows"][r_idx][c_idx] == "":
+                        uncalculated += 1
+    finally:
+        wbf.close()
+    out = {"kind": "xlsx", "sheets": sheets, "formulas": formulas}
+    if formulas > 10 and uncalculated / formulas > 0.5:
+        out["formulas_uncalculated"] = True
+    return out
+
+
+def artifact_preview(ctx, params):
+    """Read-only preview payload; binary kinds only report their kind (bytes go via file:read)."""
+    core = _core()
+    root = _root(params)
+    rel = params.get("path")
+    if not isinstance(rel, str) or not rel:
+        raise RpcError("invalid_params", "path 필요")
+    try:
+        f = core.local(root, rel)
+    except ValueError as error:
+        raise RpcError("invalid_params", str(error))
+    if not f.is_file():
+        raise RpcError("not_found", "파일 없음: %s" % rel)
+    ext = f.suffix.lower()
+    if ext == ".xlsx":
+        return _xlsx_preview(f)
+    if ext in (".md", ".txt"):
+        data = f.read_bytes()
+        return {
+            "kind": "text",
+            "text": data[:TEXT_PREVIEW_LIMIT].decode("utf-8", errors="replace"),
+            "truncated": len(data) > TEXT_PREVIEW_LIMIT,
+        }
+    if ext == ".pdf":
+        return {"kind": "pdf"}
+    return {"kind": "unavailable", "reason": "이 형식은 미리보기를 지원하지 않아요."}
+
+
 def fs_build_tree(ctx, params):
     core = _core()
     root = _root(params)
@@ -267,3 +514,6 @@ def register(server):
     server.register("lock.unlock", lock_unlock, write=True)
     server.register("doctor.all", doctor_all)
     server.register("fs.build_tree", fs_build_tree)
+    server.register("materials.list", materials_list)
+    server.register("artifact.list", artifact_list)
+    server.register("artifact.preview", artifact_preview)

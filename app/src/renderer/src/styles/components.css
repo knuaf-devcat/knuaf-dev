@@ -17,6 +17,9 @@
 .nav-item.active { background: var(--accent-soft); color: var(--ink); }
 .nav-item.active svg { color: var(--accent); }
 .nav-item:disabled { opacity: .4; }
+.nav-item.nested { padding-left: calc(var(--sp-2) + 18px + var(--sp-2)); font-weight: 400; }
+.nav-group-label svg { color: var(--muted); }
+.nav-group-label .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
 .sidebar .spacer { flex: 1; }
 .sidebar .foot { font-size: var(--fs-micro); letter-spacing: var(--ls-micro); color: var(--muted); padding: 0 var(--sp-2); }
 .main { position: relative; overflow: auto; background: var(--bg); min-width: 0; }
@@ -143,7 +146,36 @@ dialog.sheet .sheet-head h2 { margin: 0; }
 dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-5); }
 .prose { line-height: 1.75; font-size: 0.9375rem; white-space: pre-wrap; }
 
+/* ---- Artifact preview (pdf.js canvas, read-only xlsx table) ---- */
+.preview-canvas { overflow: auto; max-height: 70vh; border: var(--hairline) solid var(--line); border-radius: var(--r-md); background: var(--panel-2); padding: var(--sp-3); }
+.preview-canvas canvas { display: block; margin: 0 auto; background: #fff; box-shadow: var(--shadow-sheet); max-width: none; }
+.preview-table-wrap { overflow: auto; max-height: 60vh; border: var(--hairline) solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.preview-table { border-collapse: collapse; font-size: var(--fs-caption); min-width: 100%; }
+.preview-table td { border: var(--hairline) solid var(--line); padding: 3px var(--sp-2); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.artifact-list { max-height: 60vh; overflow: auto; }
+.artifact-list .item { cursor: pointer; }
+.artifact-list .item.active { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone { border: var(--hairline) dashed var(--line-strong); border-radius: var(--r-md); padding: var(--sp-5); text-align: center; color: var(--muted); }
+.dropzone[data-dragging] { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+
 /* folder drop */
 [data-dragging] .main { outline: 2px dashed var(--accent); outline-offset: -8px; }
 
 .helper-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); margin: var(--sp-3) 0; }
+
+/* ---- Chat (내 논문) ---- */
+.chat-log { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-4) 0; }
+.chat-msg { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); max-width: 88%; }
+.chat-msg.user { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
+.chat-msg.assistant { align-self: flex-start; }
+.chat-msg.system { align-self: center; background: transparent; border-color: transparent; text-align: center; }
+.chat-msg-head { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.chat-who { font-size: var(--fs-caption); font-weight: 600; color: var(--muted); }
+.chat-msg button { margin-top: var(--sp-2); }
+.chat-composer { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); margin-top: var(--sp-4); }
+.chat-composer[data-dragging] { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.chat-composer textarea { width: 100%; resize: vertical; margin-bottom: var(--sp-2); }
+.chat-seg { margin: var(--sp-2) 0 var(--sp-4); }
+.term-wrap { display: flex; flex-direction: column; gap: var(--sp-3); }
+.term-host { height: 60vh; min-height: 320px; background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-md); overflow: hidden; padding: var(--sp-2); }
+.term-bar { display: flex; align-items: center; gap: var(--sp-3); }

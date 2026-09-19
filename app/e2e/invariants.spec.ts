@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launch, openProject, plantStaleLock, synthProject } from './helpers'
+import { launch, navTo, openProject, plantStaleLock, synthProject } from './helpers'
 
 const CREDIT_1 = 'knuaf-doc · 창업논문 작성 도우미'
 const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱'
@@ -23,6 +23,8 @@ test('hard rules hold across screens', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
   await openProject(page, root)
+  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await navTo(page, '대시보드')
   await page.waitForSelector('h1:has-text("대시보드")', { timeout: 30_000 })
 
   // four lanes, no percentage progress, banner first
@@ -32,24 +34,24 @@ test('hard rules hold across screens', async () => {
   await expect(page.locator('text=독립검토 미실행')).toBeVisible()
 
   // checks: no skip / N-A controls
-  await page.click('nav >> text=검사 결과')
+  await navTo(page, '검사 결과')
   await expect(page.locator('text=독립검토 미실행')).toBeVisible()
   expect(await page.locator('button:has-text("건너뛰기"), button:has-text("해당 없음")').count()).toBe(0)
 
   // sections: read-only
-  await page.click('nav >> text=절 목록')
+  await navTo(page, '절 목록')
   await page.click('button:has-text("미리보기")')
   expect(await page.locator('main textarea, main [contenteditable="true"]').count()).toBe(0)
   await expect(page.locator('text=읽기 전용').first()).toBeVisible()
   await page.click('dialog >> button[aria-label="닫기"]')
 
   // students never see JSON / model pickers as inputs
-  await page.click('nav >> text=산출물')
+  await navTo(page, '도구')
   const labels = (await page.locator('main label, main .field > span').allInnerTexts()).join('\n')
   expect(labels).not.toMatch(/JSON|모델/)
 
   // troubleshoot: release only for a stale same-host lock; sanctioned Kordoc sentence only
-  await page.click('nav >> text=문제 해결')
+  await navTo(page, '문제 해결')
   await expect(page.locator(`text=${KORDOC}`)).toHaveCount(1)
   await expect(page.locator('button:has-text("잠금 해제")')).toBeDisabled()
   plantStaleLock(root)

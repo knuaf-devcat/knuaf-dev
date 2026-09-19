@@ -1,0 +1,58 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createInterface } from 'node:readline'
+
+/** stdio JSON-RPC. stderr stays out of the student transcript and credentials never enter logs. */
+export class JsonRpcProcess {
+  private child: ChildProcessWithoutNullStreams
+  private seq = 0
+  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+  closed = false
+  onNotification: (method: string, params: any) => void = () => {}
+  onRequest: (id: number | string, method: string, params: any) => void = () => {}
+  onClose: () => void = () => {}
+  constructor(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
+    this.child = spawn(binary, args, { cwd, env, stdio: 'pipe' })
+    const lines = createInterface({ input: this.child.stdout })
+    lines.on('line', line => {
+      let m: any
+      try { m = JSON.parse(line) } catch { return }
+      if (m.method) {
+        if (m.id !== undefined) this.onRequest(m.id, m.method, m.params)
+        else this.onNotification(m.method, m.params)
+      } else if (this.pending.has(m.id)) {
+        const p = this.pending.get(m.id)!; clearTimeout(p.timer); this.pending.delete(m.id)
+        m.error ? p.reject(new Error(m.error.message ?? 'AI 요청 실패')) : p.resolve(m.result)
+      }
+    })
+    this.child.stderr.resume()
+    this.child.on('error', () => this.finish())
+    this.child.on('close', () => this.finish())
+    this.child.stdin.on('error', () => this.finish())
+  }
+  private finish() {
+    if (this.closed) return
+    this.closed = true
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('AI 연결이 종료됐어요. 전송 중이던 답변은 자동으로 다시 보내지 않아요.')) }
+    this.pending.clear(); this.onClose()
+  }
+  send(value: unknown) {
+    if (this.closed) throw new Error('AI 연결이 종료됐어요.')
+    this.child.stdin.write(JSON.stringify(value) + '\n')
+  }
+  request(method: string, params: unknown = {}): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const id = ++this.seq
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('AI 응답 시간이 초과됐어요. 전송 상태를 확인해 주세요.')) }, 45_000)
+      this.pending.set(id, { resolve, reject, timer })
+      try { this.send({ id, method, params }) } catch (e) { clearTimeout(timer); this.pending.delete(id); reject(e) }
+    })
+  }
+  async stop() {
+    if (this.closed) return
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(() => this.child.kill('SIGKILL'), 3000)
+      this.child.once('close', () => { clearTimeout(timer); resolve() })
+      this.child.kill('SIGTERM')
+    })
+  }
+}

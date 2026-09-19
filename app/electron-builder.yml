@@ -13,6 +13,7 @@ directories:
 files:
   - out/**
   - package.json
+  - node_modules/node-pty/**
 extraResources:
   - from: sidecar
     to: sidecar

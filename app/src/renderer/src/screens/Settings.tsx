@@ -3,10 +3,10 @@ import { useProject } from '../store/project'
 import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
-import { PRIVACY_NOTE, SCREEN_INTRO } from '../copy'
+import { CHAT, PRIVACY_NOTE, SCREEN_INTRO } from '../copy'
 
 export function SettingsScreen() {
-  const { settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs } = useProject()
+  const { settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper } = useProject()
   const [override, setOverride] = useState('')
   const [info, setInfo] = useState<{ version: string; packaged: boolean; logs: string; electron: string } | null>(null)
   useEffect(() => { void window.knuaf.appInfo().then(setInfo) }, [])
@@ -23,6 +23,16 @@ export function SettingsScreen() {
           <div className="caption">기본 실행기 <code>{(sidecar as any)?.basePython ?? '—'}</code> · 오프라인 휠 <code>{(sidecar as any)?.wheelhouse ?? '없음'}</code></div>
           <div className="row" style={{ marginTop: 'var(--sp-2)' }}><input aria-label="Python 경로" style={{ minWidth: 360 }} value={override} onChange={(e) => setOverride(e.target.value)} placeholder="/usr/local/bin/python3.12 (비우면 자동)" /><button onClick={save}>적용·재시작</button></div>
         </Disclosure>
+      </section>
+      <section className="card">
+        <div className="card-head"><h2>AI 도우미</h2></div>
+        <div className="field">
+          <label htmlFor="codex-terminal">{CHAT.codexTerminal}</label>
+          <input id="codex-terminal" type="checkbox" checked={!!settings?.codex_terminal}
+            onChange={async (e) => { await window.knuaf.setSettings({ codex_terminal: e.target.checked }); await loadSettings() }} />
+          <div className="help">{CHAT.codexTerminalHint}</div>
+        </div>
+        <button onClick={() => void openHelper()}>{CHAT.externalTerminal}</button>
       </section>
       <section className="card">
         <div className="card-head"><h2>최근 폴더</h2></div>

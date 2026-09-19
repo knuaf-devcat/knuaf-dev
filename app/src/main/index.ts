@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Sidecar } from './sidecar'
 import { registerIpc } from './ipc'
+import type { ChatService } from './chat/service'
+import type { TerminalService } from './terminal'
 import { APP_ROOT } from './python'
 import { installMenu, type MenuAction } from './menu'
 
@@ -11,6 +13,9 @@ if (process.env.KNUAF_USER_DATA) app.setPath('userData', process.env.KNUAF_USER_
 
 let win: BrowserWindow | null = null
 const sidecar = new Sidecar()
+let chat: ChatService | null = null
+let terminal: TerminalService | null = null
+let quitting = false
 const isMac = process.platform === 'darwin'
 let pendingOpen: string | null = null
 
@@ -69,7 +74,9 @@ else {
       const iconPng = join(APP_ROOT, 'build', 'icon.png')
       if (existsSync(iconPng)) app.dock?.setIcon(nativeImage.createFromPath(iconPng))
     }
-    registerIpc(sidecar, () => win, () => installMenu(sendMenu))
+    const services = registerIpc(sidecar, () => win, () => installMenu(sendMenu))
+    chat = services.chat
+    terminal = services.terminal
     installMenu(sendMenu)
     createWindow()
     nativeTheme.on('updated', () => {
@@ -80,5 +87,14 @@ else {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
   })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-  app.on('before-quit', () => { void sidecar.stop() })
+  app.on('before-quit', (e) => {
+    void sidecar.stop()
+    terminal?.closeAll()
+    // Let in-flight agent connections finish their shutdown before the process exits.
+    if (chat && !quitting) {
+      quitting = true
+      e.preventDefault()
+      void chat.close().finally(() => app.quit())
+    }
+  })
 }

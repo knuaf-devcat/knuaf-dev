@@ -48,8 +48,29 @@ export interface Envelope {
 }
 export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
 export interface RecentEntry { root: string; opened_at: string }
-export interface Settings { recent: RecentEntry[]; credit_shown_at: string | null; python_override: string | null }
+export interface Settings { recent: RecentEntry[]; credit_shown_at: string | null; python_override: string | null; codex_terminal?: boolean }
 /** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
 export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }
 /** Cheap look at `<root>/project.json` without starting the sidecar. */
 export interface ProjectPeek { exists: boolean; hasProject: boolean; revision: number | null; project_id: string | null; mtime: number | null }
+
+// --- materials.list / artifact.list / artifact.preview ----------------------
+
+export interface MaterialFact { provided: boolean; path: string | null; value: string | null; note: string | null; answer_state: string | null }
+export interface MaterialFile { path: string; bytes: number; mtime: number; role: 'current' | 'reference' }
+export interface MaterialsData {
+  current_manuscript: MaterialFact
+  current_finance: MaterialFact
+  reference_materials: MaterialFact
+  work_basis: string | null
+  files: MaterialFile[]
+}
+
+export type ArtifactKind = 'docx' | 'xlsx' | 'pdf' | 'md'
+export interface ArtifactItem { path: string; name: string; kind: ArtifactKind; bytes: number; mtime: number; revision: number | null }
+export interface XlsxSheet { name: string; max_row: number; max_col: number; rows: string[][]; truncated: boolean }
+export type ArtifactPreview =
+  | { kind: 'xlsx'; sheets: XlsxSheet[]; formulas: number; formulas_uncalculated?: boolean }
+  | { kind: 'text'; text: string; truncated: boolean }
+  | { kind: 'pdf' }
+  | { kind: 'unavailable'; reason: string }

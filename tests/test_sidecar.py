@@ -81,6 +81,13 @@ def test_hello_and_unknown_method(sidecar):
     assert bad["error"]["code"] == "not_found"
 
 
+def test_methods_list_reports_write_flags(sidecar):
+    flags = {m["name"]: m["write"] for m in sidecar.call("methods.list")["result"]}
+    assert flags["project.init"] is True
+    assert flags["project.status"] is False
+    assert flags["methods.list"] is False
+
+
 def test_status_has_four_lanes_and_banner(sidecar, project):
     st = sidecar.call("project.status", root=str(project))["result"]
     assert st["revision"] == 1
@@ -147,6 +154,105 @@ def test_subprocess_method_streams_logs_and_normalises(sidecar, project):
 def test_docx_build_without_venv_reports_deps_not_ready(sidecar, project):
     r = sidecar.call("docx.build", root=str(project), out="build/x.docx")
     assert r["error"]["code"] == "deps_not_ready"
+
+
+def _intake_fact(fid, field_id, value, answer_state, **extra):
+    value = {
+        "id": fid, "field_id": field_id, "kind": "reported_fact",
+        "value": value, "unit": None, "value_type": "text", "period": None, "scope": None,
+        "answer_state": answer_state, "verification": "unreviewed",
+        "source_refs": [{"id": "src-answers", "revision": 1, "locator": "L1"}],
+    }
+    value.update(extra)
+    return {"collection": "facts", "value": value}
+
+
+def test_materials_list_facts_and_roles(sidecar, project):
+    (project / "sources" / "원고.docx").write_bytes(b"docx")
+    (project / "sources" / "참고.pdf").write_bytes(b"%PDF-1.4\n")
+    (project / "sources" / ".hidden.md").write_text("x", encoding="utf-8")
+    change = {
+        "request_id": "test:intake:1",
+        "ops": [
+            _intake_fact("fact-manuscript", "intake.current_manuscript", "sources/원고.docx", "provided"),
+            _intake_fact("fact-finance", "intake.current_finance", None, "explicit_none", reason="재무 파일 없음"),
+            _intake_fact("fact-basis", "intake.work_basis", "이어쓰기", "provided"),
+        ],
+    }
+    import gg_core as core
+    core.apply(project, change, 1)
+    res = sidecar.call("materials.list", root=str(project))["result"]
+    assert res["current_manuscript"]["provided"] is True
+    assert res["current_manuscript"]["path"] == "sources/원고.docx"
+    assert res["current_finance"]["provided"] is False
+    assert res["current_finance"]["answer_state"] == "explicit_none"
+    assert res["work_basis"] == "이어쓰기"
+    roles = {f["path"]: f["role"] for f in res["files"]}
+    assert roles["sources/원고.docx"] == "current"
+    assert roles["sources/참고.pdf"] == "reference"
+    assert roles["sources/answers.md"] == "reference"
+    assert "sources/.hidden.md" not in roles
+
+
+def test_materials_list_empty_project(sidecar, project):
+    res = sidecar.call("materials.list", root=str(project))["result"]
+    assert res["current_manuscript"]["provided"] is False
+    assert res["work_basis"] is None
+    assert {f["path"] for f in res["files"]} == {"sources/answers.md"}
+
+
+def test_artifact_list_kinds_and_revision(sidecar, project):
+    sidecar.call("project.export", root=str(project), kind="draft")
+    (project / "build" / "메모.md").write_text("# 메모\n", encoding="utf-8")
+    (project / "build" / "receipt.json").write_text("{}", encoding="utf-8")
+    res = sidecar.call("artifact.list", root=str(project))["result"]
+    paths = [i["path"] for i in res["items"]]
+    assert all(p.startswith("build/") for p in paths)
+    assert not any(p.endswith(".json") for p in paths)
+    assert "build/메모.md" in paths
+    md = next(i for i in res["items"] if i["path"] == "build/메모.md")
+    assert md["kind"] == "md" and md["name"] == "메모.md" and md["bytes"] > 0
+    mtimes = [i["mtime"] for i in res["items"]]
+    assert mtimes == sorted(mtimes, reverse=True)
+
+
+def test_artifact_preview_text_pdf_missing_and_escape(sidecar, project):
+    (project / "build").mkdir(exist_ok=True)
+    (project / "build" / "메모.md").write_text("# 메모\n\n본문\n", encoding="utf-8")
+    (project / "build" / "문서.pdf").write_bytes(b"%PDF-1.4\n")
+    res = sidecar.call("artifact.preview", root=str(project), path="build/메모.md")["result"]
+    assert res["kind"] == "text" and "본문" in res["text"]
+    res = sidecar.call("artifact.preview", root=str(project), path="build/문서.pdf")["result"]
+    assert res == {"kind": "pdf"}
+    missing = sidecar.call("artifact.preview", root=str(project), path="build/nope.md")
+    assert missing["error"]["code"] == "not_found"
+    escaped = sidecar.call("artifact.preview", root=str(project), path="../outside.md")
+    assert escaped["error"]["code"] == "invalid_params"
+    unsupported = sidecar.call("artifact.preview", root=str(project), path="project.json")
+    assert unsupported["result"]["kind"] == "unavailable"
+
+
+def test_artifact_preview_xlsx(sidecar, project):
+    openpyxl = pytest.importorskip("openpyxl")
+    (project / "build").mkdir(exist_ok=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "재무"
+    ws["A1"] = "항목"
+    ws["B1"] = "값"
+    ws["A2"] = "매출"
+    ws["B2"] = 42
+    ws2 = wb.create_sheet("긴 시트")
+    for r in range(1, 210):
+        ws2.cell(row=r, column=1, value=r)
+    wb.save(project / "build" / "재무.xlsx")
+    res = sidecar.call("artifact.preview", root=str(project), path="build/재무.xlsx")["result"]
+    assert res["kind"] == "xlsx"
+    sheets = {s["name"]: s for s in res["sheets"]}
+    assert sheets["재무"]["rows"][0] == ["항목", "값"]
+    assert sheets["재무"]["rows"][1][1] == "42"
+    assert sheets["긴 시트"]["truncated"] is True
+    assert len(sheets["긴 시트"]["rows"]) == 200
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="sh wrapper + select() on pipes")

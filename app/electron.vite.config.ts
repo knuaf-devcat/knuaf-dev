@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
 
 export default defineConfig({
-  main: { build: { outDir: 'out/main' } },
+  // node-pty is a native N-API module: it must load from node_modules, not the bundle.
+  main: { build: { outDir: 'out/main', rollupOptions: { external: ['node-pty'] } } },
   preload: { build: { outDir: 'out/preload' } },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),

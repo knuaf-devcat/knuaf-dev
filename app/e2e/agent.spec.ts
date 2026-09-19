@@ -53,11 +53,11 @@ test.describe('skill source + version', () => {
 })
 
 test.describe('installSkill', () => {
-  test('installs into a tmp home, is unchanged on rerun, and backs up when tampered', () => {
-    const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
-    const targets = skillTargets(home)
-    expect(targets.claude).toBe(join(home, '.claude', 'skills', 'knuaf-doc'))
-    expect(targets.codex).toBe(join(home, '.codex', 'skills', 'knuaf-doc'))
+  test('installs into a tmp project root, is unchanged on rerun, and backs up when tampered', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kd-root-'))
+    const targets = skillTargets(root)
+    expect(targets.claude).toBe(join(root, '.claude', 'skills', 'knuaf-doc'))
+    expect(targets.codex).toBe(join(root, '.agents', 'skills', 'knuaf-doc'))
     const version = skillVersion(source)
 
     expect(skillState(targets.claude, version)).toBe('missing')
@@ -83,7 +83,7 @@ test.describe('installSkill', () => {
     expect(readFileSync(join(third.backup!, VERSION_FILE), 'utf-8')).toBe('tampered\n')
     expect(readFileSync(join(targets.claude, VERSION_FILE), 'utf-8').trim()).toBe(version)
     // sibling skills untouched
-    expect(readdirSync(join(home, '.claude', 'skills')).sort()).toEqual([`knuaf-doc`, `knuaf-doc.bak-${third.backup!.split('.bak-')[1]}`].sort())
+    expect(readdirSync(join(root, '.claude', 'skills')).sort()).toEqual([`knuaf-doc`, `knuaf-doc.bak-${third.backup!.split('.bak-')[1]}`].sort())
   })
 })
 
@@ -146,14 +146,18 @@ test.describe('agentApi', () => {
       venvPython: (root: string | null) => (root ? join(root, '.venv', 'bin', 'python3') : null),
       env: process.env
     }
-    const st = await agentApi.status(ctx)
+    const root = mkdtempSync(join(tmpdir(), 'kd-root-'))
+    // no project open: skill state reports missing for both agents
+    expect((await agentApi.status(ctx, null)).skill).toEqual({ claude: 'missing', codex: 'missing' })
+    const st = await agentApi.status(ctx, root)
     expect(st.claude).toMatchObject({ found: true, path: '/opt/homebrew/bin/claude' })
     expect(typeof st.claude.version).toBe('string')
     expect(st.skill).toEqual({ claude: 'missing', codex: 'missing' })
     expect(st.skillVersion).toBe(skillVersion(source))
 
-    expect(agentApi.installSkill(ctx, 'codex')).toEqual({ action: 'installed' })
-    expect((await agentApi.status(ctx)).skill).toEqual({ claude: 'missing', codex: 'installed' })
+    expect(agentApi.installSkill(ctx, 'codex', root)).toEqual({ action: 'installed' })
+    expect(existsSync(join(root, '.agents', 'skills', 'knuaf-doc', 'SKILL.md'))).toBe(true)
+    expect((await agentApi.status(ctx, root)).skill).toEqual({ claude: 'missing', codex: 'installed' })
 
     const r = await agentApi.launch(ctx, { root: '/tmp/논문 폴더', kind: 'claude', revision: 2 })
     const script = readFileSync(r.scriptPath, 'utf-8')

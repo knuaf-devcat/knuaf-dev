@@ -4,6 +4,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+backups/
 # app
 app/node_modules/
 app/out/
@@ -15,3 +16,4 @@ app/resources/skill/
 .DS_Store
 app/test-results/
 app/playwright-report/
+app/e2e/artifacts/

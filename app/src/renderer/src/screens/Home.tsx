@@ -9,7 +9,7 @@ import { CREDIT, EMPTY, ONBOARDING_STEPS, SCREEN_INTRO, relativeTime } from '../
 import type { ProjectPeek, RecentEntry } from '../../../shared/types'
 
 export function Home() {
-  const { open, settings, error, loading, root, hasProject, status, peek, depsReady, setScreen, loadSettings, openHelper } = useProject()
+  const { open, settings, error, loading, root, hasProject, status, peek, depsReady, setScreen, loadSettings } = useProject()
   const [showCredit, setShowCredit] = useState(false)
   const [typed, setTyped] = useState('')
   const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})
@@ -38,7 +38,7 @@ export function Home() {
     const current = !done && (i === 0 || (i === 1 && !!root) || (i === 2 && !!root && depsReady === true))
     return {
       id: s.id, title: s.title, body: s.body, state: done ? 'done' : current ? 'current' : 'next',
-      action: i === 1 ? { label: s.actionLabel ?? '패키지 준비', onClick: () => setScreen('troubleshoot') } : i === 2 ? { label: 'AI 도우미 열기', onClick: () => void openHelper() } : undefined
+      action: i === 1 ? { label: s.actionLabel ?? '패키지 준비', onClick: () => setScreen('troubleshoot') } : i === 2 ? { label: '내 논문으로', onClick: () => setScreen('chat') } : undefined
     }
   }) : []
 

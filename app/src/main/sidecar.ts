@@ -15,8 +15,21 @@ export class Sidecar extends EventEmitter {
   private projectRoot: string | null = null
   private override: string | null = null
   private ready: Promise<void> = Promise.resolve()
+  private writeMethods = new Set<string>()
 
   status(): SidecarInfo { return { ...this.info, running: this.proc !== null } }
+
+  /** Whether `method` mutates the project. Unknown/older sidecars report nothing → reads only. */
+  isWrite(method: string): boolean { return this.writeMethods.has(method) }
+
+  private async refreshWriteMethods(): Promise<void> {
+    try {
+      const list = await this.call<{ name: string; write: boolean }[]>('methods.list')
+      this.writeMethods = new Set(list.filter((m) => m.write).map((m) => m.name))
+    } catch {
+      this.writeMethods = new Set()
+    }
+  }
 
   /** (Re)start for a project root; restarts only when the chosen interpreter changed. */
   async configure(projectRoot: string | null, override: string | null): Promise<SidecarInfo> {
@@ -27,6 +40,7 @@ export class Sidecar extends EventEmitter {
     await this.stop()
     this.info = { ...pick, scriptsDir: scriptsDir(), running: false }
     this.ready = this.start()
+        .then(() => this.refreshWriteMethods())
     await this.ready
     return this.status()
   }

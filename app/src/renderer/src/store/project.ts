@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import type { ProjectPeek, Settings, SidecarInfo, Status } from '../../../shared/types'
 import { describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
+import { useChat } from './chat'
 
-export type Screen = 'home' | 'dashboard' | 'checks' | 'tasks' | 'sections' | 'outputs' | 'troubleshoot' | 'settings'
+export type Screen = 'home' | 'chat' | 'materials' | 'artifacts' | 'dashboard' | 'checks' | 'tasks' | 'sections' | 'outputs' | 'troubleshoot' | 'settings'
 
 interface ProjectState {
   root: string | null
@@ -57,7 +58,8 @@ export const useProject = create<ProjectState>((set, get) => ({
     await get().loadSettings()
     if (r.result.hasProject) await get().refresh(); else set({ loading: false })
     if (!r.result.hasProject || (peek.revision ?? 0) < 1) void get().refreshDeps()
-    get().setScreen(r.result.hasProject ? 'dashboard' : 'home')
+    void useChat.getState().load(root)
+    get().setScreen(r.result.hasProject ? 'chat' : 'home')
   },
   refresh: async () => {
     const root = get().root
@@ -81,7 +83,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   helper: { open: false, status: null, result: null, error: null },
   openHelper: async () => {
     set({ helper: { open: true, status: null, result: null, error: null } })
-    const r = await window.knuaf.agentStatus()
+    const r = await window.knuaf.agentStatus(get().root)
     if (r.error) { set((s) => ({ helper: { ...s.helper, error: describeError(r.error) } })); return }
     set((s) => ({ helper: { ...s.helper, status: r.result } }))
     const st = r.result

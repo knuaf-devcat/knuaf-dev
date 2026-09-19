@@ -34,11 +34,14 @@ export function plantStaleLock(root: string): void {
   writeFileSync(join(root, '.gg-lock', 'owner.json'), JSON.stringify({ pid: 999999, host: require('node:os').hostname(), token: 'x', acquired_at: Date.now() / 1000 - 3600 }))
 }
 
-export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference' } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
+export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference'; env?: Record<string, string> } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
   const userData = opts.userData ?? mkdtempSync(join(tmpdir(), 'kd-userdata-'))
+  // A shell that exports ELECTRON_RUN_AS_NODE would make the app run as plain Node (require('electron') yields the binary path).
+  const env = { ...process.env, KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData, ...opts.env }
+  delete env.ELECTRON_RUN_AS_NODE
   const electronApp = await electron.launch({
     args: [join(app, 'out', 'main', 'index.js'), `--user-data-dir=${userData}`],
-    env: { ...process.env, KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData },
+    env,
     colorScheme: opts.colorScheme
   })
   const page = await electronApp.firstWindow()
@@ -53,4 +56,12 @@ export async function openProject(page: Page, root: string): Promise<void> {
   if (await disclosure.count()) await disclosure.first().evaluate((d) => { (d as HTMLDetailsElement).open = true })
   await page.fill('input[aria-label="폴더 경로"]', root)
   await page.click('button:has-text("경로로 열기")')
+}
+
+/** Click a sidebar item by label; expands the collapsed "도구·검사" group first when needed. */
+export async function navTo(page: Page, label: string): Promise<void> {
+  const nav = page.locator('nav')
+  const item = nav.getByRole('button', { name: label, exact: true })
+  if (!(await item.isVisible().catch(() => false))) await nav.getByRole('button', { name: '도구·검사' }).click()
+  await item.click()
 }

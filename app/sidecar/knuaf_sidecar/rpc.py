@@ -52,6 +52,11 @@ class Server:
         self._out_lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self.write_lock = threading.Lock()  # serialises gg_core write transactions
+        self.register("methods.list", self._methods_list)
+
+    def _methods_list(self, ctx, params):
+        """Introspection for the Electron host: which calls mutate the project (GUI gates those)."""
+        return [{"name": name, "write": write} for name, (fn, write) in sorted(self.methods.items())]
 
     def register(self, name: str, fn, write: bool = False):
         self.methods[name] = (fn, write)

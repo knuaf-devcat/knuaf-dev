@@ -118,6 +118,12 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
     action: '앱을 다시 설치하거나, "설정" 화면의 실행기 로그에 적힌 위치를 확인해 주세요.',
     kind: 'error'
   },
+  // ipc.ts agent_busy gate: an agent (chat run or live terminal output) may be writing right now.
+  agent_busy: {
+    title: 'AI 도우미가 작업 중이에요.',
+    action: '답변이 끝난 뒤(터미널은 출력이 멈춘 뒤) 다시 시도해 주세요.',
+    kind: 'warning'
+  },
   default: {
     title: '문제가 생겼어요.',
     action: '아래 내용을 확인해 주세요. 반복되면 에이전트 채팅에서 알려 주세요.',
@@ -341,6 +347,14 @@ export const EMPTY: Record<string, { title: string; body: string; action?: strin
   snapshots: {
     title: '정본 스냅샷이 없어요',
     body: '에이전트가 저장할 때마다 직전 정본이 남아요. 아직 저장 기록이 없어요.'
+  },
+  materials_files: {
+    title: 'sources 폴더에 파일이 없어요',
+    body: '도우미가 자료를 sources/에 넣거나, 아래에서 파일을 골라 채팅에 붙여 보세요.'
+  },
+  artifacts: {
+    title: '아직 결과물이 없어요',
+    body: '도우미가 build 폴더에 파일을 만들면 여기에 나타나요.'
   }
 }
 
@@ -366,17 +380,23 @@ export const COMPLETION: Record<string, string> = {
 // Screen intros, onboarding
 // ---------------------------------------------------------------------------
 
-export type ScreenId = 'home' | 'dashboard' | 'checks' | 'tasks' | 'sections' | 'outputs' | 'troubleshoot' | 'settings'
+/** Data boundary: the agent providers see the project; the app itself phones nowhere. */
+export const PRIVACY_NOTE = 'AI 도우미를 연결하면 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요. 앱 자체는 그 외 어디에도 자료를 보내지 않아요.'
+
+export type ScreenId = 'home' | 'chat' | 'materials' | 'artifacts' | 'dashboard' | 'checks' | 'tasks' | 'sections' | 'outputs' | 'troubleshoot' | 'settings'
 
 export const SCREEN_INTRO: Record<ScreenId, string> = {
   home: '논문 작업 폴더를 열어 상태를 보는 곳이에요. 인터뷰와 작문은 여기서 하지 않고 에이전트 채팅에서 해요.',
+  chat: 'AI 도우미와 채팅으로 인터뷰와 작문을 진행해요. 여기 나눈 대화가 정본 작업의 근거예요.',
+  materials: '현재 작성물로 정해진 파일과 참고자료를 구분해 보여줘요. 어떤 파일이 현재 작성물인지는 인터뷰에서만 정해져요.',
+  artifacts: '도우미가 build 폴더에 만든 결과물을 미리 보고, 다른 이름으로 저장하거나 원래 앱으로 열어요.',
   dashboard: '기계검사·내용검토·출력검토·교수 승인 네 가지를 따로 보여줘요. 하나의 완료 표시로 합치지 않아요.',
   checks: '검사 결과를 항목별로 보여줘요. 검사를 자동으로 통과시키거나 건너뛰지 않아요.',
   tasks: '무엇이 막혀 있는지 보여줘요. 답변은 여기가 아니라 에이전트 채팅에서 해요.',
   sections: '저장된 절의 본문을 읽기 전용으로 보여줘요. 이 앱에서는 본문을 고치지 않아요.',
   outputs: '검토본·DOCX·엑셀 산출물을 만들고 build/ 폴더를 보여줘요. 기존 파일을 덮어쓰지 않아요.',
   troubleshoot: '패키지·잠금·정본 스냅샷을 진단하고 복구를 도와줘요. 다른 작성자의 파일은 지우지 않아요.',
-  settings: 'Python 실행기와 로그를 관리해요. 이 앱은 아무것도 기기 밖으로 보내지 않아요.'
+  settings: `Python 실행기와 로그를 관리해요. ${PRIVACY_NOTE}`
 }
 
 export type OnboardingStep = { id: string; title: string; body: string; actionLabel?: string }
@@ -397,8 +417,8 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: 'open_helper',
     title: 'AI 도우미 열기',
-    body: '버튼을 누르면 앱이 규칙집을 넣고 터미널 창에 AI 도우미(Claude Code)를 켜 "시작하기"까지 대신 입력해요. 인터뷰 답변은 그 창에서 해요.',
-    actionLabel: 'AI 도우미 열기'
+    body: '"내 논문" 화면에서 AI 도우미와 채팅으로 인터뷰와 작문을 해요. 앱이 규칙집을 작업 폴더 안에 넣어 둬요.',
+    actionLabel: '내 논문으로'
   }
 ]
 
@@ -419,8 +439,6 @@ export const NO_OVERWRITE_NOTE = '기존 파일은 덮어쓰지 않아요. 같�
 
 /** SKILL.md:15, :24 — nothing here counts as school submission or professor approval. */
 export const NOT_APPROVAL_NOTE = '교수 승인으로 표시되지 않아요. 검사 통과와 승인은 별개예요.'
-
-export const PRIVACY_NOTE = '이 앱은 아무것도 기기 밖으로 보내지 않아요. 원본과 개인 자료는 작업 폴더에만 있어요.'
 
 /** interview-ui.md — the chat transcript is the record; the app only shows. */
 export const READ_ONLY_NOTE = '읽기 전용이에요. 수정은 에이전트 채팅에서 요청해 주세요.'
@@ -526,6 +544,113 @@ export function officeHint(reason: string | null | undefined): { title: string; 
     }
   }
   return null
+}
+
+export const CHAT = {
+  title: '내 논문',
+  checking: '연결 확인 중…',
+  installed: '설치됨',
+  notInstalled: '미설치',
+  connected: '연결됨',
+  disconnected: '미연결',
+  login: 'ChatGPT 로그인',
+  installGuide: '설치 안내',
+  recheck: '다시 확인',
+  me: '나',
+  assistant: '도우미',
+  sending: '전송 중',
+  uncertain: '전송 여부 불확실',
+  resend: '다시 보내기',
+  runningBody: '도우미가 작업 중이에요. 끝날 때까지 기다리거나 중단할 수 있어요.',
+  stop: '중단',
+  allow: '허용',
+  deny: '거절',
+  skillLoaded: '스킬 로드됨',
+  attach: '파일 첨부',
+  attachHint: '파일을 고르거나 끌어 놓으면 경로가 답변 끝에 추가돼요.',
+  placeholder: '답변 입력 · Enter 보내기, Shift+Enter 줄바꿈',
+  send: '보내기',
+  emptyTitle: '아직 대화가 없어요',
+  emptyBody: '도우미와 나눈 대화가 여기 쌓여요. 처음이면 "시작하기"라고 보내 보세요.',
+  interruptedTitle: '앱이 작업 도중 종료됐어요',
+  interruptedBody: '마지막 답변이 도우미에게 닿았는지 확인할 수 없어요. 내용을 확인한 뒤 필요하면 다시 보내 주세요.',
+  segCodex: 'Codex (채팅)',
+  segClaude: 'Claude (터미널)',
+  termAlive: '실행 중',
+  termExited: '종료됨',
+  termKill: '종료',
+  termKillTitle: '터미널을 종료할까요?',
+  termKillBody: '도우미가 하던 작업이 중단돼요. 종료해도 되면 눌러 주세요.',
+  termRestart: '다시 시작',
+  termResume: '이어서 하기',
+  termHint: '도우미가 저장할 때마다 앱을 새로고침하면 결과가 보여요.',
+  termNotice: '터미널 모드에서는 AI가 작업 중인지 앱이 정확히 알 수 없어요. 출력이 멈춘 뒤 저장·검사를 실행해 주세요.',
+  externalTerminal: '앱 밖 터미널로 AI 도우미 열기',
+  codexTerminal: 'Codex를 터미널로 사용',
+  codexTerminalHint: '켜면 "내 논문" 화면에서 Codex도 채팅 대신 터미널로 열려요.'
+}
+
+export const MATERIALS = {
+  title: '자료',
+  currentTitle: '현재 작성물',
+  manuscriptLabel: '현재 원고',
+  financeLabel: '재무 파일',
+  notDecided: '아직 정해지지 않았어요. 도우미가 인터뷰에서 확인해요.',
+  answerStates: {
+    provided: '제공됨',
+    explicit_none: '없음으로 답함',
+    not_applicable: '해당 없음',
+    withheld: '답하지 않기로 함',
+    unknown: '모름',
+    not_provided: '아직 답 없음'
+  } as Record<string, string>,
+  refTitle: '참고자료',
+  refEmpty: '참고자료로 정해진 내용이 아직 없어요.',
+  roleCurrent: '현재 작성물',
+  roleReference: '참고자료',
+  addTitle: '파일 추가',
+  addBody: '파일을 고르거나 끌어다 놓으면 경로가 채팅 답변 끝에 추가돼요.',
+  addCaption: '파일을 넣는 것만으로는 현재 작성물이 정해지지 않아요. 도우미가 인터뷰에서 확인해요.',
+  attach: '파일 고르기…',
+  attachToChat: '채팅에 첨부',
+  reveal: '폴더에서 보기',
+  dropHint: '여기에 파일을 놓으면 채팅에 첨부돼요',
+  workBasis: '작업 기준'
+}
+
+export const ARTIFACTS = {
+  title: '결과물',
+  save: '다른 이름으로 저장…',
+  reveal: '폴더에서 보기',
+  openExternal: '원래 앱으로 열기',
+  refresh: '새로고침',
+  revision: '개정',
+  checkPass: '검사 통과',
+  checkFail: '검사 실패',
+  checkNone: '검증 기록 없음',
+  savedTo: '저장했어요',
+  previewTitle: '미리보기'
+}
+
+export const PREVIEW = {
+  pageOf: (n: number, total: number) => `${n}/${total} 페이지`,
+  prev: '이전',
+  next: '다음',
+  docxPdfCaption: '원문 DOCX를 Word로 렌더한 PDF예요. DOCX 원본과 다를 수 있어요.',
+  docxNoPdfTitle: '이 DOCX의 PDF가 아직 없어요',
+  docxNoPdfBody: 'Word로 렌더해 PDF를 만들면 여기에서 미리 볼 수 있어요. 컴퓨터에 Microsoft Word가 있어야 해요.',
+  docxRender: 'Word로 PDF 만들기',
+  docxRendering: 'Word로 렌더하는 중…',
+  uncalculatedTitle: '실제 Excel 재계산이 아직 안 됐어요',
+  uncalculatedBody: '수식이 많은데 저장된 계산 값이 비어 있어요. Office 렌더 후 실제 값이 달라질 수 있어요.',
+  truncated: '일부만 표시해요',
+  empty: '비어 있는 파일이에요',
+  unavailable: '이 형식은 미리보기를 지원하지 않아요.',
+  loadFailed: '미리보기를 불러오지 못했어요.'
+}
+
+export const NAV = {
+  toolsGroup: '도구·검사'
 }
 
 export const HELPER = {

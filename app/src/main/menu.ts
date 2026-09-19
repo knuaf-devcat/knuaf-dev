@@ -12,7 +12,7 @@ export type MenuAction =
   | { type: 'settings' }
   | { type: 'ai-helper' }
 
-const SCREENS: [string, string][] = [['home', '홈'], ['dashboard', '대시보드'], ['checks', '검사 결과'], ['tasks', '다음 할 일'], ['sections', '절 목록'], ['outputs', '산출물'], ['troubleshoot', '문제 해결'], ['settings', '설정']]
+const SCREENS: [string, string][] = [['home', '홈'], ['chat', '내 논문'], ['materials', '자료'], ['artifacts', '결과물'], ['dashboard', '대시보드'], ['checks', '검사 결과'], ['tasks', '다음 할 일'], ['sections', '절 목록'], ['outputs', '도구'], ['troubleshoot', '문제 해결'], ['settings', '설정']]
 
 /** docs/ lives next to app/ in a checkout and under Resources/docs when packaged. */
 export function docsDir(): string {
@@ -75,7 +75,7 @@ export function installMenu(send: (a: MenuAction) => void): void {
       submenu: [
         { label: '새로고침', accelerator: 'CmdOrCtrl+R', click: () => send({ type: 'refresh' }) },
         { type: 'separator' },
-        ...SCREENS.map(([id, label], i) => ({ label, accelerator: `CmdOrCtrl+${i + 1}`, click: () => send({ type: 'screen', screen: id }) })),
+        ...SCREENS.map(([id, label], i) => ({ label, ...(i < 9 ? { accelerator: `CmdOrCtrl+${i + 1}` } : {}), click: () => send({ type: 'screen', screen: id }) })),
         { type: 'separator' },
         { role: 'resetZoom', label: '실제 크기' }, { role: 'zoomIn', label: '확대' }, { role: 'zoomOut', label: '축소' },
         { type: 'separator' },

@@ -16,11 +16,17 @@
     "build:icons": "node scripts/build-icons.mjs",
     "build:guide": "node scripts/build-guide.mjs",
     "stage:skill": "node scripts/stage-skill.mjs",
+    "postinstall": "node scripts/fix-pty-helper.mjs",
     "dist:mac": "pnpm build && pnpm stage:skill && electron-builder --mac",
     "dist:win": "pnpm build && pnpm stage:skill && electron-builder --win",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.275",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0",
+    "pdfjs-dist": "6.3.289",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.5"
