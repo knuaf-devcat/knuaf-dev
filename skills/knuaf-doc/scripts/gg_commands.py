@@ -18,6 +18,8 @@ def main(mode):
     a = ap.parse_args()
     path = Path(a.target)
     try:
+        if not path.exists():
+            raise ValueError("대상 경로가 없음: " + str(path))
         root = path if path.is_dir() else path.parent.parent
         p = c.load(root) if (root / "project.json").exists() else None
         if mode == "status":
@@ -62,6 +64,10 @@ def main(mode):
                     key=lambda f: c.section_order(f.name),
                 )
                 text = "\n\n".join(c.draft(f.read_text(encoding="utf-8")) for f in files)
+            if not text.strip():
+                # 빈 대상을 "서식 통과"로 보고하면 잘못된 경로를 가리킨 사용자가
+                # 초록불을 받는다. 검사할 것이 없으면 통과가 아니라 차단이다.
+                raise ValueError("검사할 본문이 없음: " + str(path))
             rows = [
                 c.result(cid, str(path), "fail", reason, p["revision"] if p else 0)
                 for cid, reason in check(text, root)
