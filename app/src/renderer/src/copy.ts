@@ -43,7 +43,9 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
   },
   overwrite_refused: {
     title: '같은 이름의 파일이 이미 있어 덮어쓰지 않았어요.',
-    action: '"새 버전 경로" 버튼으로 다른 이름을 고른 뒤 다시 실행해 주세요.',
+    // 화면에 없는 조작을 시키지 않는다. "새 버전 경로" 버튼은 렌더러 어디에도 없었다(GUI-07).
+    // 거절은 실패가 아니라 "이미 있다"는 사실이므로, 있는 곳과 다시 만드는 조건을 말한다.
+    action: '그 파일은 아래 목록에 이미 있어요 — 거기서 열어 보세요. 새로 만들려면 논문을 고쳐 다음 기록이 된 뒤에 다시 눌러 주세요.',
     kind: 'warning'
   },
   business_rule: {
@@ -585,7 +587,7 @@ export const FIELD_LABEL: Record<string, string> = {
 /** Shown under 고급 only — technical names are allowed here. */
 export const FIELD_HINT: Record<string, string> = {
   paper_input: '도우미가 만든 paper-input.json. 폴더 안 상대경로로 적어요.',
-  paper_out: '기본값 build/검토전_본문.md. 같은 이름이 있으면 "새 버전 경로"로 바꿔요.',
+  paper_out: '기본값 build/검토전_본문.md. 같은 이름이 있으면 이 칸의 경로를 직접 바꿔요.',
   docx_in: 'gg_school_paper.py가 만든 본문 Markdown(build/검토전_본문.md).',
   out_path: '폴더 안 상대경로. 기존 파일은 덮어쓰지 않아요.',
   font: '기본 신명조. 최종 글꼴 확인은 한글에서 직접 해요.',
