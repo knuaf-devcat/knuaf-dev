@@ -228,3 +228,14 @@ def test_a_failure_reports_in_the_envelope_shape(empty_folder):
     payload = json.loads(r.stdout.strip().splitlines()[-1])
     assert payload["status"] == "blocked"
     assert "없는파일" in payload["reason"]
+
+
+def test_an_empty_source_is_not_a_docx(empty_folder):
+    """빈 본문으로도 docx 가 만들어지고 경로를 돌려줬다 — 아무것도 안 하고 했다고
+    말하는 것이다. gg_core.export 의 빈 본문 가드(GUI-03)와 같은 부류다."""
+    r = build(empty_folder, "")
+    assert r.returncode == 2, r.stdout + r.stderr
+    payload = json.loads(r.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "blocked"
+    assert "본문" in payload["reason"]
+    assert not (empty_folder / "build" / "out.docx").exists()

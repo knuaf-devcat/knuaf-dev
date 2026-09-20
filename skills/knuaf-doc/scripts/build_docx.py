@@ -560,6 +560,11 @@ def main():
         if manifest_path.exists():
             raise ValueError("기존 산출물을 덮어쓰지 않음: " + manifest_path.name)
         source_text = src.read_text(encoding="utf-8")
+        # 빈 본문으로도 docx 는 만들어진다 — 내용 없는 파일을 써 놓고 경로를 돌려주면
+        # 호출자는 "완료"로 읽는다. gg_core.export_locked 의 빈 본문 가드와 같은 이유로
+        # 막는다. 제목만 있는 원고는 여기서도 막지 않는다(그쪽과 같은 경계).
+        if not source_text.strip():
+            raise ValueError("내보낼 본문이 없음: 입력 파일이 비어 있음")
         table_reports = []
         buf = io.BytesIO()
         convert(source_text, a.font, Path(a.base),
