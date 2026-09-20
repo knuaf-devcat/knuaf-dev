@@ -214,3 +214,17 @@ def test_sub_heading_sizes_pass_school_format_probe(empty_folder):
     assert size_violations == [], size_violations
     assert result["heading_styles"]["sub"]["count"] >= 3
     assert not any(v.get("code") == "body_bookmark_missing" for v in result["violations"])
+
+
+# --- 실패는 앱이 읽을 수 있는 모양이어야 한다 -----------------------------------
+
+def test_a_failure_reports_in_the_envelope_shape(empty_folder):
+    """앱은 stdout 의 JSON status/reason 또는 stderr 의 BLOCK: 만 읽는다(app/sidecar
+    envelope.py). 평문으로 찍으면 화면에는 "만들기가 끝나지 않았어요" 제목만 남고
+    이유가 사라진다 — GUI 감사 GUI-08 이 정확히 그것이었다. gg.py 는 이미 이 모양으로
+    낸다; 생성기도 같은 계약을 지켜야 한다."""
+    r = run_script("build_docx.py", empty_folder, "--in", "build/없는파일.md", "--out", "build/out.docx")
+    assert r.returncode == 2, r.stdout + r.stderr
+    payload = json.loads(r.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "blocked"
+    assert "없는파일" in payload["reason"]

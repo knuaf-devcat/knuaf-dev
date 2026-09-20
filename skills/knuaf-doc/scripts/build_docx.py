@@ -614,7 +614,12 @@ def main():
             AttributeError, RecursionError) as e:
         # Same breadth as gg.py: malformed input must not reach the student as a
         # traceback. Unexpected types still surface, so real bugs stay visible.
-        print("%s: %s" % (type(e).__name__, e))
+        # 앱은 stdout 의 JSON status/reason 또는 stderr 의 BLOCK: 만 읽는다
+        # (app/sidecar/knuaf_sidecar/envelope.py). 평문으로 찍으면 화면에는
+        # "만들기가 끝나지 않았어요" 제목만 남고 이유가 사라진다(GUI 감사 GUI-08).
+        # gg.py 와 같은 모양으로 낸다.
+        print(json.dumps({"status": "blocked", "reason": "%s: %s" % (type(e).__name__, e)},
+                         ensure_ascii=False))
         return 2
 
 
