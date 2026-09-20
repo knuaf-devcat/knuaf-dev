@@ -18,3 +18,6 @@ app/resources/skill/
 app/test-results/
 app/playwright-report/
 app/e2e/artifacts/
+
+# 에이전트 도구의 로컬 설정 (기기마다 다르고 자격증명이 들어갈 수 있다)
+.devin/
