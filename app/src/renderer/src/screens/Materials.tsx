@@ -6,7 +6,7 @@ import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Feedback } from '../components/Feedback'
-import { EMPTY, MATERIALS, SCREEN_INTRO, describeError, formatBytes, relativeTime, type DescribedError } from '../copy'
+import { EMPTY, MATERIALS, describeError, relativeTime, type DescribedError } from '../copy'
 import type { MaterialFact, MaterialsData } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -24,19 +24,16 @@ function factName(fact: MaterialFact): string | null {
 function FactRow({ label, fact }: { label: string; fact: MaterialFact }) {
   const name = factName(fact)
   return (
-    <div className="item">
-      <div className="head">
-        <span className="row">
-          <strong>{label}</strong>
-          {fact.provided && name ? (
-            <span title={fact.path ?? fact.value ?? ''}>{name}</span>
-          ) : fact.answer_state == null || UNDECIDED.has(fact.answer_state) ? (
-            <span className="caption">{MATERIALS.notDecided}</span>
-          ) : null}
-        </span>
-        <Badge label={answerLabel(fact)} tone={fact.provided ? 'pass' : undefined} />
-      </div>
-      {fact.note && <div className="reason">{fact.note}</div>}
+    <div className="field">
+      <label>{label}</label>
+      {fact.provided && name ? (
+        <span><span title={fact.path ?? fact.value ?? ''}>{name}</span> <Badge label={answerLabel(fact)} tone="accent" /></span>
+      ) : fact.answer_state == null || UNDECIDED.has(fact.answer_state) ? (
+        <span className="muted">{MATERIALS.notDecided}</span>
+      ) : (
+        <span><Badge label={answerLabel(fact)} /></span>
+      )}
+      {fact.note && <span className="help">{fact.note}</span>}
     </div>
   )
 }
@@ -66,66 +63,52 @@ export function Materials() {
     if (f) attach(window.knuaf.pathForFile(f))
   }
 
-  const decided = data?.current_manuscript.provided || data?.current_finance.provided
-
   return (
     <div>
-      <Toolbar title={MATERIALS.title} actions={<button onClick={() => setScreen('checks')}>검사 결과 보기</button>} />
-      <p className="intro">{SCREEN_INTRO.materials}</p>
+      <Toolbar title={MATERIALS.title} />
       {err && <Feedback kind={err.kind} title={err.title} body={err.action} details={<code>{err.raw}</code>} />}
 
       <div className="card">
-        <div className="card-head"><h2>{MATERIALS.currentTitle}</h2>{data?.work_basis && <Badge label={`${MATERIALS.workBasis}: ${data.work_basis}`} />}</div>
-        <div className="list">
-          {data ? (
-            <>
-              <FactRow label={MATERIALS.manuscriptLabel} fact={data.current_manuscript} />
-              <FactRow label={MATERIALS.financeLabel} fact={data.current_finance} />
-            </>
-          ) : <p className="caption">불러오는 중…</p>}
-        </div>
-        {!decided && <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{MATERIALS.addCaption}</p>}
+        <div className="card-head"><h2>{MATERIALS.currentTitle}</h2><span className="caption">{MATERIALS.currentCaption}</span></div>
+        {data ? (
+          <>
+            <FactRow label={MATERIALS.manuscriptLabel} fact={data.current_manuscript} />
+            <FactRow label={MATERIALS.financeLabel} fact={data.current_finance} />
+          </>
+        ) : <p className="caption">불러오는 중…</p>}
       </div>
 
-      <div className="card">
-        <div className="card-head"><h2>{MATERIALS.refTitle}</h2>{data && <Badge label={answerLabel(data.reference_materials)} tone={data.reference_materials.provided ? 'pass' : undefined} />}</div>
-        {data?.reference_materials.note && <p className="caption">{data.reference_materials.note}</p>}
-        {data?.reference_materials.value && <p className="caption">{data.reference_materials.value}</p>}
-        {data && data.files.length === 0 && <EmptyState icon="files" title={EMPTY.materials_files.title} body={EMPTY.materials_files.body} />}
-        <div className="list">
-          {data?.files.map((f) => (
-            <div key={f.path} className="item">
-              <div className="head">
-                <span className="row" style={{ minWidth: 0 }}>
-                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.path}>{f.path.split(/[\\/]/).pop()}</strong>
-                  <Badge label={f.role === 'current' ? MATERIALS.roleCurrent : MATERIALS.roleReference} tone={f.role === 'current' ? 'accent' : undefined} />
-                </span>
-                <span className="row">
-                  <button onClick={() => attach(joinPath(f.path))}>{MATERIALS.attachToChat}</button>
-                  <button onClick={() => window.knuaf.reveal(joinPath(f.path))}>{MATERIALS.reveal}</button>
-                </span>
-              </div>
-              <div className="caption">{f.path} · {formatBytes(f.bytes)} · {relativeTime(f.mtime * 1000)}</div>
+      <h2>{MATERIALS.refTitle}</h2>
+      {data?.reference_materials.note && <p className="caption">{data.reference_materials.note}</p>}
+      {data && data.files.length === 0 && <EmptyState icon="files" title={EMPTY.materials_files.title} body={EMPTY.materials_files.body} />}
+      <div className="list">
+        {data?.files.map((f) => (
+          <div key={f.path} className="item">
+            <div className="head">
+              <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.path}>{f.path.split(/[\\/]/).pop()}</strong>
+              <span className="row">
+                {f.role === 'current' && <Badge label={MATERIALS.roleCurrent} tone="accent" />}
+                <button className="quiet" onClick={() => attach(joinPath(f.path))}>{MATERIALS.attachToChat}</button>
+              </span>
             </div>
-          ))}
-        </div>
+            <div className="reason caption">{f.path} · {relativeTime(f.mtime * 1000)}</div>
+          </div>
+        ))}
       </div>
 
-      <div className="card">
-        <div className="card-head"><h2>{MATERIALS.addTitle}</h2></div>
-        <p>{MATERIALS.addBody}</p>
-        <div
-          className="dropzone"
-          data-dragging={dragging || undefined}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-        >
-          <p className="caption">{MATERIALS.dropHint}</p>
-          <button className="primary" onClick={pick}>{MATERIALS.attach}</button>
-        </div>
-        <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{MATERIALS.addCaption}</p>
+      <h2>{MATERIALS.addTitle}</h2>
+      <div
+        className="dropzone"
+        data-dragging={dragging || undefined}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        {MATERIALS.dropLine} <button onClick={pick}>{MATERIALS.attach}</button>
+        <div className="caption" style={{ marginTop: 'var(--sp-2)' }}>{MATERIALS.addCaption}</div>
       </div>
+
+      <p className="caption" style={{ marginTop: 'var(--sp-4)' }}>{MATERIALS.checkLinePre} <button className="lk" onClick={() => setScreen('checkup')}>{MATERIALS.checkLink}</button>{MATERIALS.checkLinePost}</p>
     </div>
   )
 }

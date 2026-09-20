@@ -1,52 +1,30 @@
-// Electron e2e for the "내 논문" screen: project opens on the chat tab, the Claude segment mounts
-// an embedded terminal, and typing into xterm round-trips through the main-process pty.
-// KNUAF_TERM_SHELL=/bin/sh makes TerminalService spawn a bare shell instead of the real claude CLI.
-// xterm 6 paints on canvas (no DOM text), so the echoed output is asserted through the session's
-// replay buffer — the exact same bytes the canvas displays — plus a screenshot artifact.
+// Electron e2e for the "내 논문" screen — 도우미 상태 확인 실패 경로의 복구 UI.
+// (인앱 터미널은 제거됐다 — 내 논문은 항상 앱 채팅이다.)
 import { expect, test } from '@playwright/test'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
 
-test('내 논문 opens on chat, the Claude terminal echoes input through the pty', async () => {
+// chat.status RPC가 실패하면 status가 null로 남는다 — 그건 "확인 중"이 아니라 확정된
+// 실패다. 툴바의 "연결 확인 중…"이 영원히 남거나 본문이 캡션 하나로 끝나면 안 되고,
+// 미연결과 같은 복구 수단(다시 확인·설치 안내·draft 카드)이 보여야 한다.
+test('a failed status check is a confirmed failure, not a dead end', async () => {
+  // PATH 첫 자리에 즉시 죽는 가짜 codex — status()의 app-server 핸드셰이크가 결정적으로 실패한다.
+  const bindir = mkdtempSync(join(tmpdir(), 'kd-bin-'))
+  writeFileSync(join(bindir, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
   const root = synthProject()
-  const { electronApp, page } = await launch({ env: { KNUAF_TERM_SHELL: '/bin/sh' } })
+  const { electronApp, page } = await launch({ env: { PATH: `${bindir}:/usr/bin:/bin` } })
   try {
     await openProject(page, root)
-    // projects now land on "내 논문" (chat) by default
-    await expect(page.locator('.chat-seg')).toBeVisible()
-    await expect(page.locator('.chat-composer textarea')).toBeVisible()
-
-    await page.click('button[role="tab"]:has-text("Claude (터미널)")')
-    await expect(page.locator('.term-host .xterm')).toBeVisible()
-
-    // find the pty session through the renderer bridge, then type into xterm
-    await expect.poll(async () => {
-      const list = await page.evaluate(async (r) => {
-        const r_ = await window.knuaf.term.list(r)
-        return 'result' in r_ ? r_.result : []
-      }, root)
-      return list.filter((t) => t.kind === 'claude' && t.alive).map((t) => t.id)
-    }).toHaveLength(1)
-
-    await page.click('.term-host')
-    await page.keyboard.type('echo knuaf-ok')
-    await page.keyboard.press('Enter')
-
-    // canvas has no DOM text; the replay buffer is the same output the canvas paints
-    await expect.poll(async () => {
-      const list = await page.evaluate(async (r) => {
-        const r_ = await window.knuaf.term.list(r)
-        return 'result' in r_ ? r_.result : []
-      }, root)
-      const id = list.find((t) => t.kind === 'claude')?.id
-      if (!id) return ''
-      const replay = await page.evaluate(async (i) => {
-        const r_ = await window.knuaf.term.replay(i)
-        return 'result' in r_ ? r_.result : ''
-      }, id)
-      return replay
-    }).toContain('knuaf-ok')
-
-    await page.screenshot({ path: 'e2e/artifacts/chat-terminal.png' })
+    await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+    await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: '다시 확인' })).toBeVisible()
+    // "확인 중"은 어느 자리에도 남으면 안 된다 — 툴바 배지와 본문 캡션 둘 다.
+    await expect(page.locator('text=연결 확인 중…')).toHaveCount(0)
+    // 실패 원문은 피드백 카드의 "자세히" 아래로 간다 — 헤드라인은 학생용 문장.
+    await expect(page.locator('.feedback').first()).toBeVisible()
+    await expect(page.locator('.feedback summary:has-text("자세히")').first()).toBeVisible()
   } finally {
     await electronApp.close()
   }

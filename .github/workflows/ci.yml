@@ -89,4 +89,8 @@ jobs:
       - if: runner.os == 'macOS'
         run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
         env:
-          KNUAF_PYTHON: python
+          # 절대경로여야 한다. 앱은 choosePython 에서 existsSync(KNUAF_PYTHON) 으로 검사하므로
+          # 맨이름 "python" 은 통째로 무시되고 폴백으로 내려간다 — 번들 파이썬이 없는 CI 에서는
+          # PATH 의 python3 로 떨어지고, PATH 를 좁히는 스펙(가짜 codex 를 심는 둘)에서는
+          # macOS 기본 3.9.6 이 걸려 project:open 이 실패한다.
+          KNUAF_PYTHON: ${{ env.pythonLocation }}/bin/python

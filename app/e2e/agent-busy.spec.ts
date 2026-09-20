@@ -1,40 +1,40 @@
 import { test, expect } from '@playwright/test'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { launch, openProject, plantStaleLock, synthProject } from './helpers'
 
-// A live agent terminal that emitted output within the last 5 s makes the app
-// refuse write RPCs — concurrent writers would race the agent's own saves.
-test('terminal activity rejects sidecar writes with agent_busy, then recovers', async () => {
+// 도우미 채팅 실행 중에는 sidecar 쓰기가 거절된다 — 동시 쓰기는 도우미의 저장과 경합한다.
+// 실행 중 상태는 핸드셰이크에 응답하지 않는 가짜 codex로 만든다 — send() 가 acquire 한
+// 뒤 status() 에서 멈추는 동안 busy 가 잡힌다.
+test('a running chat turn rejects sidecar writes with agent_busy, then recovers', async () => {
+  const bindir = mkdtempSync(join(tmpdir(), 'kd-bin-'))
+  writeFileSync(join(bindir, 'codex'), '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
   const root = synthProject({ withContent: false })
   plantStaleLock(root) // gives lock.unlock something real to release on the second attempt
-  const { electronApp, page } = await launch({ env: { KNUAF_TERM_SHELL: '/bin/sh' } })
+  const { electronApp, page } = await launch({ env: { PATH: `${bindir}:/usr/bin:/bin` } })
   try {
     await openProject(page, root)
     await page.getByRole('heading', { name: '내 논문' }).waitFor()
 
-    const opened = await page.evaluate(async (r) => {
-      const r1 = await window.knuaf.term.open(r, 'claude', { revision: null, resume: false, cols: 80, rows: 24 })
-      if ('error' in r1) throw new Error(r1.error.message)
-      return r1.result
-    }, root)
+    // send() 는 가짜 서버의 initialize 응답을 영원히 기다린다 — 그동안 owner 를 쥔다.
+    void page.evaluate((r) => window.knuaf.chat.send(r, 'codex', '홀드', crypto.randomUUID()), root).catch(() => {})
+    await expect.poll(async () => {
+      const r = await page.evaluate((r) => window.knuaf.call('lock.unlock', { root: r }), root)
+      return 'error' in r ? r.error.code : 'no-error'
+    }, { timeout: 15_000 }).toBe('agent_busy')
 
     // reads are never gated
     const read = await page.evaluate((r) => window.knuaf.call('project.status', { root: r }), root)
     expect('error' in read ? read.error : null).toBeNull()
 
-    await page.evaluate((id) => window.knuaf.term.write(id, 'yes | head -c 100000\n'), opened.id)
+    // 멈춘 연결을 끊으면 owner 가 풀리고 같은 쓰기가 sidecar 에 도달한다.
+    // stop() 은 응답 없는 프로세스를 죽이고, 진행 중인 연결 재시도도 함께 끊는다.
+    await page.evaluate((r) => window.knuaf.chat.stop(r, 'codex'), root)
     await expect.poll(async () => {
-      const r = await page.evaluate((id) => window.knuaf.term.replay(id), opened.id)
-      return 'result' in r ? r.result.length : 0
-    }).toBeGreaterThan(1000)
-
-    // fresh output → the write is refused before it reaches the sidecar
-    const busy = await page.evaluate((r) => window.knuaf.call('lock.unlock', { root: r }), root)
-    expect('error' in busy && busy.error.code).toBe('agent_busy')
-
-    // after the quiet window the same write reaches the sidecar normally
-    await page.waitForTimeout(6000)
-    const ok = await page.evaluate((r) => window.knuaf.call('lock.unlock', { root: r }), root)
-    expect('error' in ok ? ok.error : null).toBeNull()
+      const r = await page.evaluate((r) => window.knuaf.call('lock.unlock', { root: r }), root)
+      return 'error' in r ? r.error.code : 'ok'
+    }, { timeout: 15_000 }).toBe('ok')
   } finally {
     await electronApp.close()
   }

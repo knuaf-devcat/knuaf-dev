@@ -19,7 +19,6 @@ directories:
 files:
   - out/**
   - package.json
-  - node_modules/node-pty/**
 extraResources:
   - from: sidecar
     to: sidecar
@@ -30,11 +29,17 @@ extraResources:
     to: python
   - from: resources/wheelhouse
     to: wheelhouse
-  - from: ../docs
-    to: docs
+  # 번들 안 파일명은 ASCII만 쓴다. 한글 이름은 APFS 에 NFC 로 저장되는데 dmg 볼륨(HFS+)이
+  # NFD 로 바꾸고, 서명은 NFC 로 봉인돼 있어 codesign 이 같은 파일을 "added"이자 "missing"
+  # 으로 본다 — "a sealed resource is missing or invalid". zip 은 멀쩡하고 dmg 만 깨진다.
+  # 공증까지 가면 이건 실행 자체가 막히는 문제가 된다.
+  #
+  # 겸사겸사 학생에게 필요한 것만 싣는다. 나머지 docs/ 는 저장소 문서다.
+  - from: ../docs/학생용-사용안내.pdf
+    to: docs/student-guide.pdf
+  - from: ../docs/학생용-사용안내.html
+    to: docs/student-guide.html
     filter: ["*.pdf", "*.html", "*.md", "images/**"]
-asarUnpack:
-  - "**/*.node"
 mac:
   icon: build/icon.icns
   category: public.app-category.productivity

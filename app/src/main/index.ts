@@ -4,17 +4,19 @@ import { join } from 'node:path'
 import { Sidecar } from './sidecar'
 import { registerIpc } from './ipc'
 import type { ChatService } from './chat/service'
-import type { TerminalService } from './terminal'
 import { APP_ROOT } from './python'
 import { installMenu, type MenuAction } from './menu'
+import { LEGACY_USERDATA_NAMES, migrateUserDataDir } from './userdata'
 
 // Tests point userData at a temp dir so first-run state (credit, recents) is isolated.
 if (process.env.KNUAF_USER_DATA) app.setPath('userData', process.env.KNUAF_USER_DATA)
+// 표시이름이 바뀌며 생긴 옛 userData 폴더에서 설정을 이어 받는다(userdata.ts).
+// 테스트(KNUAF_USER_DATA 지정)에서는 돌리지 않는다.
+else migrateUserDataDir(app.getPath('userData'), LEGACY_USERDATA_NAMES.map((n) => join(app.getPath('appData'), n)))
 
 let win: BrowserWindow | null = null
 const sidecar = new Sidecar()
 let chat: ChatService | null = null
-let terminal: TerminalService | null = null
 let quitting = false
 const isMac = process.platform === 'darwin'
 let pendingOpen: string | null = null
@@ -76,7 +78,6 @@ else {
     }
     const services = registerIpc(sidecar, () => win, () => installMenu(sendMenu))
     chat = services.chat
-    terminal = services.terminal
     installMenu(sendMenu)
     createWindow()
     nativeTheme.on('updated', () => {
@@ -89,7 +90,6 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
   app.on('before-quit', (e) => {
     void sidecar.stop()
-    terminal?.closeAll()
     // Let in-flight agent connections finish their shutdown before the process exits.
     if (chat && !quitting) {
       quitting = true

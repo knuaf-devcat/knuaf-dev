@@ -1,10 +1,16 @@
 import { create } from 'zustand'
 import type { ProjectPeek, Settings, SidecarInfo, Status } from '../../../shared/types'
-import { describeError, type DescribedError } from '../copy'
+import { CHAT, describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
 import { useChat } from './chat'
 
-export type Screen = 'home' | 'chat' | 'materials' | 'artifacts' | 'dashboard' | 'checks' | 'tasks' | 'sections' | 'outputs' | 'troubleshoot' | 'settings'
+export type Screen = 'chat' | 'materials' | 'artifacts' | 'checkup' | 'settings'
+
+/**
+ * 설정 화면 안에서 펼침을 열 대상 — 'tools:excel' 같은 프리셋. 실패 피드백의
+ * "고급 도구에서 직접 실행"이 여기로 간다(Q2: "설정으로 가세요"가 아니라 해당 항목 직결).
+ */
+export type SettingsFocus = string | null
 
 interface ProjectState {
   root: string | null
@@ -17,14 +23,18 @@ interface ProjectState {
   sidecar: (SidecarInfo & { basePython?: string; wheelhouse?: string | null }) | null
   settings: Settings | null
   screen: Screen
-  checksPreset: { owner?: string; prefix?: string } | null
+  settingsFocus: SettingsFocus
   logs: { stream: string; line: string }[]
-  setScreen: (s: Screen, preset?: { owner?: string; prefix?: string } | null) => void
+  setScreen: (s: Screen) => void
+  /** Navigate to 설정 with a disclosure preset open (deep link from failure feedback). */
+  openSettings: (focus?: SettingsFocus) => void
+  clearSettingsFocus: () => void
   loadSettings: () => Promise<void>
   open: (root: string) => Promise<void>
   refresh: () => Promise<void>
   refreshSidecar: () => Promise<void>
   refreshDeps: () => Promise<void>
+  prepareDeps: (root: string) => Promise<void>
   clearError: () => void
   helper: { open: boolean; status: any | null; result: { title: string; body?: string } | null; error: DescribedError | null }
   openHelper: () => Promise<void>
@@ -44,10 +54,12 @@ export const useProject = create<ProjectState>((set, get) => ({
   error: null,
   sidecar: null,
   settings: null,
-  screen: 'home',
-  checksPreset: null,
+  screen: 'chat',
+  settingsFocus: null,
   logs: [],
-  setScreen: (screen, preset = null) => { set({ screen, checksPreset: preset }); location.hash = screen },
+  setScreen: (screen) => { set({ screen, ...(screen === 'settings' ? {} : { settingsFocus: null }) }); location.hash = screen },
+  openSettings: (focus = null) => { set({ screen: 'settings', settingsFocus: focus }); location.hash = 'settings' },
+  clearSettingsFocus: () => set({ settingsFocus: null }),
   loadSettings: async () => set({ settings: await window.knuaf.getSettings() }),
   open: async (root) => {
     set({ loading: true, error: null })
@@ -55,11 +67,31 @@ export const useProject = create<ProjectState>((set, get) => ({
     if (r.error) { set({ loading: false, error: describeError(r.error) }); return }
     const peek = await window.knuaf.peekProject(root)
     set({ root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null })
+    // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
+    const nested = (r.result as { nestedProject?: string | null }).nestedProject
+    if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
     await get().loadSettings()
     if (r.result.hasProject) await get().refresh(); else set({ loading: false })
-    if (!r.result.hasProject || (peek.revision ?? 0) < 1) void get().refreshDeps()
+    // 준비는 폴더를 여는 순간 백그라운드로 시작하고 실패만 표면화한다(03-화면/01 결정).
+    // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
+    void get().prepareDeps(root)
     void useChat.getState().load(root)
-    get().setScreen(r.result.hasProject ? 'chat' : 'home')
+    get().setScreen('chat')
+  },
+  /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */
+  prepareDeps: async (root) => {
+    await get().refreshDeps()
+    if (get().root !== root || get().depsReady !== false) return
+    type DepsReply = { result?: { ok?: boolean; block_reason?: string | null; stderr?: string }; error?: { code?: string; message?: string } }
+    const r: DepsReply = await window.knuaf.depsEnsure(root).catch((e: unknown) => ({ error: { message: String(e) } }))
+    if (get().root !== root) return
+    if ('result' in r && r.result?.ok) { void get().refreshDeps(); return }
+    // 터미널 도우미가 작업 중이면 sidecar가 쓰기를 거절한다 — 실패가 아니라 바쁨이니 조용히 넘긴다.
+    if ('error' in r && r.error?.code === 'agent_busy') return
+    const detail = 'result' in r
+      ? (r.result?.block_reason ?? r.result?.stderr?.trim().split('\n').filter(Boolean).at(-1) ?? 'deps.ensure failed')
+      : String(r.error?.message ?? 'deps.ensure failed')
+    set({ error: { kind: 'warning', title: CHAT.prepFailedTitle, action: '"설정 > 문제 해결"의 "준비 상태"를 확인해 주세요.', code: 'deps_ensure', raw: detail } })
   },
   refresh: async () => {
     const root = get().root

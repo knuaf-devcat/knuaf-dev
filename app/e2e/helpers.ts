@@ -50,18 +50,24 @@ export async function launch(opts: { userData?: string; colorScheme?: 'light' | 
   return { electronApp, page }
 }
 
-/** Open a project by pasting its path (the native picker cannot be driven). */
+/**
+ * Open a project by pasting its path (the native picker cannot be driven). The only path
+ * input lives in 설정 > 고급 — the folder-less 내 논문 screen deliberately has none.
+ */
 export async function openProject(page: Page, root: string): Promise<void> {
+  await navTo(page, '설정')
   const disclosure = page.locator('details:has(input[aria-label="폴더 경로"])')
   if (await disclosure.count()) await disclosure.first().evaluate((d) => { (d as HTMLDetailsElement).open = true })
   await page.fill('input[aria-label="폴더 경로"]', root)
   await page.click('button:has-text("경로로 열기")')
 }
 
-/** Click a sidebar item by label; expands the collapsed "도구·검사" group first when needed. */
+/** Click one of the five primary sidebar destinations by label. */
 export async function navTo(page: Page, label: string): Promise<void> {
-  const nav = page.locator('nav')
-  const item = nav.getByRole('button', { name: label, exact: true })
-  if (!(await item.isVisible().catch(() => false))) await nav.getByRole('button', { name: '도구·검사' }).click()
-  await item.click()
+  await page.locator('nav').getByRole('button', { name: label, exact: true }).click()
+}
+
+/** Open a 설정 disclosure by its deep-link preset (tools:export, fix:lock, folder:path…). */
+export async function openPreset(page: Page, preset: string): Promise<void> {
+  await page.locator(`details[data-preset="${preset}"]`).evaluate((d) => { (d as HTMLDetailsElement).open = true })
 }

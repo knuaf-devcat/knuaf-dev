@@ -16,11 +16,11 @@ for (const scheme of ['light', 'dark'] as const) {
     const { electronApp, page } = await launch({ colorScheme: scheme })
     await openProject(page, root)
     await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
-    await navTo(page, '대시보드')
-    await page.waitForSelector('h1:has-text("대시보드")', { timeout: 30_000 })
+    await navTo(page, '점검')
+    await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
     await page.waitForTimeout(800)
     const b = await electronApp.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.focus(); return w.getBounds() })
-    const file = `${OUT}/dashboard-${scheme}.png`
+    const file = `${OUT}/checkup-${scheme}.png`
     execFileSync('screencapture', ['-x', '-R', `${b.x},${b.y},${b.width},${b.height}`, file])
     console.log('captured', file, statSync(file).size, 'bytes')
     await electronApp.close()

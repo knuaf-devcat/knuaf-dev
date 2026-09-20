@@ -10,7 +10,7 @@ function verdict(env: Envelope): Verdict {
   return 'fail'
 }
 
-const TITLE: Record<Verdict, string> = { ok: '완료', blocked: '보류', fail: '실패' }
+const TITLE: Record<Verdict, string> = { ok: '완료', blocked: '아직 확인 못 함', fail: '실패' }
 
 function duration(ms: number): string {
   if (ms < 1000) return `${ms}ms`

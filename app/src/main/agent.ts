@@ -33,6 +33,8 @@ export interface LaunchScriptOptions {
   venvBin: string | null
   bundledBin: string | null
   firstPrompt: string
+  /** $HOME — codex 의 전역 스킬 사본을 끄는 `-c` 오버라이드를 만들 때 쓴다. */
+  home?: string
 }
 
 export interface LaunchOptions extends LaunchScriptOptions {
@@ -243,6 +245,24 @@ export function sq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
+/**
+ * `codex -c` 오버라이드 문자열 — ~/.codex/skills·~/.agents/skills 에 남은 전역
+ * `knuaf-doc` 사본을 이 프로세스에서만 끈다. 같은 이름의 낡은 사본이 프로젝트 사본과
+ * 함께 enabled 로 보이면 모델이 옛 지침을 따를 수 있다(~/.codex 는 deprecated 지만
+ * 아직 스캔된다). 사용자의 config.toml 은 건드리지 않는다 — 오버라이드는 이 프로세스만.
+ * 전역 사본이 없으면 null — 인자를 늘리지 않는다.
+ */
+export function codexSkillConfigOverride(home: string | undefined): string | null {
+  if (!home) return null
+  const paths = [
+    join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md'),
+    join(home, '.agents', 'skills', 'knuaf-doc', 'SKILL.md')
+  ].filter((p) => existsSync(p))
+  if (paths.length === 0) return null
+  const esc = (p: string) => p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return `skills.config=[${paths.map((p) => `{path="${esc(p)}",enabled=false}`).join(',')}]`
+}
+
 export const BANNER = 'knuaf-doc 동반 앱이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
 
 /** Directories an agent process needs ahead of PATH: project venv, bundled runtime, user installs. */
@@ -258,15 +278,23 @@ export function buildLaunchScript(o: LaunchScriptOptions): string {
   const pathParts = agentBinDirs(o).map(sq)
   pathParts.push('"$HOME/.local/bin"', '"$PATH"')
 
+  // 비상구(외부 터미널)에도 앱 채팅과 같은 가드레일을 둔다 — 프로젝트 스킬만 유효하게
+  // (--setting-sources project,local / 전역 knuaf-doc 사본 비활성) 하고 도구 팝업
+  // (AskUserQuestion)은 끈다. `--disallowedTools=…` 는 `=` 로 묶어야 한다 — 공백이면
+  // 가변 인자가 뒤따르는 첫 프롬프트까지 삼킨다(7364349).
+  const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
   const execLine = o.agent === 'claude'
-    ? `exec ${sq(o.agentPath)} ${sq(o.firstPrompt)}`
-    : `exec ${sq(o.agentPath)}` // codex: no positional prompt; the user types in the TUI
+    ? `exec ${sq(o.agentPath)} --setting-sources project,local '--disallowedTools=AskUserQuestion' ${sq(o.firstPrompt)}`
+    : `exec ${sq(o.agentPath)}${skillOff ? ` -c ${sq(skillOff)}` : ''}` // codex: no positional prompt; the user types in the TUI
 
   return [
     '#!/bin/bash',
     `cd ${sq(o.root)} || exit 1`,
     `export PATH=${pathParts.join(':')}`,
     'export KNUAF_DOC_APP=1',
+    // ~/.claude/CLAUDE.md 같은 사용자 메모리의 @import가 외부 경로를 가리키면 영어 보안
+    // 프롬프트가 학생에게 뜬다 — 이 앱이 띄우는 도우미는 메모리 파일을 아예 읽지 않는다.
+    'export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1',
     `printf '%s\\n' ${sq(BANNER)}`,
     "printf '%s\\n' ''",
     execLine,
@@ -276,8 +304,10 @@ export function buildLaunchScript(o: LaunchScriptOptions): string {
 
 // ---------------------------------------------------------------- 7. launch
 
-export function firstPromptFor(revision: number | null): string {
-  return revision === null || revision < 1 ? '시작하기' : '이어서 하기'
+export function firstPromptFor(revision: number | null, root?: string): string {
+  const base = revision === null || revision < 1 ? '시작하기' : '이어서 하기'
+  // 루트를 명시해 모델이 하위 폴더(knuaf-work 등)를 추측해 만들지 않게 한다.
+  return root ? `${base}\n\n작업 폴더: ${root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.` : base
 }
 
 export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<LaunchResult> {
@@ -338,7 +368,8 @@ export const agentApi = {
       agentPath,
       venvBin: venv ? dirname(venv) : null,
       bundledBin: bundled ? dirname(bundled) : null,
-      firstPrompt: firstPromptFor(o.revision),
+      firstPrompt: firstPromptFor(o.revision, o.root),
+      home: ctx.home,
       supportDir: ctx.supportDir,
       dryRun: ctx.dryRun
     }, { open: ctx.open })

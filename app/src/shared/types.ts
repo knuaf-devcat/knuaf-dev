@@ -48,7 +48,25 @@ export interface Envelope {
 }
 export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
 export interface RecentEntry { root: string; opened_at: string }
-export interface Settings { recent: RecentEntry[]; credit_shown_at: string | null; python_override: string | null; codex_terminal?: boolean }
+export interface Settings {
+  recent: RecentEntry[]
+  credit_shown_at: string | null
+  python_override: string | null
+  codex_terminal?: boolean
+  /**
+   * Which helper the student picked. 디스크에는 옛 'codex-term'/'claude-term'이 남아 있을
+   * 수 있다 — loadSettings 의 migrateHelperMode 가 채팅 모드로 옮겨 주므로 런타임에는
+   * 이 두 값만 존재한다(인앱 터미널은 제거됨, 외부 터미널 버튼은 유지).
+   */
+  helper_mode?: 'codex-chat' | 'claude-chat' | null
+  /**
+   * 학생이 "이 폴더에서는 계속 허용"을 고른 작업폴더들(realpath·NFC 로 보관).
+   * 판정할 수 없는 셸 명령(heredoc 으로 밀어 넣는 프로그램 등)은 어떤 허용 목록으로도
+   * 안전을 증명할 수 없다. 읽을 수 없는 것을 반복해서 묻는 대신, 폴더 단위로 한 번
+   * 정하고 설정에서 언제든 되돌린다. 다른 폴더로 옮겨가지 않는다.
+   */
+  trusted_roots?: string[]
+}
 /** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
 export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }
 /** Cheap look at `<root>/project.json` without starting the sidecar. */

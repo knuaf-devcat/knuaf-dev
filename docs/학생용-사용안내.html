@@ -39,10 +39,10 @@ figure.diagram svg { max-width: 100%; height: auto; border: 0; }
 </head>
 <body><main>
 <h1>knuaf-doc 동반 앱 사용 안내 (학생용)</h1>
-<p>논문은 AI 도우미가 채팅으로 인터뷰하며 써요. 이 앱은 그 옆에서 저장 상태와 검사 결과를 보여 주고, 버튼으로 산출물을 만들어요.</p>
+<p>논문은 AI 도우미가 채팅으로 인터뷰하며 써요. 이 앱은 그 옆에서 저장 상태와 점검 결과를 보여 주고, 버튼으로 결과물을 만들어요.</p>
 <h2>1. 이 툴은 무엇인가요</h2>
 <p>먼저 이것만은 꼭 알아 두세요.</p>
-<ul><li><strong>논문을 쓰는 건 AI 도우미(Codex 또는 Claude Code)예요.</strong> 도우미가 채팅으로 질문하고, 답을 들으며 논문을 써요. 인터뷰 답변도 채팅에서 해요.</li><li><strong>이 앱은 논문을 쓰지 않아요.</strong> 도우미가 저장한 내용을 읽어서 저장 상태, 검사 결과, 다음 할 일, 만들어진 파일을 보여 줘요. 검사와 발행, 복구는 버튼으로 실행해요.</li><li><strong>AI 도우미는 이 앱 안에서 열어요.</strong> &quot;내 논문&quot; 화면에서 채팅(Codex)이나 앱 안 터미널(Claude)로 도우미와 대화해요.</li><li>명령어나 JSON은 몰라도 돼요.</li></ul>
+<ul><li><strong>논문을 쓰는 건 AI 도우미(Codex 또는 Claude Code)예요.</strong> 도우미가 채팅으로 질문하고, 답을 들으며 논문을 써요. 인터뷰 답변도 채팅에서 해요.</li><li><strong>이 앱은 논문을 쓰지 않아요.</strong> 도우미가 저장한 내용을 읽어서 저장 상태, 점검 결과, 만들어진 파일을 보여 줘요. 자동 점검과 파일 만들기, 복구는 버튼으로 실행해요.</li><li><strong>AI 도우미는 이 앱 안에서 열어요.</strong> &quot;내 논문&quot; 화면에서 채팅(Codex)이나 앱 안 터미널(Claude)로 도우미와 대화해요.</li><li>명령어나 JSON은 몰라도 돼요.</li></ul>
 <figure class="diagram"><svg xmlns="http://www.w3.org/2000/svg" width="720" height="250" viewBox="0 0 720 250" font-family="-apple-system, 'Apple SD Gothic Neo', Pretendard, sans-serif" font-size="13" role="img" aria-label="학생, AI 도우미, 논문 폴더, 이 앱의 관계">
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -67,8 +67,8 @@ figure.diagram svg { max-width: 100%; height: auto; border: 0; }
   <!-- 논문 폴더 -->
   <rect x="490" y="50" width="210" height="110" rx="8" fill="#f4f8f5" stroke="#2f6b3a" stroke-width="1.5" />
   <text x="595" y="80" text-anchor="middle" font-size="15" font-weight="600" fill="#2f6b3a">논문 폴더</text>
-  <text x="595" y="104" text-anchor="middle" fill="#444">정본 · 절 파일</text>
-  <text x="595" y="124" text-anchor="middle" fill="#444">산출물(DOCX · 엑셀)</text>
+  <text x="595" y="104" text-anchor="middle" fill="#444">논문 데이터 · 장 파일</text>
+  <text x="595" y="124" text-anchor="middle" fill="#444">결과물(DOCX · 엑셀)</text>
   <text x="595" y="146" text-anchor="middle" font-size="11" fill="#777">내 Mac 안</text>
   <!-- 도우미 -> 폴더 -->
   <line x1="424" y1="105" x2="486" y2="105" stroke="#2f6b3a" stroke-width="1.5" marker-end="url(#arrg)" />
@@ -76,10 +76,10 @@ figure.diagram svg { max-width: 100%; height: auto; border: 0; }
   <!-- 이 앱 -->
   <rect x="490" y="185" width="210" height="52" rx="8" fill="#fff" stroke="#444" stroke-width="1.5" />
   <text x="595" y="207" text-anchor="middle" font-size="15" font-weight="600" fill="#222">이 앱 (동반 앱)</text>
-  <text x="595" y="226" text-anchor="middle" font-size="12" fill="#444">상태 · 검사 · 발행 · 복구</text>
+  <text x="595" y="226" text-anchor="middle" font-size="12" fill="#444">상태 · 점검 · 만들기 · 복구</text>
   <!-- 앱 -> 폴더 -->
   <line x1="595" y1="181" x2="595" y2="164" stroke="#2f6b3a" stroke-width="1.5" marker-end="url(#arrg)" />
-  <text x="608" y="177" font-size="11" fill="#2f6b3a">읽기 · 검사</text>
+  <text x="608" y="177" font-size="11" fill="#2f6b3a">읽기 · 점검</text>
   <!-- 학생 -> 앱 -->
   <path d="M75,144 L75,211 L486,211" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arr)" />
   <text x="280" y="203" text-anchor="middle" font-size="11" fill="#666">버튼으로 실행 · 결과 확인</text>
@@ -92,40 +92,43 @@ figure.diagram svg { max-width: 100%; height: auto; border: 0; }
 <p>앱은 아직 Apple 서명이 없어서 처음에는 &quot;열 수 없음&quot;이라고 나올 수 있어요.</p>
 <ul><li><strong>macOS 14 이하</strong>: 응용 프로그램에서 앱을 <strong>오른쪽 클릭 → 열기 → 열기</strong>.</li><li><strong>macOS 15 이상</strong>: 한 번 실행을 시도한 뒤 <strong>시스템 설정 → 개인정보 보호 및 보안</strong> 맨 아래에서 <strong>그래도 열기</strong>.</li></ul>
 <p>두 번째부터는 그냥 실행하면 돼요.</p>
-<figure><img src="images/01-home.png" alt="홈"></figure>
+<figure><img src="images/01-home.png" alt="내 논문 — 폴더 없음"></figure>
 <h2>5. 폴더 열기</h2>
-<p>홈에서 <strong>폴더 열기…</strong> 를 누르고 논문 작업 폴더를 골라요. 새 빈 폴더도 괜찮고, 이미 쓰던 폴더도 괜찮아요.<br>최근에 연 폴더는 홈에 카드로 남아요.</p>
-<h2>6. 패키지 준비 (한 번만)</h2>
-<p>사이드바에서 <strong>도구·검사</strong>를 펼치고 <strong>문제 해결</strong> 화면을 연 뒤 <strong>패키지 준비</strong>를 눌러요. 검사와 발행에 필요한 Python 패키지를 논문 폴더 안 <code>.venv</code>에만 설치해요.<br>컴퓨터의 다른 Python은 건드리지 않아요. 인터넷이 없어도 앱 안에 들어 있는 패키지로 설치돼요.</p>
-<figure><img src="images/07-troubleshoot.png" alt="문제 해결"></figure>
+<p>앱을 열면 <strong>내 논문</strong> 화면에서 <strong>폴더 열기…</strong> 를 눌러 논문 작업 폴더를 골라요. 새 빈 폴더도 괜찮고, 이미 쓰던 폴더도 괜찮아요.<br>최근에 연 폴더는 같은 화면 아래에 카드로 남아요.</p>
+<h2>6. 작업 준비 (자동)</h2>
+<p>폴더를 열면 점검과 파일 만들기에 필요한 도구를 논문 폴더 안 <code>.venv</code>에 자동으로 준비해요.<br>준비가 안 되면 화면에 알림이 뜨고, <strong>설정 → 문제 해결 → 준비 상태 → 패키지 준비</strong>에서 다시 시도할 수 있어요.<br>컴퓨터의 다른 Python은 건드리지 않아요. 인터넷이 없어도 앱 안에 들어 있는 파일로 설치돼요.</p>
+<figure><img src="images/08-settings.png" alt="설정"></figure>
 <h2>7. 내 논문 화면에서 인터뷰하기</h2>
-<p>홈에서 <strong>AI 도우미 열기</strong>(또는 사이드바의 <strong>내 논문</strong>)를 눌러요. 인터뷰와 작문은 모두 이 화면에서 해요. 앱이 규칙집을 논문 폴더 안의 도우미 설정 폴더에 자동으로 넣어 둬요. 도우미가 논문을 어떤 순서와 형식으로 쓸지 적힌 파일이에요. 내 자료는 옮기지 않아요.</p>
-<p>화면 위에서 두 가지 방식을 골라 써요.</p>
-<ul><li><strong>Codex (채팅)</strong> — 앱 안 채팅이에요. 처음이면 <strong>ChatGPT 로그인</strong>을 눌러 브라우저에서 로그인해요. 이후 도우미의 질문에 채팅으로 답해요. Enter는 전송, Shift+Enter는 줄바꿈이에요.</li><li><strong>Claude (터미널)</strong> — 앱 창 안에 진짜 Claude Code 터미널이 열려요. 처음이면 그 터미널 안에서 Claude 로그인을 해요. 도우미가 꺼져 있으면 <strong>다시 시작</strong>으로 새로 열고, 이전 대화는 <strong>이어서 하기</strong>로 돌아와요.</li></ul>
+<p><strong>내 논문</strong> 화면이 인터뷰와 작문이 일어나는 곳이에요. 앱이 규칙집을 논문 폴더 안의 도우미 설정 폴더에 자동으로 넣어 둬요. 도우미가 논문을 어떤 순서와 형식으로 쓸지 적힌 파일이에요. 내 자료는 옮기지 않아요.</p>
+<p>대화가 비어 있으면 시작 버튼이 보여요 — &quot;시작하기&quot;를 직접 칠 필요는 없어요. 두 도우미가 다 설치돼 있으면 처음 한 번 골라요.</p>
+<ul><li><strong>ChatGPT 채팅으로 시작</strong> — 앱 안 채팅이에요. 처음이면 <strong>ChatGPT 로그인</strong>을 눌러 브라우저에서 로그인해요. 이후 도우미의 질문에 채팅으로 답해요. Enter는 전송, Shift+Enter는 줄바꿈이에요.</li><li><strong>Claude Code 터미널로 시작</strong> — 앱 창 안에 진짜 Claude Code 터미널이 열려요. 처음이면 그 터미널 안에서 Claude 로그인을 해요. 도우미가 꺼져 있으면 <strong>다시 시작</strong>으로 새로 열고, 이전 대화는 <strong>이어서 하기</strong>로 돌아와요. 진행 상태를 앱이 정확히 알 수 없어요.</li></ul>
+<figure><img src="images/02b-chat.png" alt="내 논문 — 대화"></figure>
+<p>한 번 고르면 기억해요. 바꾸려면 설정에서 바꿀 수 있어요.</p>
 <p>알아 두면 좋은 것:</p>
-<ul><li>답변이 <strong>전송 여부 불확실</strong>로 표시되면 내용을 확인한 뒤 <strong>다시 보내기</strong>를 눌러요. 앱은 답변이 도우미에게 닿았는지 스스로 판단하지 않아요.</li><li>도우미가 답변을 만들거나 터미널이 막 출력을 낸 동안에는 저장·검사 버튼이 잠시 막혀요(&quot;AI 도우미가 작업 중이에요&quot;). 답변이 끝나거나 터미널 출력이 멈춘 뒤 다시 누르면 돼요.</li><li>반대로 앱이 저장·검사를 하는 동안에는 채팅 전송이 잠시 막혀요. 끝난 뒤 보내면 돼요.</li><li>도우미가 저장할 때마다 도구·검사 그룹 안의 대시보드와 검사 결과가 새로 바뀌어요.</li></ul>
-<p>예전 방식으로 macOS 터미널 창을 따로 열고 싶으면 <strong>도구·검사 → 설정 → 앱 밖 터미널로 AI 도우미 열기</strong>를 써요. 그 경우 인터뷰 답변은 따로 열린 터미널 창에서 해요.</p>
+<ul><li>답변이 <strong>전송 여부 불확실</strong>로 표시되면 내용을 확인한 뒤 <strong>다시 보내기</strong>를 눌러요. 앱은 답변이 도우미에게 닿았는지 스스로 판단하지 않아요.</li><li>도우미가 답변을 만들거나 터미널이 막 출력을 낸 동안에는 저장·점검 버튼이 잠시 막혀요(&quot;AI 도우미가 작업 중이에요&quot;). 답변이 끝나거나 터미널 출력이 멈춘 뒤 다시 누르면 돼요.</li><li>반대로 앱이 저장·점검을 하는 동안에는 채팅 전송이 잠시 막혀요. 끝난 뒤 보내면 돼요.</li><li>도우미가 저장할 때마다 <strong>점검</strong> 화면이 새로 바뀌어요.</li></ul>
+<p>예전 방식으로 macOS 터미널 창을 따로 열고 싶으면 <strong>설정 → 도우미 연결 → 앱 밖 터미널로 도우미 열기</strong>를 써요. 그 경우 인터뷰 답변은 따로 열린 터미널 창에서 해요.</p>
 <h2>8. 화면 안내</h2>
-<p>사이드바 위쪽에는 <strong>홈 · 내 논문 · 자료 · 결과물</strong> 네 가지가 늘 보여요. 나머지 화면은 <strong>도구·검사</strong> 그룹을 눌러 펼치면 나와요.</p>
-<table><thead><tr><th>화면</th><th>보여 주는 것</th></tr></thead><tbody><tr><td>홈</td><td>폴더 열기, 최근 폴더, AI 도우미 열기, 시작 단계</td></tr><tr><td>내 논문</td><td>AI 도우미와의 인터뷰·작문. Codex 채팅 또는 앱 안 Claude 터미널</td></tr><tr><td>자료</td><td>인터뷰에서 정해진 현재 작성물·재무 파일과 sources 폴더의 파일(현재 작성물·참고자료 구분), 파일 첨부</td></tr><tr><td>결과물</td><td>build 폴더에 만들어진 DOCX·엑셀·PDF·메모의 목록과 미리보기, 다른 이름으로 저장</td></tr><tr><td>대시보드</td><td>기계검사 · 내용검토 · 실제 출력검토 · 교수 승인, 네 가지를 따로. 한글에서 마무리할 일</td></tr><tr><td>검사 결과</td><td>검사 하나하나의 통과/실패/보류와 사유</td></tr><tr><td>다음 할 일</td><td>내 답변이 필요한 일, 근거가 필요한 일, 진행 가능한 일</td></tr><tr><td>절 목록</td><td>등록된 절과 본문 미리보기(읽기 전용)</td></tr><tr><td>도구</td><td>검토본 내보내기, 논문 골격, DOCX, 재무 엑셀, Office 렌더, build 폴더</td></tr><tr><td>문제 해결</td><td>패키지, 잠금, 정본 스냅샷, 남은 임시 파일, 문서 읽기 도구</td></tr><tr><td>설정</td><td>Python 실행기(고급), Codex 터미널 모드, 앱 밖 터미널, 최근 폴더 지우기, 로그</td></tr></tbody></table>
-<figure><img src="images/02-dashboard.png" alt="대시보드"></figure>
-<p><strong>독립검토 미실행</strong> 띠가 맨 위에 보이면, 아직 작성자와 다른 사람이 내용을 검토한 기록이 없다는 뜻이에요. 기계검사 통과와는 별개예요.</p>
-<figure><img src="images/03-checks.png" alt="검사 결과"></figure>
-<figure><img src="images/06-outputs.png" alt="산출물"></figure>
+<p>사이드바에는 <strong>내 논문 · 자료 · 결과물 · 점검 · 설정</strong> 다섯 가지가 늘 보여요. 그 아래 <strong>논문 차례</strong>에는 등록된 장이 읽기 전용으로 나열되고, 누르면 본문 미리보기가 열려요.</p>
+<table><thead><tr><th>화면</th><th>보여 주는 것</th></tr></thead><tbody><tr><td>내 논문</td><td>AI 도우미와의 인터뷰·작문. 폴더가 없으면 폴더 고르기·최근 폴더가 여기 떠요</td></tr><tr><td>자료</td><td>인터뷰에서 정해진 현재 작성물·재무 파일과 sources 폴더의 파일(현재 작성물·참고자료 구분), 파일 첨부</td></tr><tr><td>결과물</td><td>build 폴더에 만들어진 DOCX·엑셀·PDF·메모의 목록과 미리보기, 다른 이름으로 저장</td></tr><tr><td>점검</td><td>내가 해야 할 일 · 고칠 곳 · 아직 확인 못 한 것, 그리고 자동 점검·다른 사람 검토·파일 확인·교수님 승인 네 가지를 따로</td></tr><tr><td>설정</td><td>폴더·최근 폴더, 도우미 연결 방식(채팅/터미널 — 한 번 고르면 기억해요), 문제 해결(준비 상태·쓰기 잠금·이전 원고 스냅샷·남은 임시 파일·문서 읽기 도구), 고급 도구(검토본·골격·DOCX·재무 엑셀·Office 렌더·build 폴더), Python 실행기, 앱 정보</td></tr></tbody></table>
+<figure><img src="images/02-checkup.png" alt="점검"></figure>
+<p><strong>독립검토 미실행</strong> 알림은 점검 화면의 &quot;다른 사람 검토&quot; 줄과, 제출용 파일을 만들거나 결과물을 저장하려는 지점에 떠요. 아직 작성자와 다른 사람이 내용을 검토한 기록이 없다는 뜻이에요. 자동 점검 통과와는 별개예요.</p>
+<figure><img src="images/04-artifacts.png" alt="결과물"></figure>
 <h2>9. 자료 넣기</h2>
 <p><strong>자료</strong> 화면은 인터뷰에서 정해진 현재 작성물과 참고자료를 구분해 보여 줘요.</p>
-<ul><li><strong>현재 작성물</strong> — 인터뷰에서 도우미가 확인한 현재 원고와 재무 파일이에요. 아직 안 정해졌으면 &quot;아직 정해지지 않았어요&quot;로 보여요. 어떤 파일이 현재 작성물인지는 인터뷰에서만 정해져요.</li><li><strong>참고자료</strong> — 논문 폴더 안 <code>sources</code> 폴더의 파일이에요. 현재 작성물로 정해진 파일에는 따로 표시가 붙어요.</li><li><strong>파일 추가</strong> — <strong>파일 고르기…</strong> 버튼이나 화면에 끌어다 놓기로 파일을 골라요. 고른 파일의 경로가 &quot;내 논문&quot; 채팅 답변 끝에 붙고 내 논문 화면으로 가요. <strong>파일을 넣는 것만으로 현재 작성물이 정해지지 않아요.</strong> 도우미가 인터뷰에서 확인해요. 파일 목록의 <strong>채팅에 첨부</strong>로 이미 있는 파일을 보낼 수도 있어요.</li></ul>
+<figure><img src="images/07-materials.png" alt="자료"></figure>
+<ul><li><strong>현재 작성물</strong> — 인터뷰에서 도우미가 확인한 현재 원고와 재무 파일이에요. 아직 안 정해졌으면 &quot;아직 정해지지 않았어요&quot;로 보여요. 어떤 파일이 현재 작성물인지는 인터뷰에서만 정해져요.</li><li><strong>참고자료</strong> — 논문 폴더 안 <code>sources</code> 폴더의 파일이에요. 현재 작성물로 정해진 파일에는 따로 표시가 붙어요.</li><li><strong>파일 추가</strong> — <strong>파일 고르기…</strong> 버튼이나 화면에 끌어다 놓기로 파일을 골라요. 고른 파일의 경로가 &quot;내 논문&quot; 답변 끝에 붙고 내 논문 화면으로 가요. <strong>파일을 넣는 것만으로 현재 작성물이 정해지지 않아요.</strong> 도우미가 인터뷰에서 확인해요. 파일 목록의 <strong>답변에 첨부</strong>로 이미 있는 파일을 보낼 수도 있어요.</li></ul>
 <h2>10. 결과물 보기·저장</h2>
-<p><strong>결과물</strong> 화면은 도우미가 <code>build</code> 폴더에 만든 파일을 보여 줘요. 왼쪽 목록에서 고르면 오른쪽에 미리보기가 떠요.</p>
+<p><strong>결과물</strong> 화면 맨 위의 <strong>파일 만들기</strong>에서 검토본·논문 DOCX·제출용 파일·재무 엑셀을 버튼 하나로 만들어요(재무 엑셀은 단계가 여럿이라 &quot;설정 &gt; 고급 도구&quot;로 이어줘요). 아래 목록은 도우미가 <code>build</code> 폴더에 만든 파일을 보여 줘요. 왼쪽 목록에서 고르면 오른쪽에 미리보기가 떠요.</p>
 <ul><li><strong>PDF</strong> — 바로 페이지를 넘겨 볼 수 있어요.</li><li><strong>DOCX</strong> — 같은 이름의 PDF가 있으면 그 PDF를 보여 줘요. 없으면 <strong>Word로 PDF 만들기</strong>로 만들거나 <strong>원래 앱으로 열기</strong>로 Word에서 열어요.</li><li><strong>엑셀(XLSX)</strong> — 시트를 골라 표로 읽어요(읽기 전용). 수식이 실제 Excel 재산을 거치지 않았으면 경고가 붙어요.</li><li><strong>메모(Markdown)</strong> — 내용을 그대로 읽어요.</li></ul>
-<p>각 파일에는 <strong>다른 이름으로 저장…</strong>(원하는 곳에 복사), <strong>폴더에서 보기</strong>, <strong>원래 앱으로 열기</strong> 버튼이 있어요. 검사 기록이 있는 파일은 통과/실패 표시도 붙어요.</p>
+<p>각 파일에는 <strong>다른 이름으로 저장…</strong>(원하는 곳에 복사), <strong>폴더에서 보기</strong>, <strong>원래 앱으로 열기</strong> 버튼이 있어요. 자동 점검 기록이 있는 파일은 통과/실패 표시도 붙어요.</p>
+<figure><img src="images/04b-artifacts-made.png" alt="결과물 — 파일 만들기"></figure>
 <h2>11. 막혔을 때</h2>
-<ul><li><strong>&quot;다른 작업이 이 폴더를 잠그고 있어요&quot;</strong> — 도우미가 저장 중이면 잠깐 기다려요. 아무것도 안 돌고 있는데 계속 그러면 <strong>도구·검사 → 문제 해결 → 쓰기 잠금</strong>에서 상태를 보고, &quot;남은 잠금&quot;이면 <strong>잠금 해제</strong>를 눌러요. 다른 컴퓨터의 잠금이거나 아직 살아 있는 작업의 잠금은 앱이 풀지 않아요.</li><li><strong>정본이 꼬였을 때</strong> — <strong>도구·검사 → 문제 해결 → 정본 스냅샷</strong>에서 이전 개정으로 복원할 수 있어요. 복원 전에 지금 상태를 먼저 저장해 두니 되돌릴 수 있어요. 절 파일과 만들어진 문서는 그대로예요.</li><li><strong>&quot;필요한 패키지가 아직 준비되지 않았어요&quot;</strong> — 6번의 패키지 준비를 해요.</li><li><strong>&quot;AI 도우미가 작업 중이에요&quot;라고 나올 때</strong> — 도우미가 답변을 만들거나 터미널이 방금 출력을 낸 상태예요. 잠시 기다렸다가 다시 눌러요.</li><li><strong>답변이 &quot;전송 여부 불확실&quot;로 표시될 때</strong> — 답변이 도우미에게 닿았는지 앱이 알 수 없는 상태예요. 내용을 확인하고 메시지 옆의 <strong>다시 보내기</strong>를 눌러요.</li><li><strong>앱이 작업 도중 종료됐다고 나올 때</strong> — 내 논문 화면에 대화가 그대로 남아 있어요. 마지막 답변은 자동으로 다시 보내지 않으니, 필요하면 <strong>다시 보내기</strong>를 눌러요.</li><li><strong>터미널의 도우미가 꺼졌을 때</strong> — 내 논문 화면에서 <strong>다시 시작</strong> 또는 <strong>이어서 하기</strong>를 눌러요. 이전 대화를 이어갈 수 있어요.</li><li>오류 메시지의 <strong>자세히</strong>를 열어 그 내용을 도우미에게 붙여 넣으면 대부분 해결돼요.</li></ul>
+<ul><li><strong>&quot;다른 작업이 이 폴더를 잠그고 있어요&quot;</strong> — 도우미가 저장 중이면 잠깐 기다려요. 아무것도 안 돌고 있는데 계속 그러면 <strong>설정 → 문제 해결 → 쓰기 잠금</strong>에서 상태를 보고, &quot;남은 잠금&quot;이면 <strong>잠금 해제</strong>를 눌러요. 다른 컴퓨터의 잠금이거나 아직 살아 있는 작업의 잠금은 앱이 풀지 않아요.</li><li><strong>이전 상태로 되돌리고 싶을 때</strong> — <strong>설정 → 문제 해결 → 이전 원고 스냅샷</strong>에서 이전 기록으로 복원할 수 있어요. 복원 전에 지금 상태를 먼저 저장해 두니 되돌릴 수 있어요. 장 파일과 만들어진 문서는 그대로예요.</li><li><strong>&quot;작업 준비가 아직 끝나지 않았어요&quot; 또는 &quot;준비 중 문제가 생겼어요&quot;</strong> — <strong>설정 → 문제 해결 → 준비 상태 → 패키지 준비</strong>를 눌러요.</li><li><strong>&quot;AI 도우미가 작업 중이에요&quot;라고 나올 때</strong> — 도우미가 답변을 만들거나 터미널이 방금 출력을 낸 상태예요. 잠시 기다렸다가 다시 눌러요.</li><li><strong>답변이 &quot;전송 여부 불확실&quot;로 표시될 때</strong> — 답변이 도우미에게 닿았는지 앱이 알 수 없는 상태예요. 내용을 확인하고 메시지 옆의 <strong>다시 보내기</strong>를 눌러요.</li><li><strong>앱이 작업 도중 종료됐다고 나올 때</strong> — 내 논문 화면에 대화가 그대로 남아 있어요. 마지막 답변은 자동으로 다시 보내지 않으니, 필요하면 <strong>다시 보내기</strong>를 눌러요.</li><li><strong>터미널의 도우미가 꺼졌을 때</strong> — 내 논문 화면에서 <strong>다시 시작</strong> 또는 <strong>이어서 하기</strong>를 눌러요. 이전 대화를 이어갈 수 있어요.</li><li>오류 메시지의 <strong>자세히</strong>를 열어 그 내용을 도우미에게 붙여 넣으면 대부분 해결돼요.</li></ul>
 <h2>12. 이 앱이 절대 하지 않는 것</h2>
-<ul><li>인터뷰 답변을 앱 데이터로 저장하지 않아요. 답변은 AI 도우미에게 전달되고, 정본에 반영하는 건 도우미예요.</li><li>논문 본문을 편집하지 않아요. (읽기 전용 미리보기만)</li><li>만든 파일을 덮어쓰지 않아요. 같은 이름이 있으면 새 이름을 제안해요.</li><li>다른 사람의 파일을 지우지 않아요.</li><li>교수 승인을 판정하지 않아요.</li><li>자료를 임의로 컴퓨터 밖으로 보내지 않아요. AI 도우미를 연결했을 때만 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요.</li></ul>
+<ul><li>인터뷰 답변을 앱 데이터로 저장하지 않아요. 답변은 AI 도우미에게 전달되고, 논문 데이터에 반영하는 건 도우미예요.</li><li>논문 본문을 편집하지 않아요. (읽기 전용 미리보기만)</li><li>만든 파일을 덮어쓰지 않아요. 같은 이름이 있으면 새 이름을 제안해요.</li><li>다른 사람의 파일을 지우지 않아요.</li><li>교수 승인을 판정하지 않아요.</li><li>자료를 임의로 컴퓨터 밖으로 보내지 않아요. AI 도우미를 연결했을 때만 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요.</li></ul>
 <h2>13. 자주 묻는 질문</h2>
-<p><strong>앱만으로 논문이 되나요?</strong><br>이 앱 안에서 돼요. 논문은 AI 도우미가 채팅으로 인터뷰하며 쓰고, 도우미는 &quot;내 논문&quot; 화면에서 바로 쓸 수 있어요. 이 앱은 그 결과를 보여 주고 검사와 발행을 도와요.</p>
-<p><strong>인터넷이 필요한가요?</strong><br>AI 도우미를 쓸 때는 필요해요. 앱 자체는 인터넷 없이도 돼요. 검사, 산출물 만들기, 복구는 모두 내 Mac 안에서 돌아가요.</p>
+<p><strong>앱만으로 논문이 되나요?</strong><br>이 앱 안에서 돼요. 논문은 AI 도우미가 채팅으로 인터뷰하며 쓰고, 도우미는 &quot;내 논문&quot; 화면에서 바로 쓸 수 있어요. 이 앱은 그 결과를 보여 주고 점검과 파일 만들기를 도와요.</p>
+<p><strong>인터넷이 필요한가요?</strong><br>AI 도우미를 쓸 때는 필요해요. 앱 자체는 인터넷 없이도 돼요. 자동 점검, 결과물 만들기, 복구는 모두 내 Mac 안에서 돌아가요.</p>
 <p><strong>내 자료가 어디로 가나요?</strong><br>앱 자체는 자료를 밖으로 보내지 않아요. AI 도우미를 연결하면 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요. 인터뷰에서 말한 내용과 도우미가 읽은 파일이 여기에 들어가요.</p>
 </main></body>
 </html>

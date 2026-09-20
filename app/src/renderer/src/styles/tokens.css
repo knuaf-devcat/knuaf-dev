@@ -4,7 +4,7 @@
   --accent: #2f6b3a; --accent-ink: #ffffff; --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --bg: #f5f5f4; --bg-2: #ecece9; --panel: #ffffff; --panel-2: #fafaf9;
   --ink: #1c1f1b; --ink-2: #4d534a; --muted: #6e756a;
-  --line: rgba(28, 31, 27, .12); --line-strong: rgba(28, 31, 27, .22);
+  --line: rgba(28, 31, 27, .12); --line-strong: rgba(28, 31, 27, .22); --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
   --ok: #2f6b3a; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
   --bad: #a13a2e; --bad-soft: color-mix(in srgb, var(--bad) 10%, transparent);
   --warn: #8a5a12; --warn-soft: color-mix(in srgb, var(--warn) 12%, transparent);
@@ -12,9 +12,8 @@
   --material-sidebar: var(--bg-2);
   --material-toolbar: color-mix(in srgb, var(--bg) 78%, transparent);
   --blur: 20px; --saturate: 160%;
-  --fs-display: 1.75rem; --lh-display: 1.15; --ls-display: -0.02em; --fw-display: 600;
-  --fs-title: 1.25rem; --lh-title: 1.25; --ls-title: -0.015em; --fw-title: 600;
-  --fs-heading: 1rem; --lh-heading: 1.35; --ls-heading: -0.005em; --fw-heading: 600;
+  --fs-title: 1.25rem; --lh-title: 1.25; --ls-title: 0; --fw-title: 600;
+  --fs-heading: 1rem; --lh-heading: 1.35; --ls-heading: 0; --fw-heading: 600;
   --fs-body: 0.875rem; --lh-body: 1.55; --ls-body: 0; --fw-body: 400;
   --fs-caption: 0.75rem; --lh-caption: 1.45; --ls-caption: 0.005em;
   --fs-micro: 0.6875rem; --ls-micro: 0.01em;
@@ -32,7 +31,7 @@
     --accent: #79b784; --accent-ink: #0f1a11;
     --bg: #1c1d1c; --bg-2: #242625; --panel: #2a2c2a; --panel-2: #303331;
     --ink: #ececea; --ink-2: #c3c6c0; --muted: #969b93;
-    --line: rgba(255, 255, 255, .10); --line-strong: rgba(255, 255, 255, .2);
+    --line: rgba(255, 255, 255, .10); --line-strong: rgba(255, 255, 255, .2); --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
     --ok: #79b784; --bad: #e08a7d; --warn: #d9a75a; --blocked: #a5a8e0;
     --material-toolbar: color-mix(in srgb, var(--bg) 72%, transparent);
     --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .5);

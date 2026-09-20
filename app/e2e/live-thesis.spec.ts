@@ -1,11 +1,14 @@
-// Personal-use E2E: drive a whole thesis run through the embedded Claude terminal.
+// Personal-use E2E: drive a whole thesis run through the Claude SDK chat.
 // A canned fake farm profile is injected once, then a driver loop keeps answering until
 // real artifacts (docx/xlsx/pdf) land under build/ or the budget runs out.
-// Sonnet via KNUAF_TERM_MODEL. Costs real subscription usage — deliberate manual run.
+// snapshot.state tells us when a turn ends — no replay-buffer scraping or settle
+// heuristics like the removed terminal driver needed. Sonnet via KNUAF_CLAUDE_MODEL.
+// Costs real subscription usage — deliberate manual run (KNUAF_LIVE=1, `live-*` pattern).
 import { expect, test } from '@playwright/test'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
+import type { ChatSnapshot } from '../src/shared/chat'
 
 test.setTimeout(45 * 60_000)
 
@@ -27,83 +30,77 @@ const artifacts = (root: string): string[] => {
   return out
 }
 
-test('full thesis run on claude terminal', async () => {
+test('full thesis run on claude chat', async () => {
   const root = synthProject({ withContent: false }) // revision 0 → "시작하기"
-  const { electronApp, page } = await launch({ env: { KNUAF_TERM_MODEL: 'sonnet' } })
+  const { electronApp, page } = await launch({ env: { KNUAF_CLAUDE_MODEL: 'sonnet' } })
   const log: string[] = []
+  let replies = 0
+  const snap = async (): Promise<ChatSnapshot | null> => page.evaluate(async (rt) => {
+    const x = await window.knuaf.chat.snapshot(rt, 'claude'); return 'result' in x ? x.result : null
+  }, root)
+  const send = async (text: string) => page.evaluate(async ([rt, t]) => {
+    const x = await window.knuaf.chat.send(rt, 'claude', t, crypto.randomUUID()); return 'error' in x ? x.error.message : null
+  }, [root, text] as const)
   try {
     await openProject(page, root)
-    await page.click('button[role="tab"]:has-text("Claude (터미널)")')
-    await expect(page.locator('.term-host .xterm')).toBeVisible()
+    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    // 검증 실행 — 판정 불가한 명령까지 매번 묻게 두면 드라이버가 멈춘다. 임시 폴더를
+    // 신뢰 처리하면 canUseTool 이 unjudgeable 명령도 통과시킨다.
+    await page.evaluate((r) => window.knuaf.trustProject(r, true), root)
 
-    const replay = async () => {
-      const list = await page.evaluate(async (r) => {
-        const x = await window.knuaf.term.list(r); return 'result' in x ? x.result : []
-      }, root)
-      const id = list.find((t: any) => t.kind === 'claude')?.id
-      if (!id) return ''
-      const r = await page.evaluate(async (i) => {
-        const x = await window.knuaf.term.replay(i); return 'result' in x ? x.result : ''
-      }, id)
-      return r
-    }
+    const st = await page.evaluate(async (r) => {
+      const x = await window.knuaf.chat.status(r, 'claude'); return 'result' in x ? x.result : null
+    }, root)
+    expect(st?.connected, 'Claude 로그인이 필요해요').toBe(true)
 
-    // wait for the first turn to settle (skill loaded, first question shown)
-    await expect.poll(async () => (await replay()).length, { timeout: 60_000, intervals: [3000] }).toBeGreaterThan(0)
-    let last = '', stable = 0
-    for (let i = 0; i < 90; i++) { const r = await replay(); if (r === last) stable += 2000; else { stable = 0; last = r }; if (stable >= 12_000) break; await page.waitForTimeout(2000) }
-    await page.screenshot({ path: 'e2e/artifacts/thesis-q1.png' })
-    log.push('=== first settle ===\n' + last.slice(-800))
-
-    // inject the profile as one line
-    await page.click('.term-host')
-    await page.keyboard.type(BRIEF)
-    await page.keyboard.press('Enter')
-
-    // driver loop: settle → heuristic reply, until artifacts appear or budget ends
+    // driver loop: idle 이면 마지막 assistant 발화를 읽고 답한다 — 상태는 추측이 아니라
+    // snapshot.state 에 적혀 있다. 종료 조건: build/ 산출물 등장 또는 35분 예산.
     const deadline = Date.now() + 35 * 60_000
-    let replies = 0
-    while (Date.now() < deadline && replies < 30) {
-      let buf = last, calm = 0
-      for (let i = 0; i < 150 && Date.now() < deadline; i++) {
-        const r = await replay()
-        if (r === buf) { calm += 2000; if (calm >= 15_000) break } else { calm = 0; buf = r }
-        await page.waitForTimeout(2000)
-      }
-      last = buf
+    let turns = 0
+    await send(BRIEF)
+    while (Date.now() < deadline) {
+      await expect.poll(async () => {
+        const s = await snap()
+        if (s?.state === 'error') throw new Error(`도우미 오류: ${s.error}`)
+        // 권한 카드는 신뢰 폴더에서 뜨지 않는다 — 그래도 뜨면 진행이 멈추니 드러낸다.
+        if (s?.state === 'permission') throw new Error(`권한 카드가 멈춰 있다: ${s.permission?.title}`)
+        return s?.state
+      }, { timeout: deadline - Date.now() > 0 ? Math.min(deadline - Date.now(), 600_000) : 1_000, intervals: [5000] }).toBe('idle')
+      turns++
+      const s = await snap()
+      const lastAssistant = s!.messages.filter((m) => m.role === 'assistant').at(-1)?.text ?? ''
+      log.push(`=== turn ${turns} tail ===\n${lastAssistant.slice(-600)}`)
+      if (turns === 1) await page.screenshot({ path: 'e2e/artifacts/thesis-q1.png' })
+
       const found = artifacts(root)
       if (found.length > 0) { log.push('artifacts found: ' + found.join(', ')); break }
-      const tail = buf.slice(-600)
-      let reply: string
-      if (/1\.\s.*2\.\s/s.test(tail)) reply = '1번으로 진행해줘'
-      else if (/\?\s*$/.test(tail) || tail.includes('알려주') || tail.includes('확인')) reply = '위에 알려준 가상 정보로 확정하고, 모르는 건 미정으로 기록해서 계속 진행해줘'
-      else reply = '계속 진행해줘'
-      await page.click('.term-host'); await page.keyboard.type(reply); await page.keyboard.press('Enter')
+      const tail = lastAssistant.slice(-600)
+      const reply = /1\.\s.*2\.\s/s.test(tail) ? '1번으로 진행해줘'
+        : /\?\s*$/.test(tail) || tail.includes('알려주') || tail.includes('확인') ? '위에 알려준 가상 정보로 확정하고, 모르는 건 미정으로 기록해서 계속 진행해줘'
+        : '계속 진행해줘'
+      const err = await send(reply)
+      if (err) { log.push('send failed: ' + err); break }
       replies++
-      log.push(`--- reply ${replies}: ${reply}\ntail: ${tail.slice(-300)}`)
+      log.push(`--- reply ${replies}: ${reply}`)
     }
     await page.screenshot({ path: 'e2e/artifacts/thesis-end.png' })
 
-    // artifacts + 결과물 screen
     const found = artifacts(root)
     console.log(log.join('\n\n'))
     console.log('ARTIFACTS:', found.join(' | ') || 'none')
     if (found.length) {
-      await showArtifactsScreen(page)
+      await page.click('text=결과물')
+      await page.waitForTimeout(3000)
+      await page.screenshot({ path: 'e2e/artifacts/thesis-artifacts.png' })
     }
-    console.log('REPLIES SENT:', replies)
+    console.log('REPLIES SENT:', replies, '| TURNS SETTLED:', turns)
 
-    // The point of the run is that the agent produces something. Without this the
-    // test passed after 45 minutes of producing nothing at all.
-    expect(replies, '도우미가 한 번도 응답하지 않았다').toBeGreaterThan(0)
-    expect(found, '예산 안에 build/ 산출물이 하나도 생기지 않았다').not.toHaveLength(0)
+    // 무엇이 없어서 실패했는지를 메시지로 가른다 — 45분 기다린 뒤 "실패"만 보면
+    // 원인을 다시 45분 걸려 찾게 된다.
+    expect(turns, '도우미가 한 번도 응답을 끝내지 않았다(idle 에 도달한 턴이 없다)').toBeGreaterThan(0)
+    expect(replies, '응답은 왔지만 드라이버의 후속 답장이 한 번도 전달되지 않았다').toBeGreaterThan(0)
+    expect(found, '응답은 왔지만 예산 안에 build/ 산출물이 하나도 생기지 않았다').not.toHaveLength(0)
   } finally {
     await electronApp.close()
   }
 })
-
-async function showArtifactsScreen(page: any) {
-  await page.click('text=결과물')
-  await page.waitForTimeout(3000)
-  await page.screenshot({ path: 'e2e/artifacts/thesis-artifacts.png' })
-}

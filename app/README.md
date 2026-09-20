@@ -15,14 +15,22 @@
 - `src/main/` — 인터프리터 선택(`KNUAF_PYTHON` > `<프로젝트>/.venv` > 번들 python > PATH), 사이드카 브리지, IPC, 설정.
   `file:read`는 작업 폴더 안 `.pdf`/`.md`/`.txt`만(50MB 이하) 바이트로 돌려주고, `file:save-as`는 폴더 안 파일을
   사용자가 고른 위치로 복사합니다 — 둘 다 경로가 폴더 밖으로 나가면 거절합니다.
-- `src/main/chat/` — Codex App Server(`codex app-server --listen stdio://`)와의 구조화 채팅. 스냅샷은
+- `src/main/chat/` — Codex App Server(`codex app-server`)·Claude Agent SDK와의 구조화 채팅. 스냅샷은
   `<프로젝트>/.knuaf-gui/chat-<provider>.json`에 남고, 실행 중 종료는 `interrupted`/`uncertain`으로 복구됩니다.
-- `src/main/terminal.ts` — node-pty로 앱 창 안에 `claude`/`codex` CLI 터미널을 띄우는 서비스. 출력 직후 5초간은
-  "에이전트 작업 중"으로 간주해 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
+  도우미 실행 중에는 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
+  `~/.codex/skills`·`~/.agents/skills`에 남은 전역 `knuaf-doc` 사본은 codex `-c skills.config=…` 오버라이드로
+  그 세션에서만 끕니다(사용자 config.toml은 건드리지 않음) — 낡은 사본이 프로젝트 사본과 이름 충돌하지 않게.
+- `src/main/userdata.ts` — 앱 표시이름이 바뀌며 생긴 옛 `userData` 폴더에서 `settings.json`을 한 번 이어 받습니다.
+  새 폴더가 이미 설정을 갖고 있으면 건드리지 않고 옛 폴더도 삭제하지 않습니다. 이름을 또 바꾸면
+  `LEGACY_USERDATA_NAMES`에 옛 폴더 이름을 추가하세요.
 - `src/preload/` — `window.knuaf` (contextIsolation, sandbox).
-- `src/renderer/` — React 화면. 기본 메뉴: 홈 / **내 논문**(Codex 채팅 + 내장 터미널) / **자료** / **결과물**.
-  접힌 "도구·검사" 그룹(기본 접힘, `knuaf-nav-tools`로 상태 유지): 대시보드(4레인) / 검사 결과 / 다음 할 일 /
-  절 목록(읽기 전용) / 도구(구 산출물: 검토본·골격·DOCX·엑셀·Office 렌더·build 폴더) / 문제 해결 / 설정.
+- `src/renderer/` — React 화면. 메뉴 5개: **내 논문**(도우미 채팅 — `helper_mode`로 기억) /
+  **자료** / **결과물**(목록·미리보기·파일 만들기) / **점검**(할 일·고칠 곳·네 가지 확인) /
+  **설정**(폴더·도우미 연결·문제 해결·고급 도구·실행기). 사이드바 하단은 논문 차례(읽기 전용).
+  `helper_mode`는 `codex-chat`/`claude-chat` 둘(claude-chat은 Agent SDK 경로로 아직 실험 중);
+  구 `codex_terminal`과 제거된 인앱 터미널 값(`codex-term`/`claude-term`)은 로드 때 채팅으로
+  마이그레이션됩니다(`src/main/settings.ts`). 채팅이 막힐 때의 비상구는 설정의
+  "앱 밖 터미널로 도우미 열기" 버튼(`.command` + `shell.openPath`)입니다.
   - 자료: intake 사실로 기록된 현재 작성물·재무 파일과 sources/ 파일 목록(현재 작성물·참고자료 구분)을 보여 줍니다.
     파일을 골라도 채팅 답변에 경로를 넣을 뿐 현재 작성물로 채택하지 않습니다(intake-selection.md).
   - 결과물: build/ 아래 DOCX·XLSX·PDF·MD를 목록·미리보기·다른 이름 저장·외부 열기 합니다. PDF는 pdf.js
@@ -46,9 +54,7 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 
 개발·테스트 전용 환경 변수:
 
-- `KNUAF_TERM_SHELL=/bin/sh` — 내장 터미널이 claude/codex 대신 이 셸을 인자 없이 실행합니다(테스트 전용).
-- `KNUAF_CLAUDE_SDK=1` — Claude 채팅 SDK 경로를 여는 개발용 플래그. 기본 동작(학생용)에서는 Claude는 터미널 모드만 씁니다.
-- `KNUAF_TERM_MODEL=sonnet` — 내장 Claude 터미널에 `--model`을 고정합니다(테스트 전용). 지정하지 않으면 플래그를 붙이지 않습니다.
+- `KNUAF_CLAUDE_MODEL=sonnet` — Claude 채팅 SDK 세션에 `model`을 고정합니다(테스트 전용).
 - `KNUAF_DRY_LAUNCH=1` — 외부 터미널 실행 스크립트를 쓰기만 하고 열지 않습니다(테스트 전용).
 - `KNUAF_LIVE=1` — `e2e/live-*.spec.ts`를 포함해 실행합니다. 실제 Claude/Codex 로그인과 구독 사용량이 필요하므로 기본 실행에서는 제외됩니다.
 

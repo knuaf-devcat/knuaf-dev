@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ChatSnapshot, Provider } from '../shared/chat'
-import type { TermInfo, TermKind, TermOpenOpts } from '../shared/term'
 
 type EventHandler = (event: string, data: unknown) => void
 const handlers = new Map<string, EventHandler>()
@@ -26,12 +25,16 @@ const api = {
   cancel: (clientId: string): Promise<boolean> => ipcRenderer.invoke('rpc:cancel', clientId),
   openProject: (root: string) => ipcRenderer.invoke('project:open', root),
   peekProject: (root: string) => ipcRenderer.invoke('project:peek', root),
+  /** 이 작업폴더에서는 판정 불가한 명령도 묻지 않는다(설정에서 되돌릴 수 있다). */
+  trustProject: (root: string, on: boolean) => ipcRenderer.invoke('project:trust', root, on),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('project:pick'),
   pickFile: (opts: { title?: string; filters?: { name: string; extensions: string[] }[]; defaultPath?: string }): Promise<string | null> => ipcRenderer.invoke('file:pick', opts),
   reveal: (path: string) => ipcRenderer.invoke('shell:reveal', path),
   openPath: (path: string) => ipcRenderer.invoke('shell:open', path),
   /** Read a previewable file (.pdf/.md/.txt) inside the project root → { result: Uint8Array } | { error }. */
   fileRead: (root: string, relPath: string) => ipcRenderer.invoke('file:read', root, relPath),
+  /** Existence check inside the project root → { result: boolean }. Unlike fileRead, any extension. */
+  fileExists: (root: string, relPath: string): Promise<{ result: boolean } | { error: { code: string; message: string } }> => ipcRenderer.invoke('file:exists', root, relPath),
   /** Copy a file inside the project root to a user-chosen location → { result: savedPath | null } | { error }. */
   fileSaveAs: (root: string, relPath: string) => ipcRenderer.invoke('file:save-as', root, relPath),
   windowInfo: () => ipcRenderer.invoke('window:info'),
@@ -68,25 +71,6 @@ const api = {
     const listener = (_e: unknown, snapshot: ChatSnapshot) => fn(snapshot)
     ipcRenderer.on('chat:snapshot', listener)
     return () => ipcRenderer.removeListener('chat:snapshot', listener)
-  },
-  /** In-app agent terminals (node-pty). Same { result } | { error } convention as chat. */
-  term: {
-    open: (root: string, kind: TermKind, opts: TermOpenOpts) => ipcRenderer.invoke('term:open', root, kind, opts),
-    replay: (id: string): Promise<{ result: string } | { error: { code: string; message: string } }> => ipcRenderer.invoke('term:replay', id),
-    write: (id: string, data: string) => ipcRenderer.invoke('term:write', id, data),
-    resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('term:resize', id, cols, rows),
-    kill: (id: string) => ipcRenderer.invoke('term:kill', id),
-    list: (root: string): Promise<{ result: TermInfo[] } | { error: { code: string; message: string } }> => ipcRenderer.invoke('term:list', root)
-  },
-  onTermData: (fn: (payload: { id: string; data: string }) => void) => {
-    const listener = (_e: unknown, payload: { id: string; data: string }) => fn(payload)
-    ipcRenderer.on('term:data', listener)
-    return () => ipcRenderer.removeListener('term:data', listener)
-  },
-  onTermExit: (fn: (payload: { id: string; exitCode: number }) => void) => {
-    const listener = (_e: unknown, payload: { id: string; exitCode: number }) => fn(payload)
-    ipcRenderer.on('term:exit', listener)
-    return () => ipcRenderer.removeListener('term:exit', listener)
   },
   openGuide: (): Promise<boolean> => ipcRenderer.invoke('guide:open'),
   appInfo: (): Promise<{ version: string; packaged: boolean; logs: string; userData: string; electron: string; node: string }> => ipcRenderer.invoke('app:info'),

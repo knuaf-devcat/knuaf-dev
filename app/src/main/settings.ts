@@ -24,14 +24,28 @@ function normaliseRecent(raw: unknown): RecentEntry[] {
   return out.slice(0, RECENT_MAX)
 }
 
+/**
+ * helper_mode migrations: the legacy `codex_terminal` checkbox and the removed in-app
+ * terminal modes ('codex-term'/'claude-term'). Terminal picks keep their provider —
+ * a student who chose the Claude terminal lands on the Claude chat, not on Codex.
+ */
+function migrateHelperMode(parsed: Partial<Settings>): Settings['helper_mode'] {
+  const h = parsed.helper_mode as string | undefined
+  if (h === 'codex-chat' || h === 'claude-chat') return h
+  if (h === 'claude-term') return 'claude-chat'
+  // 'codex-term'·codex_terminal===true → codex 채팅. 로드 시점에만 정규화한다 —
+  // 디스크 값은 다음 settings 저장 때 새 값으로 덮인다.
+  return 'codex-chat'
+}
+
 export function loadSettings(): Settings {
   try {
     if (existsSync(file())) {
       const parsed = JSON.parse(readFileSync(file(), 'utf-8')) as Partial<Settings> & { recent?: unknown }
-      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent) }
+      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent), helper_mode: migrateHelperMode(parsed) }
     }
   } catch { /* corrupt settings fall back to defaults */ }
-  return { ...DEFAULTS }
+  return { ...DEFAULTS, helper_mode: 'codex-chat' }
 }
 
 export function saveSettings(next: Partial<Settings>): Settings {

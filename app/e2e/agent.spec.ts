@@ -4,9 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import {
-  agentApi, buildLaunchScript, findExecutable, firstPromptFor, installSkill, launch, probeVersion,
+  agentApi, buildLaunchScript, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, probeVersion,
   skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
+import { serverArgsFor } from '../src/main/chat/codex'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
@@ -161,18 +162,45 @@ test.describe('buildLaunchScript', () => {
     expect(s).toContain(`cd '/tmp/논문 폴더' || exit 1`)
     expect(s).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':'/App/Resources/python/bin':'/opt/homebrew/bin':'/usr/local/bin':"$HOME/.local/bin":"$PATH"`)
     expect(s).toContain('export KNUAF_DOC_APP=1')
+    // ~/.claude/CLAUDE.md의 @import가 외부 경로를 가리키면 학생에게 영어 보안 프롬프트가 뜬다 —
+    // 이 앱이 띄우는 도우미는 메모리 파일을 아예 읽지 않는다.
+    expect(s).toContain('export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1')
     expect(s).toContain('knuaf-doc 동반 앱이 AI 도우미를 엽니다')
-    expect(s).toContain(`exec '/opt/homebrew/bin/claude' '시작하기'`)
+    // 비상구(외부 터미널)에도 채팅과 같은 가드레일 — 프로젝트 스킬만 유효 + 도구 팝업 차단.
+    // `--disallowedTools=…` 는 `=` 필수 — 공백이면 가변 인자가 첫 프롬프트를 삼킨다.
+    expect(s).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)
   })
 
-  test('codex gets no positional prompt; sq escapes single quotes', () => {
+  test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {
     const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/homebrew/bin/codex', venvBin: null, bundledBin: null, firstPrompt: '시작하기' })
     expect(s.trimEnd().split('\n').pop()).toBe(`exec '/opt/homebrew/bin/codex'`)
+    expect(s).not.toContain('skills.config')
     expect(s).not.toContain("'시작하기'")
     expect(sq(`it's`)).toBe(`'it'\\''s'`)
     expect(firstPromptFor(0)).toBe('시작하기')
     expect(firstPromptFor(null)).toBe('시작하기')
     expect(firstPromptFor(3)).toBe('이어서 하기')
+  })
+
+  test('a stale global knuaf-doc copy is disabled for the external codex launch', () => {
+    // ~/.codex/skills·~/.agents/skills 의 낡은 사본이 프로젝트 사본과 함께 enabled 로
+    // 보이면 모델이 옛 지침을 따른다 — 비상구 터미널에서도 그 사본을 끈다.
+    const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
+    expect(codexSkillConfigOverride(home)).toBeNull()
+    mkdirSync(join(home, '.codex', 'skills', 'knuaf-doc'), { recursive: true })
+    writeFileSync(join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md'), '# old\n')
+    const cfg = codexSkillConfigOverride(home)
+    expect(cfg).toBe(`skills.config=[{path="${join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md')}",enabled=false}]`)
+    const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/codex', venvBin: null, bundledBin: null, firstPrompt: '', home })
+    expect(s).toContain(`-c '${cfg}'`)
+
+    // app-server 스폰에도 같은 오버라이드 — -c 는 subcommand 앞의 루트 인자다.
+    expect(serverArgsFor({ HOME: home })).toEqual(['-c', cfg, 'app-server'])
+    expect(serverArgsFor({ HOME: join(mkdtempSync(join(tmpdir(), 'kd-home-')), 'none') })).toEqual(['app-server'])
+    // ~/.agents/skills 도 스캔 대상 — 두 사본이 함께 있으면 둘 다 끈다.
+    mkdirSync(join(home, '.agents', 'skills', 'knuaf-doc'), { recursive: true })
+    writeFileSync(join(home, '.agents', 'skills', 'knuaf-doc', 'SKILL.md'), '# old\n')
+    expect(serverArgsFor({ HOME: home })[1]).toContain('.agents')
   })
 })
 
@@ -187,7 +215,7 @@ test.describe('launch', () => {
     expect(r.scriptPath.startsWith(supportDir)).toBe(true)
     expect(r.scriptPath).toMatch(/launch-[0-9a-f]{8}\.command$/)
     expect(statSync(r.scriptPath).mode & 0o111).toBeTruthy()
-    expect(readFileSync(r.scriptPath, 'utf-8')).toContain(`exec '/opt/homebrew/bin/claude' '시작하기'`)
+    expect(readFileSync(r.scriptPath, 'utf-8')).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)
     expect(opened).toBe(0)
   })
 
@@ -232,7 +260,8 @@ test.describe('agentApi', () => {
       const script = readFileSync(r.scriptPath, 'utf-8')
       expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
       expect(script).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':`)
-      expect(script).toContain(`exec '${claudePath}' '이어서 하기'`)
+      expect(script).toContain(`exec '${claudePath}' --setting-sources project,local '--disallowedTools=AskUserQuestion' '이어서 하기`)
+      expect(script).toContain(`작업 폴더: /tmp/논문 폴더`)
       expect(opened).toEqual([])
     }
   })

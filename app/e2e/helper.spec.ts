@@ -18,8 +18,8 @@ test('external terminal button installs the skill into the project and writes a 
   // opening lands on "내 논문" once open() settles; wait for it before navigating away
   await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
   await navTo(page, '설정')
-  await page.click('button:has-text("앱 밖 터미널로 AI 도우미 열기")')
-  const sheet = page.locator('dialog.sheet')
+  await page.click('button:has-text("앱 밖 터미널로 도우미 열기")')
+  const sheet = page.locator('dialog.sheet[open]')
   await expect(sheet).toBeVisible()
   // claude is installed (checked above) → chooser appears; pick Claude
   const claudeBtn = sheet.locator('button:has-text("Claude Code 열기")')
@@ -33,7 +33,8 @@ test('external terminal button installs the skill into the project and writes a 
   const scripts = readdirSync(launchDir).filter((f) => f.endsWith('.command'))
   expect(scripts.length).toBeGreaterThan(0)
   const body = readFileSync(join(launchDir, scripts[0]), 'utf-8')
-  expect(body).toContain("'시작하기'")
+  expect(body).toContain("'시작하기")
+  expect(body).toContain('작업 폴더: ')
   expect(body).toContain(root)
   await electronApp.close()
 })

@@ -12,14 +12,17 @@ export type MenuAction =
   | { type: 'settings' }
   | { type: 'ai-helper' }
 
-const SCREENS: [string, string][] = [['home', '홈'], ['chat', '내 논문'], ['materials', '자료'], ['artifacts', '결과물'], ['dashboard', '대시보드'], ['checks', '검사 결과'], ['tasks', '다음 할 일'], ['sections', '절 목록'], ['outputs', '도구'], ['troubleshoot', '문제 해결'], ['settings', '설정']]
+const SCREENS: [string, string][] = [['chat', '내 논문'], ['materials', '자료'], ['artifacts', '결과물'], ['checkup', '점검'], ['settings', '설정']]
 
 /** docs/ lives next to app/ in a checkout and under Resources/docs when packaged. */
 export function docsDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'docs') : join(APP_ROOT, '..', 'docs')
 }
 export function guidePath(kind: 'pdf' | 'html' | 'md'): string | null {
-  const p = join(docsDir(), `학생용-사용안내.${kind}`)
+  // 번들 사본은 ASCII 이름이다 — 한글 이름은 dmg 볼륨에서 NFD 로 바뀌어 서명 봉인을 깬다
+  // (electron-builder.yml 의 extraResources 주석 참고). 체크아웃에서는 원래 이름 그대로.
+  const name = app.isPackaged ? `student-guide.${kind}` : `학생용-사용안내.${kind}`
+  const p = join(docsDir(), name)
   return existsSync(p) ? p : null
 }
 

@@ -18,6 +18,14 @@ dialog[open].sheet { animation: materialize var(--spring-sheet-dur) ease-out; an
 dialog[open].sheet::backdrop { animation: backdrop-in var(--fade); }
 @media (prefers-reduced-motion: reduce) {
   :root { --spring-dur: 1ms; --spring-slow-dur: 1ms; --spring-sheet-dur: 1ms; }
-  .screen-enter, .stagger > *, dialog[open].sheet { animation-duration: 120ms; animation-name: backdrop-in; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .screen-enter, .stagger > *, dialog[open].sheet { animation-duration: 120ms !important; animation-name: backdrop-in; animation-iteration-count: 1 !important; }
   .pop { transition: none; }
+  /* 스피너는 진행의 유일한 표시 — 느리게 돌되 지우지 않는다(04-토큰diff). */
+  .spin, .progress-head .spin { animation-duration: 1.8s !important; animation-iteration-count: infinite !important; }
 }

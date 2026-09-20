@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
-import { copyFileSync, existsSync, readFileSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import type { Sidecar } from './sidecar'
 import type { ProjectPeek, WindowInfo } from '../shared/types'
@@ -7,7 +7,6 @@ import type { Provider } from '../shared/chat'
 import { APP_ROOT, basePython, bundledPython, venvPython, wheelhouseDir } from './python'
 import { agentApi, skillSource, type AgentCtx, type AgentKind } from './agent'
 import { ChatService } from './chat/service'
-import { TerminalService, type TermKind } from './terminal'
 import { openGuide } from './menu'
 import { loadSettings, rememberRecent, saveSettings } from './settings'
 
@@ -38,8 +37,23 @@ function peekProject(root: string): ProjectPeek {
   return out
 }
 
+/** One level down: `root/<dir>/project.json` — a helper init in a wrong subfolder. */
+/** 신뢰 목록의 열쇠 — 심링크와 한글 정규화 차이로 같은 폴더가 달리 보이지 않게. */
+function trustKey(root: string): string {
+  try { return realpathSync(root).normalize('NFC') } catch { return resolve(root).normalize('NFC') }
+}
+
+function findNestedProject(root: string): string | null {
+  try {
+    for (const e of readdirSync(root, { withFileTypes: true })) {
+      if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'backups' && existsSync(join(root, e.name, 'project.json'))) return e.name
+    }
+  } catch { /* unreadable root: nothing to report */ }
+  return null
+}
+
 /** Every renderer request goes through here; the renderer never sees Node. Returns the services so index.ts can close them on quit. */
-export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, onRecentsChanged: () => void = () => {}): { chat: ChatService; terminal: TerminalService } {
+export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, onRecentsChanged: () => void = () => {}): { chat: ChatService } {
   let currentRoot: string | null = null
   /** renderer clientId → in-flight sidecar request, for `rpc:cancel` and the agent-busy gate. */
   const inflight = new Map<string, { id: string; method: string }>()
@@ -65,9 +79,9 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     return out
   }
 
-  const AGENT_BUSY_MESSAGE = 'AI 도우미가 작업 중이에요. 답변이 끝난 뒤(터미널은 출력이 멈춘 뒤) 다시 시도해 주세요.'
-  // chat/terminal are created below; handlers only run after registerIpc returns, so the closure is safe.
-  const agentBusy = (root: string | null): boolean => !!root && (chat.busy(root) || terminal.activeWithin(root, 5000))
+  const AGENT_BUSY_MESSAGE = 'AI 도우미가 작업 중이에요. 답변이 끝난 뒤 다시 시도해 주세요.'
+  // chat is created below; handlers only run after registerIpc returns, so the closure is safe.
+  const agentBusy = (root: string | null): boolean => !!root && chat.busy(root)
 
   ipcMain.handle('rpc', async (_e, method: string, rawParams: Record<string, unknown>, clientId: string) => {
     const w = win()
@@ -104,7 +118,11 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
         w.setTitle(`${name} — knuaf-doc 동반 앱`)
         if (process.platform === 'darwin') w.setRepresentedFilename(root)
       }
-      return { result: { root, hasProject: existsSync(join(root, 'project.json')), sidecar: info } }
+      const hasProject = existsSync(join(root, 'project.json'))
+      // 도우미가 하위 폴더를 만들어 거기 init한 경우(knuaf-work 등): 조용히 빈 화면을
+      // 보여 주는 대신 어디에 만들었는지 알려 준다.
+      const nestedProject = hasProject ? null : findNestedProject(root)
+      return { result: { root, hasProject, nestedProject, sidecar: info } }
     } catch (error) {
       return { error }
     }
@@ -132,11 +150,19 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     if (typeof root !== 'string' || !root || typeof relPath !== 'string' || !relPath) return null
     const base = resolve(root)
     const p = resolve(base, relPath)
-    if (p !== base && !p.startsWith(base + sep)) return null
+    // NFC/NFD: macOS 는 파일명을 NFD 로 주고 사람·모델이 쓴 경로는 NFC 다.
+    // 정규화하지 않으면 폴더 안의 한글 경로가 거부된다(claude.ts outsideRoot 와 같은 이유).
+    const n = (x: string) => x.normalize('NFC')
+    if (n(p) !== n(base) && !n(p).startsWith(n(base) + sep)) return null
     return p
   }
   const FILE_READ_EXTS = new Set(['.pdf', '.md', '.txt'])
   const FILE_READ_MAX = 50 * 1024 * 1024
+
+  ipcMain.handle('file:exists', (_e, root: string, relPath: string) => {
+    const p = insideRoot(root, relPath)
+    return { result: !!p && existsSync(p) }
+  })
 
   ipcMain.handle('file:read', (_e, root: string, relPath: string) => {
     const p = insideRoot(root, relPath)
@@ -189,7 +215,11 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     emit: (s) => win()?.webContents.send('chat:snapshot', s),
     openExternal: (url) => shell.openExternal(url),
     // The reverse gate: while the app holds a write transaction, agent sends must wait.
-    sidecarBusy: () => [...inflight.values()].some((e) => sidecar.isWrite(e.method))
+    sidecarBusy: () => [...inflight.values()].some((e) => sidecar.isWrite(e.method)),
+    // 도우미에게도 프로젝트 .venv 와 번들 인터프리터를 건넨다 — Homebrew 없는 맥에서 막히지 않게.
+    venvPython,
+    bundledPython,
+    isTrusted: (root) => (loadSettings().trusted_roots ?? []).includes(trustKey(root))
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
@@ -197,27 +227,19 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   ipcMain.handle('chat:login', async (_e, root: string, provider: Provider) => { try { await chat.login(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:send', async (_e, root: string, provider: Provider, text: string, requestId: string) => {
     try {
-      // Claude stays a terminal-mode helper for students; the SDK path is a dev-only flag.
-      if (provider === 'claude' && process.env.KNUAF_CLAUDE_SDK !== '1') throw new Error('Claude는 터미널 모드로 사용해요.')
       return { result: await chat.send(root, provider, text, requestId) }
     } catch (e) { return chatFail(e) }
+  })
+  ipcMain.handle('project:trust', (_e, root: string, on: boolean) => {
+    const key = trustKey(root)
+    const cur = new Set(loadSettings().trusted_roots ?? [])
+    on ? cur.add(key) : cur.delete(key)
+    saveSettings({ trusted_roots: [...cur] })
+    return { result: [...cur] }
   })
   ipcMain.handle('chat:respond', (_e, root: string, provider: Provider, id: string, allow: boolean) => { try { chat.respond(root, provider, id, allow); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:stop', async (_e, root: string, provider: Provider) => { try { await chat.stop(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
 
-  const terminal = new TerminalService({
-    skillSource: skillSource(APP_ROOT, app.isPackaged, process.resourcesPath),
-    emit: (channel, payload) => win()?.webContents.send(channel, payload),
-    venvPython,
-    bundledPython
-  })
-  const termFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'term', message: e instanceof Error ? e.message : String(e) } })
-  ipcMain.handle('term:open', (_e, root: string, kind: TermKind, opts: { revision: number | null; resume?: boolean; cols: number; rows: number }) => { try { return { result: terminal.open(root, kind, opts) } } catch (e) { return termFail(e) } })
-  ipcMain.handle('term:replay', (_e, id: string) => { try { return { result: terminal.replay(id) } } catch (e) { return termFail(e) } })
-  ipcMain.handle('term:write', (_e, id: string, data: string) => { try { terminal.write(id, data); return { result: true } } catch (e) { return termFail(e) } })
-  ipcMain.handle('term:resize', (_e, id: string, cols: number, rows: number) => { try { terminal.resize(id, cols, rows); return { result: true } } catch (e) { return termFail(e) } })
-  ipcMain.handle('term:kill', (_e, id: string) => { try { terminal.kill(id); return { result: true } } catch (e) { return termFail(e) } })
-  ipcMain.handle('term:list', (_e, root: string) => { try { return { result: terminal.list(root) } } catch (e) { return termFail(e) } })
   ipcMain.handle('guide:open', () => { openGuide(); return true })
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, logs: app.getPath('logs'), userData: app.getPath('userData'), electron: process.versions.electron, node: process.versions.node }))
   ipcMain.handle('fs:is-dir', (_e, p: string) => { try { return statSync(p).isDirectory() } catch { return false } })
@@ -252,5 +274,5 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
 
   sidecar.on('log', (entry) => win()?.webContents.send('sidecar:log', entry))
   sidecar.on('exit', (entry) => win()?.webContents.send('sidecar:exit', entry))
-  return { chat, terminal }
+  return { chat }
 }

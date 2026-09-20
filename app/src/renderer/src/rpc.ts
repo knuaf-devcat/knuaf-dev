@@ -45,10 +45,10 @@ export const rpc = {
 export function describeError(e: unknown): string {
   if (e instanceof RpcFailure) {
     const prefix: Record<string, string> = {
-      lock_held: '다른 작업이 폴더를 잠그고 있어요. "문제 해결"에서 잠금 상태를 확인하세요.',
+      lock_held: '다른 작업이 폴더를 잠그고 있어요. "설정 > 문제 해결"에서 잠금 상태를 확인하세요.',
       revision_stale: '정본이 그사이 바뀌었어요. 새로고침 후 다시 시도하세요.',
-      overwrite_refused: '이미 같은 이름의 산출물이 있어 덮어쓰지 않았어요. 새 경로를 쓰세요.',
-      deps_not_ready: '이 작업에 필요한 Python 패키지가 아직 준비되지 않았어요. "문제 해결"에서 준비하세요.',
+      overwrite_refused: '이미 같은 이름의 결과물이 있어 덮어쓰지 않았어요. 새 경로를 쓰세요.',
+      deps_not_ready: '작업 준비가 아직 끝나지 않았어요. 준비 작업을 자동으로 다시 시도해요. 계속되면 "설정 > 문제 해결"에서 확인해 주세요.',
       sidecar_down: 'Python 실행기가 꺼져 있어요. 설정에서 다시 시작하세요.',
       timeout: '시간 안에 끝나지 않아 중단했어요.',
       cancelled: '취소했어요.'

@@ -19,7 +19,18 @@ export class ChatService {
     connectionFactory?: (provider: Provider, options: AgentOptions) => AgentConnection
     /** True while the app itself holds a sidecar write transaction; send() must not interleave. */
     sidecarBusy?: (root: string) => boolean
+    /** 도우미가 쓸 Python — 프로젝트 .venv 와 번들 CPython. */
+    venvPython?: (root: string) => string | null
+    bundledPython?: () => string | null
+    /** 학생이 "이 폴더에서는 계속 허용"을 고른 폴더인가. */
+    isTrusted?: (root: string) => boolean
   }) {}
+  /** PATH 앞자리에 둘 인터프리터 bin 경로 — 프로젝트 .venv 가 번들보다 우선한다. */
+  private pythonBinDirs(root: string): string[] {
+    const venv = this.opts.venvPython?.(root) ?? null
+    const bundled = this.opts.bundledPython?.() ?? null
+    return [venv, bundled].filter((p): p is string => !!p).map((p) => dirname(p))
+  }
   private key(root: string, provider: Provider) { return `${root}\0${provider}` }
   private file(root: string, provider: Provider) { return join(root, '.knuaf-gui', `chat-${provider}.json`) }
   private publish(s: ChatSnapshot) {
@@ -61,7 +72,7 @@ export class ChatService {
     const key = this.key(root, provider)
     let c = this.connections.get(key)
     if (!c) {
-      const options: AgentOptions = { binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(), openExternal: this.opts.openExternal }
+      const options: AgentOptions = { binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)), openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false }
       if (this.opts.connectionFactory) {
         c = this.opts.connectionFactory(provider, options)
       } else {
@@ -111,6 +122,18 @@ export class ChatService {
     } catch (e) { release(); throw e }
   }
   private async execute(s: ChatSnapshot, connection: AgentConnection, text: string, requestId: string) {
+    // 서버 재생(과거 턴)은 스냅샷에 assistant 기록이 하나도 없을 때만 — 이미 있으면
+    // item-N/msg_* id가 달라 중복으로 들어온다.
+    const replayHistory = !s.messages.some(m => m.role === 'assistant')
+    /**
+     * 답장이 오기 시작했으면 전달된 것이다. 예전에는 run() 이 끝나야 'sent' 로 바꿨는데,
+     * 에이전트 턴은 몇 분씩 가므로 도우미가 눈앞에서 말하는 내내 학생 메시지에
+     * "전송 중"이 붙어 있었다. 전달 여부와 턴 완료는 다른 사실이다.
+     */
+    const delivered = () => {
+      const m = s.messages.find((x) => x.id === requestId)
+      if (m?.delivery === 'pending') m.delivery = 'sent'
+    }
     try {
       await connection.run(text, s.sessionId, {
         session: id => { s.sessionId = id; this.publish(s) },
@@ -119,13 +142,16 @@ export class ChatService {
           const old = s.messages.find(m => m.id === id)
           if (old) old.text = text
           else s.messages.push({ id, role: 'assistant', text, at: new Date().toISOString() })
+          delivered()
           this.publish(s)
         },
-        permission: permission => { s.permission = permission; s.state = 'permission'; this.publish(s) }
-      })
-      s.messages.find(m => m.id === requestId)!.delivery = 'sent'; s.state = 'idle'
+        permission: permission => { s.permission = permission; s.state = 'permission'; delivered(); this.publish(s) }
+      }, replayHistory)
+      delivered(); s.state = 'idle'
     } catch (e) {
-      s.messages.find(m => m.id === requestId)!.delivery = 'uncertain'
+      // 이미 답장이 왔다면 전달은 된 것이다 — 그 뒤에 실패한 것은 턴이지 전송이 아니다.
+      const sentMsg = s.messages.find(m => m.id === requestId)!
+      if (sentMsg.delivery === 'pending') sentMsg.delivery = 'uncertain'
       if (s.state !== 'interrupted') s.state = 'error'
       s.error = e instanceof Error ? e.message : '작업이 완료되지 않았어요.'
     } finally { s.permission = undefined; this.publish(s) }
@@ -138,7 +164,9 @@ export class ChatService {
   async stop(root: string, provider: Provider) {
     const key = this.key(root, provider), s = this.snapshots.get(key)
     if (s && this.runs.has(key)) { s.state = 'interrupted'; this.publish(s) }
-    await this.connections.get(key)?.stop(); await this.runs.get(key)
+    // 멈춘 연결은 버린다 — 다음 send/status 가 새 연결을 열어야 '다시 확인'이 살아난다.
+    await this.connections.get(key)?.stop(); this.connections.delete(key)
+    await this.runs.get(key)
   }
   async close() { await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) })) }
 }
