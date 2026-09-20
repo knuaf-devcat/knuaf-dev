@@ -1,5 +1,9 @@
 export type Provider = 'codex' | 'claude'
-export type RunState = 'idle' | 'running' | 'permission' | 'interrupted' | 'error'
+/**
+ * 'interrupted' 는 앱이 죽은 뒤 복구했을 때, 'stopped' 는 학생이 중단을 눌렀을 때.
+ * 둘을 한 상태로 쓰면 화면이 멀쩡히 살아 있는 앱을 두고 "종료됐어요"라고 말한다(GUI-05).
+ */
+export type RunState = 'idle' | 'running' | 'permission' | 'interrupted' | 'stopped' | 'error'
 export interface ChatMessage {
   id: string; role: 'user' | 'assistant' | 'system'; text: string; at: string
   delivery?: 'pending' | 'sent' | 'uncertain'

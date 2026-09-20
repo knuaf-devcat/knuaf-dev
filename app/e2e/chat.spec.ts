@@ -82,6 +82,43 @@ test('sending the same requestId twice keeps a single message', async () => {
   await svc.close()
 })
 
+// GUI 감사 GUI-05 — 학생이 누른 "중단"과 앱이 죽은 것은 다른 일이다. 둘 다 interrupted
+// 를 쓰는 바람에 화면이 멀쩡히 살아 있는 앱을 두고 "앱이 작업 도중 종료됐어요"라고 했다.
+test('a student stop is not reported as the app dying', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => { release = r })
+  // 실제 도우미는 중단당하면 run 이 예외로 끝난다 — 가짜도 그렇게 해야 같은 경로를 탄다.
+  const svc = service(fake({
+    run: async () => { await held; throw new Error('aborted') },
+    stop: async () => { release() }
+  }))
+  void svc.send(root, 'codex', '오래 걸리는 일', 'req-stop')
+  await expect.poll(() => svc.snapshot(root, 'codex').state, { timeout: 5_000 }).toBe('running')
+  await svc.stop(root, 'codex')
+  const s = await settled(svc, root)
+  expect(s.state, '중단은 죽은 것과 구별돼야 한다').toBe('stopped')
+  expect(s.error, '학생이 멈춘 것은 실패가 아니다').toBeUndefined()
+  await svc.close()
+})
+
+// 짝을 이루는 반대쪽. 두 뜻이 한 상태를 쓰다 생긴 버그였으므로 양쪽을 다 고정한다 —
+// 한쪽만 두면 나중에 또 하나로 합쳐도 아무도 모른다.
+test('a crash recovered from disk still says the app died', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
+  mkdirSync(join(root, '.knuaf-gui'), { recursive: true })
+  writeFileSync(join(root, '.knuaf-gui', 'chat-codex.json'), JSON.stringify({
+    root, provider: 'codex', state: 'running',
+    messages: [{ id: 'req-crash', role: 'user', text: '보낸 뒤 앱이 죽었다', at: new Date().toISOString(), delivery: 'pending' }]
+  }), 'utf-8')
+  const svc = service(fake())
+  const s = svc.snapshot(root, 'codex')
+  expect(s.state, '디스크에서 살아난 실행 중 상태는 비정상 종료다').toBe('interrupted')
+  expect(s.error).toContain('앱이 작업 도중 종료됐어요')
+  expect(s.messages[0].delivery).toBe('uncertain')
+  await svc.close()
+})
+
 test('a failing run marks the message uncertain and the snapshot error', async () => {
   const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
   const svc = service(fake({ run: async () => { throw new Error('연결 종료') } }))

@@ -688,6 +688,9 @@ export const CHAT = {
   emptyTitle: '아직 대화가 없어요',
   emptyBody: '도우미와 나눈 대화가 여기 쌓여요.',
   emptyBodyStart: '도우미가 질문하며 논문을 함께 써요.',
+  /** 학생이 "중단"을 누른 경우 — 앱은 멀쩡하다. 실패가 아니라 취소다. */
+  stoppedTitle: '중단했어요',
+  stoppedBody: '여기까지 오간 대화는 그대로 남아 있어요. 마지막 답변이 도우미에게 닿았는지는 알 수 없어요.',
   interruptedTitle: '앱이 작업 도중 종료됐어요',
   interruptedBody: '마지막 답변이 도우미에게 닿았는지 확인할 수 없어요. 내용을 확인한 뒤 필요하면 다시 보내 주세요.',
   // 빈 대화 시작 버튼 — "시작하기"/"이어서 하기" 문자열을 학생 대신 보낸다(agent.ts firstPrompt와 같은 문자열).

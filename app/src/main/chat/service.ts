@@ -168,8 +168,12 @@ export class ChatService {
       // 이미 답장이 왔다면 전달은 된 것이다 — 그 뒤에 실패한 것은 턴이지 전송이 아니다.
       const sentMsg = s.messages.find(m => m.id === requestId)!
       if (sentMsg.delivery === 'pending') sentMsg.delivery = 'uncertain'
-      if (s.state !== 'interrupted') s.state = 'error'
-      s.error = e instanceof Error ? e.message : '작업이 완료되지 않았어요.'
+      // 학생이 멈춘 것은 실패가 아니다 — 취소로 끝난 턴에 오류 문구를 붙이지 않는다.
+      // (중단하면 연결이 끊겨 run 이 예외로 끝나므로 여기로 온다.)
+      if (s.state !== 'stopped') {
+        if (s.state !== 'interrupted') s.state = 'error'
+        s.error = e instanceof Error ? e.message : '작업이 완료되지 않았어요.'
+      }
     } finally { s.permission = undefined; this.publish(s) }
   }
   respond(root: string, provider: Provider, id: string, allow: boolean) {
@@ -179,7 +183,7 @@ export class ChatService {
   }
   async stop(root: string, provider: Provider) {
     const key = this.key(root, provider), s = this.snapshots.get(key)
-    if (s && this.runs.has(key)) { s.state = 'interrupted'; this.publish(s) }
+    if (s && this.runs.has(key)) { s.state = 'stopped'; s.error = undefined; this.publish(s) }
     // 멈춘 연결은 버린다 — 다음 send/status 가 새 연결을 열어야 '다시 확인'이 살아난다.
     await this.connections.get(key)?.stop(); this.connections.delete(key)
     await this.runs.get(key)

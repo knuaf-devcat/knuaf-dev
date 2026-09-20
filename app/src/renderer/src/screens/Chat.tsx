@@ -155,7 +155,7 @@ export function Chat() {
     setTimeout(() => setCopied(false), 1500)
   }
   const chatErr = error ? describeChatError(error) : null
-  const snapErr = snapshot?.error && snapshot.state !== 'interrupted' ? describeChatError(snapshot.error) : null
+  const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
 
   if (!projectRoot) return <NoFolder />
 
@@ -190,6 +190,10 @@ export function Chat() {
         </div>
       )}
       {chatErr && <Feedback kind={chatErr.kind} title={chatErr.title} body={chatErr.action} details={<code>{chatErr.raw}</code>} actions={<button onClick={clearError}>닫기</button>} />}
+      {snapshot?.state === 'stopped' && (
+        <Feedback kind="warning" title={CHAT.stoppedTitle} body={CHAT.stoppedBody}
+          actions={lastUncertain ? <button onClick={() => void send(lastUncertain.text)} disabled={running || busy}>{CHAT.resend}</button> : undefined} />
+      )}
       {snapshot?.state === 'interrupted' && (
         <Feedback kind="warning" title={CHAT.interruptedTitle} body={CHAT.interruptedBody}
           actions={lastUncertain ? <button onClick={() => void send(lastUncertain.text)} disabled={running || busy}>{CHAT.resend}</button> : undefined} />
