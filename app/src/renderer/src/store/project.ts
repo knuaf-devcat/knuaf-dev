@@ -87,6 +87,9 @@ export const useProject = create<ProjectState>((set, get) => ({
     }
     const peek = await window.knuaf.peekProject(root)
     set({ root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null })
+    // 이동은 성공이 확정된 여기서 한다 — 아래 refresh() 는 파이썬 스폰이라 몇 초
+    // 걸리는데, 그 사이 학생이 다른 메뉴를 누르면 늦게 온 setScreen 이 되돌려 버렸다.
+    get().setScreen('chat')
     stopCanonPoll()
     if (!r.result.hasProject) canonPoll = setInterval(() => { void get().recheckCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
@@ -98,7 +101,6 @@ export const useProject = create<ProjectState>((set, get) => ({
     // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
     void get().prepareDeps(root)
     void useChat.getState().load(root)
-    get().setScreen('chat')
     return null
   },
   /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */

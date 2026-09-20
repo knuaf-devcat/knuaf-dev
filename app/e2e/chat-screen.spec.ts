@@ -29,3 +29,21 @@ test('a failed status check is a confirmed failure, not a dead end', async () =>
     await electronApp.close()
   }
 })
+
+// GUI-10 — 빈 정본에서도 tasks 에 한글 마무리(글꼴·여백·쪽 번호, needs_user)가 섞여
+// 온다(gg_core.user_finish_task_list). 그건 도우미의 질문에 대한 "내 답변"이 아니라
+// 학생이 한글에서 직접 확인하는 서식 일이라, 상태 한 줄도 그렇게 불러야 한다.
+test('the state line names manual finishing work, not "my replies"', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  try {
+    await openProject(page, root)
+    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    const line = page.locator('.state-line')
+    await expect(line).toBeVisible({ timeout: 30_000 })
+    await expect(line).toContainText('직접 확인')
+    await expect(line).not.toContainText('내 답변')
+  } finally {
+    await electronApp.close()
+  }
+})

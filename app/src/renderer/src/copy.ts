@@ -370,6 +370,46 @@ export const USER_FINISH_LABEL: Record<string, string> = {
 }
 
 /**
+ * "방법 보기" 시트의 항목별 단계 — 대상·메뉴 순서·확인 기준(GUI-11). 수치는 학교
+ * 지침 그대로(gg_core.user_finish_task_list: 신명조, 여백 위20/아래15/머리15/꼬리15/
+ * 좌30/우30/제본0 mm). 한글 버전마다 리본·메뉴 배치가 달라 확실하지 않은 위치는
+ * "쪽" 메뉴처럼 양쪽에서 통하는 이름까지만 쓰고, 지침에 없는 세부 규격은 지어내지
+ * 않는다.
+ */
+export const USER_FINISH_HOW: Record<string, { steps: string[]; done: string }> = {
+  font_shinmyeongjo: {
+    steps: [
+      '한글에서 문서를 열고 Ctrl+A로 전체를 선택해요.',
+      '맨 위 도구 모음의 글꼴 상자에 지금 글꼴이 보여요.',
+      '"신명조"가 아니면 글꼴 상자에서 "신명조"를 골라요.'
+    ],
+    done: '전체를 선택한 상태에서 글꼴 상자가 "신명조"를 가리키면 끝이에요.'
+  },
+  margins: {
+    steps: [
+      '한글의 "쪽" 메뉴 → "쪽 설정"을 열어요(리본 화면이면 "쪽" 탭에 있어요).',
+      '여백 칸을 지침대로 맞춰요 — 위 20 · 아래 15 · 머리 15 · 꼬리 15 · 왼쪽 30 · 오른쪽 30 (mm).',
+      '제본 여백은 0으로 둬요.'
+    ],
+    done: '쪽 설정의 여백 값이 지침과 같으면 끝이에요.'
+  },
+  page_numbers: {
+    steps: [
+      '"쪽" 메뉴 → "쪽 번호 매기기"로 번호를 넣어요.'
+    ],
+    done: '문서를 끝까지 넘겨 보며 번호가 빠진 쪽이 없으면 끝이에요.'
+  },
+  hwp_convert: {
+    steps: [
+      '한글에서 DOCX 파일을 열어요.',
+      '"파일" → "다른 이름으로 저장"에서 파일 형식을 "한글 문서(*.hwp)"로 골라 저장해요.',
+      '저장한 .hwp 파일을 다시 열어 쪽 수·표·인용 번호·핵심 수치가 원래 문서와 같은지 비교해요.'
+    ],
+    done: '다시 연 파일이 원래와 같아 보이면 끝이에요.'
+  }
+}
+
+/**
  * 검사 id → 이름표. 한글 마무리 항목(font_shinmyeongjo·margins·page_numbers)은
  * gate 에도 검사로 올라오는데 CHECK_LABEL 에는 없어서 전부 폴백("확인 항목")으로
  * 떨어졌고, 같은 문자열이라 중복 제거에 뭉쳐 세 개가 하나로 보였다. 학생은
@@ -714,6 +754,9 @@ export const CHAT = {
   statusDrafting: (t: string) => `${t} 작성 중`,
   statusFix: (n: number) => `고칠 곳 ${n}개`,
   statusWait: (n: number) => `내 답변 ${n}건 기다리는 중`,
+  // tasks 의 needs_user 에는 한글 마무리(글꼴·여백·쪽 번호·HWP 변환)가 섞여 온다 —
+  // 그건 답변이 아니라 학생이 한글에서 직접 확인하는 일이다(GUI-10).
+  statusFinish: (n: number) => `한글에서 직접 확인할 것 ${n}건`,
   activityTitle: '방금 한 일',
   activityBusy: '도우미 작업 중',
   activitySections: (n: number) => `장 ${n}개 등록`,

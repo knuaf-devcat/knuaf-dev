@@ -121,6 +121,10 @@ test('hard rules hold across screens', async () => {
   await page.locator('nav .toc-item').first().click()
   await expect(page.locator('dialog').getByText('읽기 전용').first()).toBeVisible()
   expect(await page.locator('dialog textarea, dialog [contenteditable="true"], main textarea, main [contenteditable="true"]').count()).toBe(0)
+  // GUI-09 — 본문 텍스트가 a11y 트리에 노드로 들어 있는지 고정한다. 스냅샷은
+  // VoiceOver 가 아니므로 실기 읽기 확인은 사람 몫으로 남는다.
+  // (닫힌 Sheet 도 <dialog>로 DOM 에 남으므로 open 인 것만 본다.)
+  expect(await page.locator('dialog[open]').ariaSnapshot()).toContain('농장A의 재배 면적은 600평이다')
   await page.click('dialog >> button[aria-label="닫기"]')
 
   // troubleshoot (설정 > 문제 해결): release only for a stale same-host lock; sanctioned Kordoc sentence only

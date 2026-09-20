@@ -8,7 +8,7 @@ import { Disclosure } from '../components/Disclosure'
 import { Feedback } from '../components/Feedback'
 import { Sheet } from '../components/Sheet'
 import { Icon } from '../components/Icon'
-import { CHECK_TARGET_LABEL, CHECKUP, COLLECTION_LABEL, INDEPENDENT_REVIEW_MISSING, LANE_COPY, USER_FINISH_LABEL, checkLabel, type LaneCopy } from '../copy'
+import { CHECK_TARGET_LABEL, CHECKUP, COLLECTION_LABEL, INDEPENDENT_REVIEW_MISSING, LANE_COPY, USER_FINISH_HOW, USER_FINISH_LABEL, checkLabel, type LaneCopy } from '../copy'
 import type { CheckRow, Status, TaskRow, UserFinishItem } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -159,6 +159,12 @@ export function Checkup() {
       })()}
       <Sheet open={!!how} title={how ? (USER_FINISH_LABEL[how.id] ?? how.id) : ''} onClose={() => setHow(null)}>
         <p>{how?.reason}</p>
+        {how && USER_FINISH_HOW[how.id] && (
+          <>
+            <ol>{USER_FINISH_HOW[how.id].steps.map((s) => <li key={s}>{s}</li>)}</ol>
+            <p className="caption">{USER_FINISH_HOW[how.id].done}</p>
+          </>
+        )}
         <p className="caption">{CHECKUP.finishHowNote}</p>
       </Sheet>
     </div>

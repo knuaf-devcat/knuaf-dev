@@ -86,12 +86,12 @@ export const useChat = create<ChatState>((set, get) => ({
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
     if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
-    // 폴더가 바뀔 때만 초안을 비운다. 예전에는 안 비워서 A 에 쓰다 만 답변이 B 를
-    // 열었을 때 그대로 보였다(GUI-01). 다만 같은 폴더를 다시 읽는 경우 — 공급자 전환,
-    // Chat.tsx 의 스냅샷 재동기 effect — 까지 비우면 학생이 방금 쓴 것이나 자료 화면이
-    // 넣은 파일 경로가 말없이 사라진다. 지울 이유는 "다른 폴더"뿐이다.
-    const sameRoot = get().root === root
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(sameRoot ? {} : { draft: '' }) })
+    // 초안을 비우는 것은 폴더가 바뀔 때뿐이다 — A 에 쓰다 만 답변이 B 에 그대로
+    // 보이는 것을 막는 게 목적이다(GUI-01). 같은 폴더의 재로드(공급자 전환, 첫 로드가
+    // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
+    // 사이 붙인 첨부 경로나 쓴 글이 말없이 사라진다.
+    const switching = get().root !== root
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(switching ? { draft: '' } : {}) })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
@@ -102,10 +102,10 @@ export const useChat = create<ChatState>((set, get) => ({
     // 동안 학생이 입력했거나 자료 화면이 경로를 넣은 경우다(status() 가 도우미
     // 바이너리를 찾느라 몇 초씩 걸려 틈이 넓다).
     //
-    // 여기서 sameRoot 를 기준으로 삼으면 안 된다. 앱을 새로 띄우면 load() 가 두 번
+    // 여기서 switching 을 조건에 넣으면 안 된다. 앱을 새로 띄우면 load() 가 두 번
     // 도는데(스토어 기본 provider → 설정이 정한 provider), 첫 번째는 provider 가
-    // 달라져 위 가드에서 빠지고 두 번째는 sameRoot 라 건너뛰어 아무도 복원하지
-    // 않았다. 기준은 "같은 폴더인가"가 아니라 "화면에 학생 것이 있는가"다.
+    // 달라져 위 가드에서 빠지고 두 번째는 switching 이 false 라 건너뛰어 아무도
+    // 복원하지 않았다. 기준은 "같은 폴더인가"가 아니라 "화면에 학생 것이 있는가"다.
     const typedMeanwhile = get().draft !== ''
     set({
       snapshot: 'result' in snap ? snap.result : null,
