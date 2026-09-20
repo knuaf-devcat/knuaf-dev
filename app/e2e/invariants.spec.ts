@@ -1,12 +1,51 @@
 import { test, expect } from '@playwright/test'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launch, navTo, openPreset, openProject, plantStaleLock, synthProject } from './helpers'
+import ts from 'typescript'
+import { app, launch, navTo, openPreset, openProject, plantStaleLock, synthProject } from './helpers'
 
 const CREDIT_1 = 'knuaf-doc · 창업논문 작성 도우미'
 const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재'
 const KORDOC = '문서를 읽는 데 필요한 도구를 준비할게요. 처음 한 번은 시간이 조금 걸릴 수 있어요.'
+
+// copy.ts 첫 줄 규칙 — "every user-facing string of the companion app in one place".
+// 강제가 없어 설정의 열기 실패 문구(GUI-04)가 인라인으로 새어나갔다. 화면·컴포넌트
+// 소스의 문자열 리터럴/JSX 텍스트에 한글이 있으면 copy.ts 로 옮겨야 한다.
+// AST만 보므로 주석·코드 속 한글은 대상이 아니다.
+const USER_STRING_DIRS = ['screens', 'components']
+const HANGUL = /[가-힯]/
+
+function koreanStrings(file: string): string[] {
+  const sf = ts.createSourceFile(file, readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const hits: string[] = []
+  const push = (node: ts.Node, text: string) => {
+    const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+    hits.push(`${line + 1}: ${text.trim().replace(/\s+/g, ' ').slice(0, 70)}`)
+  }
+  const visit = (node: ts.Node): void => {
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isJsxText(node)) && HANGUL.test(node.text)) push(node, node.text)
+    else if (ts.isTemplateExpression(node)) {
+      if (HANGUL.test(node.head.text)) push(node.head, node.head.text)
+      for (const span of node.templateSpans) if (HANGUL.test(span.literal.text)) push(span.literal, span.literal.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return hits
+}
+
+// 기존 위반이 272건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
+// 건다. 하나라도 줄이면 이 숫자도 같이 줄일 것(0이면 toEqual([])로 바꾼다).
+const KNOWN_USER_STRING_VIOLATIONS = 272
+
+test('user-facing strings live in copy.ts', () => {
+  const hits: string[] = []
+  for (const dir of USER_STRING_DIRS)
+    for (const f of readdirSync(join(app, 'src', 'renderer', 'src', dir)).filter((f) => f.endsWith('.tsx')))
+      hits.push(...koreanStrings(join(app, 'src', 'renderer', 'src', dir, f)).map((h) => `${dir}/${f}:${h}`))
+  expect(hits, `\n${hits.join('\n')}`).toHaveLength(KNOWN_USER_STRING_VIOLATIONS)
+})
 
 test('reduced motion collapses transitions but keeps the spinner', async () => {
   const { electronApp, page } = await launch({ reducedMotion: 'reduce' })

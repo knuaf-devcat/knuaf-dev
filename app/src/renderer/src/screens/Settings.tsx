@@ -45,7 +45,7 @@ export function SettingsScreen() {
         {root && <div className="row"><strong>{base(root)}</strong><span className="caption">{root}</span></div>}
         {openErr && (
           <Feedback kind={openErr.kind} title={openErr.title}
-            body={`${openErr.action ? openErr.action + ' ' : ''}${root ? `"${base(root)}" 폴더는 그대로 열려 있어요.` : '아직 열려 있는 폴더가 없어요.'}`}
+            body={`${openErr.action ? openErr.action + ' ' : ''}${root ? SETTINGS.folderKeptAfterFail(base(root)) : SETTINGS.folderNoneAfterFail}`}
             details={<code>{openErr.raw}</code>} />
         )}
         <div className="row" style={{ marginTop: 'var(--sp-2)' }}>
