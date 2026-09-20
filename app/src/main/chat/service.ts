@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, lstatSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } from '../agent'
 import { ClaudeConnection } from './claude'
@@ -33,6 +33,22 @@ export class ChatService {
   }
   private key(root: string, provider: Provider) { return `${root}\0${provider}` }
   private file(root: string, provider: Provider) { return join(root, '.knuaf-gui', `chat-${provider}.json`) }
+  /**
+   * 아직 보내지 않은 입력. 대화 기록과 같은 자리에 두되 공급자별로 나누지 않는다 —
+   * 학생이 쓰던 문장은 도우미를 바꿔도 그대로여야 한다. 폴더별로 따로 있어야
+   * 프로젝트를 옮겼을 때 남의 초안이 따라가지 않는다(GUI 감사 GUI-01·GUI-06).
+   */
+  private draftFile(root: string) { return join(root, '.knuaf-gui', 'draft.txt') }
+  draft(root: string): string {
+    try { return readFileSync(this.draftFile(root), 'utf8') } catch { return '' }
+  }
+  setDraft(root: string, text: string): void {
+    const file = this.draftFile(root)
+    if (!text) { try { unlinkSync(file) } catch { /* 없으면 지울 것도 없다 */ } return }
+    mkdirSync(dirname(file), { recursive: true })
+    const tmp = file + '.tmp'
+    writeFileSync(tmp, text, { mode: 0o600 }); renameSync(tmp, file)
+  }
   private publish(s: ChatSnapshot) {
     const file = this.file(s.root, s.provider); mkdirSync(dirname(file), { recursive: true })
     const tmp = file + '.tmp'; writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 }); renameSync(tmp, file)

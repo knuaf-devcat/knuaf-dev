@@ -61,6 +61,8 @@ const api = {
   chat: {
     snapshot: (root: string, provider: Provider) => ipcRenderer.invoke('chat:snapshot', root, provider),
     status: (root: string, provider: Provider) => ipcRenderer.invoke('chat:status', root, provider),
+    draft: (root: string) => ipcRenderer.invoke('chat:draft', root),
+    setDraft: (root: string, text: string) => ipcRenderer.invoke('chat:set-draft', root, text),
     login: (root: string, provider: Provider) => ipcRenderer.invoke('chat:login', root, provider),
     send: (root: string, provider: Provider, text: string, requestId: string) => ipcRenderer.invoke('chat:send', root, provider, text, requestId),
     respond: (root: string, provider: Provider, id: string, allow: boolean) => ipcRenderer.invoke('chat:respond', root, provider, id, allow),

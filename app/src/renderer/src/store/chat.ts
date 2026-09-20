@@ -65,6 +65,26 @@ interface ChatState {
 /** Login opens an external browser; poll status until the account connects (max 3 min). */
 let loginPoll: ReturnType<typeof setInterval> | null = null
 
+/**
+ * 초안은 폴더별로 파일에 남는다(service.ts 의 draft.txt). 타건마다 디스크를 때리지
+ * 않도록 묶어서 쓰되, 폴더를 바꾸거나 보낼 때는 기다리지 않고 바로 확정한다.
+ */
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSave: { root: string; draft: string } | null = null
+
+function scheduleDraftSave(root: string | null, draft: string): void {
+  if (!root) return
+  pendingSave = { root, draft }
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { void flushDraft() }, 400)
+}
+
+async function flushDraft(): Promise<void> {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  const p = pendingSave; pendingSave = null
+  if (p) await window.knuaf.chat.setDraft(p.root, p.draft)
+}
+
 export const useChat = create<ChatState>((set, get) => ({
   root: null,
   provider: 'codex',
@@ -76,22 +96,32 @@ export const useChat = create<ChatState>((set, get) => ({
   error: null,
   mode: null,
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
-  setDraft: (draft) => set({ draft }),
-  insertPath: (path) => set((s) => ({ draft: s.draft ? (s.draft.endsWith('\n') ? s.draft + path : s.draft + '\n' + path) : path })),
+  setDraft: (draft) => { set({ draft }); scheduleDraftSave(get().root, draft) },
+  insertPath: (path) => {
+    const d = get().draft
+    get().setDraft(d ? (d.endsWith('\n') ? d + path : d + '\n' + path) : path)
+  },
   appendDraft: (text) => get().insertPath(text),
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
     if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null })
-    const [snap, st] = await Promise.all([
+    // 나가는 폴더의 초안을 먼저 확정한다. 묶어 쓰기 도중에 폴더를 바꾸면 그 입력이
+    // 사라지거나 새 폴더에 잘못 붙는다.
+    await flushDraft()
+    // draft 를 비우는 것이 핵심이다. 예전에는 여기서 안 비워서 A 에 쓰다 만 답변이
+    // B 를 열었을 때 그대로 보였다(GUI-01).
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, draft: '' })
+    const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
-      window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>
+      window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
+      window.knuaf.chat.draft(root) as Promise<Reply<string>>
     ])
     if (get().root !== root || get().provider !== provider) return
     set({
       snapshot: 'result' in snap ? snap.result : null,
       status: 'result' in st ? st.result : null,
       statusFailed: !('result' in st),
+      draft: 'result' in saved ? saved.result : '',
       error: messageOf(snap) ?? messageOf(st)
     })
   },
@@ -128,7 +158,11 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ busy: true, error: null })
     const requestId = crypto.randomUUID()
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
-    if ('result' in r) set({ busy: false, snapshot: r.result, draft: text === undefined ? '' : get().draft })
+    if ('result' in r) {
+      const keep = text === undefined ? '' : get().draft
+      set({ busy: false, snapshot: r.result, draft: keep })
+      scheduleDraftSave(root, keep); void flushDraft()   // 보낸 뒤에는 기다리지 않고 지운다
+    }
     else set({ busy: false, error: messageOf(r) })
   },
   respond: async (id, allow) => {

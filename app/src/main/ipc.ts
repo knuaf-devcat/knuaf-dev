@@ -223,6 +223,8 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:draft', (_e, root: string) => { try { return { result: chat.draft(root) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:set-draft', (_e, root: string, text: string) => { try { chat.setDraft(root, text); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:status', async (_e, root: string, provider: Provider) => { try { return { result: await chat.status(root, provider) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:login', async (_e, root: string, provider: Provider) => { try { await chat.login(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:send', async (_e, root: string, provider: Provider, text: string, requestId: string) => {
