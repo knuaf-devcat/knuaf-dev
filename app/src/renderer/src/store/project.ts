@@ -32,6 +32,8 @@ interface ProjectState {
   loadSettings: () => Promise<void>
   open: (root: string) => Promise<void>
   refresh: () => Promise<void>
+  /** 도우미가 멈춘 뒤 정본이 새로 생겼는지만 가볍게 확인한다. */
+  recheckCanon: () => Promise<void>
   refreshSidecar: () => Promise<void>
   refreshDeps: () => Promise<void>
   prepareDeps: (root: string) => Promise<void>
@@ -43,6 +45,14 @@ interface ProjectState {
   pushLog: (entry: { stream: string; line: string }) => void
   clearLogs: () => void
 }
+
+/**
+ * 정본이 아직 없는 폴더에서만 도는 확인 타이머. 생기는 순간 스스로 멈추므로
+ * 평상시에는 아무것도 하지 않는다. (loginPoll 이 정리되지 않는 문제가 있었으니
+ * 여기서는 폴더를 바꿀 때·찾았을 때 반드시 끈다.)
+ */
+let canonPoll: ReturnType<typeof setInterval> | null = null
+function stopCanonPoll(): void { if (canonPoll) { clearInterval(canonPoll); canonPoll = null } }
 
 export const useProject = create<ProjectState>((set, get) => ({
   root: null,
@@ -67,6 +77,8 @@ export const useProject = create<ProjectState>((set, get) => ({
     if (r.error) { set({ loading: false, error: describeError(r.error) }); return }
     const peek = await window.knuaf.peekProject(root)
     set({ root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null })
+    stopCanonPoll()
+    if (!r.result.hasProject) canonPoll = setInterval(() => { void get().recheckCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
     const nested = (r.result as { nestedProject?: string | null }).nestedProject
     if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
@@ -92,6 +104,27 @@ export const useProject = create<ProjectState>((set, get) => ({
       ? (r.result?.block_reason ?? r.result?.stderr?.trim().split('\n').filter(Boolean).at(-1) ?? 'deps.ensure failed')
       : String(r.error?.message ?? 'deps.ensure failed')
     set({ error: { kind: 'warning', title: CHAT.prepFailedTitle, action: '"설정 > 문제 해결"의 "준비 상태"를 확인해 주세요.', code: 'deps_ensure', raw: detail } })
+  },
+  /**
+   * hasProject 는 폴더를 열 때 한 번 정해진다. 도우미가 그 뒤에 정본을 만들면 앱은
+   * 모른 채 왼쪽 메뉴를 잠가 두고, 학생은 같은 폴더를 다시 열어야 했다(GUI 감사 GUI-02).
+   *
+   * 채팅 스냅샷에 매달지 않는 이유: 정본을 만드는 길이 앱 안 채팅만은 아니다. 학생이
+   * 외부 터미널에서 스킬을 돌려도 정본은 생기고, 그때는 스냅샷이 오지 않는다.
+   * 그래서 "누가 만들었는지"를 묻지 않고 파일이 생겼는지만 본다.
+   *
+   * refresh() 를 바로 부르지 않는 이유: 정본이 없는 폴더에서는 status 가 실패해
+   * 일어나지도 않은 오류를 띄운다. 존재를 먼저 보고, 생겼을 때만 제대로 읽는다.
+   */
+  recheckCanon: async () => {
+    const root = get().root
+    if (!root || get().hasProject) { stopCanonPoll(); return }
+    const peek = await window.knuaf.peekProject(root)
+    if (get().root !== root) return
+    set({ peek })
+    if (!peek.hasProject) return
+    stopCanonPoll()
+    await get().refresh()
   },
   refresh: async () => {
     const root = get().root
