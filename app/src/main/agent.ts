@@ -263,7 +263,7 @@ export function codexSkillConfigOverride(home: string | undefined): string | nul
   return `skills.config=[${paths.map((p) => `{path="${esc(p)}",enabled=false}`).join(',')}]`
 }
 
-export const BANNER = 'knuaf-doc 동반 앱이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
+export const BANNER = '한농대 창업논문 헬퍼이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
 
 /** Directories an agent process needs ahead of PATH: project venv, bundled runtime, user installs. */
 export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBin'>): string[] {

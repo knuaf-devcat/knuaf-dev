@@ -20,4 +20,4 @@
 내려받은 파일이 중간에 손상되지 않았는지 확인하려면, 릴리스에 함께 올라온
 `SHA256SUMS.txt`와 대조하면 됩니다. 터미널에서:
 
-    shasum -a 256 ~/Downloads/knuaf-doc-companion-*.dmg
+    shasum -a 256 ~/Downloads/knuaf-thesis-helper-*.dmg

@@ -11,7 +11,7 @@ const docs = resolve(app, '..', 'docs')
 const SRC = resolve(docs, '학생용-사용안내.md')
 const PDF = resolve(docs, '학생용-사용안내.pdf')
 const HTML = resolve(docs, '학생용-사용안내.html')
-const FOOTER_TEXT = 'knuaf-doc 동반 앱 사용 안내'
+const FOOTER_TEXT = '한농대 창업논문 헬퍼 사용 안내'
 
 // ---------------------------------------------------------------------------------------------
 // Chromium launch (same strategy as build-icons.mjs)

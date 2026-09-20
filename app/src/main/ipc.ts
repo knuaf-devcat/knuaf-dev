@@ -115,7 +115,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       const w = win()
       if (w) {
         const name = root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root
-        w.setTitle(`${name} — knuaf-doc 동반 앱`)
+        w.setTitle(`${name} — 한농대 창업논문 헬퍼`)
         if (process.platform === 'darwin') w.setRepresentedFilename(root)
       }
       const hasProject = existsSync(join(root, 'project.json'))

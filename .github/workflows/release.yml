@@ -52,7 +52,9 @@ jobs:
       - run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
         working-directory: app
         env:
-          KNUAF_PYTHON: python
+          # 맨이름은 안 된다 — 앱이 existsSync 로 걸러 조용히 폴백하고, PATH 를 좁히는
+          # 스펙에서 macOS 기본 3.9 를 집어 project:open 이 실패한다(ci.yml 과 같은 수정).
+          KNUAF_PYTHON: ${{ env.pythonLocation }}/bin/python
 
   macos:
     needs: verify

@@ -302,10 +302,10 @@ test('물을 때는 원시 JSON 이 아니라 사람 말로 말한다', () => {
  * "이 폴더에서는 계속 허용"이라 한 번의 오독이 폴더 전체 신뢰로 굳는다.
  */
 test('폴더 밖을 읽는 셸 명령에 "안이면 허용해도 된다"고 하지 않는다', () => {
-  const cmd = `grep -rin "rtk" "${ROOT}/.claude" "/Users/ljj/.claude/CLAUDE.md"`
+  const cmd = `grep -rin "rtk" "${ROOT}/.claude" "/Users/s/.claude/CLAUDE.md"`
   const d = describeTool('Bash', { command: cmd }, ROOT)
   expect(d.title).toBe('논문 폴더 밖의 파일을 건드리려고 해요')
-  expect(d.detail).toContain('/Users/ljj/.claude/CLAUDE.md')
+  expect(d.detail).toContain('/Users/s/.claude/CLAUDE.md')
   expect(d.detail).not.toContain('허용해도 돼요')
   // 폴더 안만 건드리는데 물을 때는 이유가 경로가 아니라 도구라고 말한다.
   const inside = describeTool('Bash', { command: `openssl dgst ${ROOT}/sources/a.md` }, ROOT)

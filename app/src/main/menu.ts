@@ -42,7 +42,7 @@ export function installMenu(send: (a: MenuAction) => void): void {
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { label: 'knuaf-doc 동반 앱 정보', role: 'about' as const },
+        { label: '한농대 창업논문 헬퍼 정보', role: 'about' as const },
         { type: 'separator' as const },
         { label: '설정…', accelerator: 'CmdOrCtrl+,', click: () => send({ type: 'settings' }) },
         { type: 'separator' as const },

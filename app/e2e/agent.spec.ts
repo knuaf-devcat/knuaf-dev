@@ -165,7 +165,7 @@ test.describe('buildLaunchScript', () => {
     // ~/.claude/CLAUDE.md의 @import가 외부 경로를 가리키면 학생에게 영어 보안 프롬프트가 뜬다 —
     // 이 앱이 띄우는 도우미는 메모리 파일을 아예 읽지 않는다.
     expect(s).toContain('export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1')
-    expect(s).toContain('knuaf-doc 동반 앱이 AI 도우미를 엽니다')
+    expect(s).toContain('한농대 창업논문 헬퍼이 AI 도우미를 엽니다')
     // 비상구(외부 터미널)에도 채팅과 같은 가드레일 — 프로젝트 스킬만 유효 + 도구 팝업 차단.
     // `--disallowedTools=…` 는 `=` 필수 — 공백이면 가변 인자가 첫 프롬프트를 삼킨다.
     expect(s).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)

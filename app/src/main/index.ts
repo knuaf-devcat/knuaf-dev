@@ -27,7 +27,7 @@ function sendMenu(action: MenuAction): void {
 }
 
 app.setAboutPanelOptions({
-  applicationName: 'knuaf-doc 동반 앱',
+  applicationName: '한농대 창업논문 헬퍼',
   applicationVersion: app.getVersion(),
   version: '',
   credits: 'knuaf-doc · 창업논문 작성 도우미\nprod. 특용작물전공 24학번 김대욱\n\n논문은 AI 도우미(Claude Code)가 채팅으로 쓰고, 이 앱은 저장 상태·검사·산출물·복구를 맡습니다.',
@@ -51,7 +51,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'knuaf-doc 동반 앱',
+    title: '한농대 창업논문 헬퍼',
     backgroundColor: colors.bg,
     show: false,
     ...(isMac

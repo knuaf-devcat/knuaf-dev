@@ -15,7 +15,13 @@ import { join } from 'node:path'
  * 앱 표시이름이 또 바뀌면 그 시점의 옛 userData 폴더 이름을 여기에 추가한다.
  * 이름은 `<appData>/<이름>` 으로 해석된다(모든 플랫폼에서 같은 규칙).
  */
-export const LEGACY_USERDATA_NAMES = ['knuaf-doc 동반 앱']
+export const LEGACY_USERDATA_NAMES = [
+  'knuaf-doc 동반 앱',   // 설치판이 쓰던 폴더
+  'knuaf-doc Companion' // 개발 모드가 쓰던 폴더
+]
+// 2026-09-20 개명("한농대 창업논문 헬퍼") 때 실측: 설치판의 새 폴더는 표시이름이 아니라
+// CFBundleName(= productName, "KNUAF Thesis Helper")으로 생겼고, 위 두 이름에서
+// settings.json 을 가져오는 것까지 확인했다(credit_shown_at 가 그대로 넘어왔다).
 
 /**
  * current 에 settings.json 이 없고 legacy 중 하나에 있으면 복사해 온다.

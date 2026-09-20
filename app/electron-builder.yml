@@ -1,9 +1,17 @@
 appId: kr.ac.knuaf.doc.companion
-# productName must stay ASCII: Electron's helper bundles are named after it and a
-# non-ASCII helper name ("… 동반 앱 Helper.app") crashes the app at startup (SIGTRAP).
-# The Korean name students see comes from CFBundleDisplayName below.
-productName: knuaf-doc Companion
-executableName: knuaf-doc-companion
+# 이름이 세 군데로 갈린다. 개명하면서 하나씩 실측한 결과다.
+#
+#  productName    → 헬퍼 번들 이름(KNUAF Thesis Helper Helper.app). 여기에 한글을 쓰면
+#                   "… 헬퍼 Helper.app" 이 되어 앱이 시작하자마자 SIGTRAP 으로 죽는다.
+#                   설치판의 userData 폴더 이름도 여기서 온다 — 반드시 ASCII.
+#  executableName → .app 번들 파일 이름. Finder·응용 프로그램 목록이 보여주는 이름은
+#                   CFBundleDisplayName 이 아니라 이 파일 이름이다(서명 없는 빌드에서
+#                   확인). 한글을 써야 학생이 한글 이름을 본다. dmg 안에 넣고 봉인을
+#                   재검사해 깨지지 않는 것을 확인했다(전에 dmg 의 한글 파일명이 봉인을
+#                   깬 적이 있어 그냥 넘기지 않았다).
+#  artifactName   → 내려받는 파일 이름. 링크에 %20 이 끼지 않도록 공백 없는 ASCII.
+productName: KNUAF Thesis Helper
+executableName: 한농대 창업논문 헬퍼
 afterSign: scripts/after-sign.mjs
 # 정식 서명·공증: Apple Developer 계정이 생기면 CSC_LINK(.p12) / CSC_KEY_PASSWORD /
 # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 를 넣는다. 서명이 있으면
@@ -12,7 +20,7 @@ afterSign: scripts/after-sign.mjs
 # 않으므로(서명만 된 앱은 Gatekeeper가 계속 막는다) 이 키를 지우지 말 것.
 # 다운로드 링크에 %20 이 끼지 않도록 파일명은 공백 없이 만든다
 # (productName 에는 공백이 있어야 하므로 여기서 따로 지정한다).
-artifactName: knuaf-doc-companion-${version}-${arch}.${ext}
+artifactName: knuaf-thesis-helper-${version}-${arch}.${ext}
 directories:
   output: dist
   buildResources: build
@@ -44,7 +52,7 @@ mac:
   icon: build/icon.icns
   category: public.app-category.productivity
   extendInfo:
-    CFBundleDisplayName: knuaf-doc 동반 앱
+    CFBundleDisplayName: 한농대 창업논문 헬퍼
     CFBundleDocumentTypes:
       - CFBundleTypeName: 논문 작업 폴더
         CFBundleTypeRole: Viewer
@@ -75,7 +83,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 dmg:
-  title: knuaf-doc 동반 앱
+  title: 한농대 창업논문 헬퍼
   iconSize: 96
   window:
     width: 540

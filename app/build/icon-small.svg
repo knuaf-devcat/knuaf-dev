@@ -1,17 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Small-size variant (<= 32px): ledger + seal only, no text lines.
-       Geometry is snapped to the 16px pixel grid (64 units = 1px @16, 32 units = 1px @32). -->
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2f6b3a"/>
-      <stop offset="1" stop-color="#2b6335"/>
-    </linearGradient>
-  </defs>
+  <!-- 32px 이하 전용. 사진은 이 크기에서 뭉개지므로 형태만 남긴다:
+       흰 고양이 머리 + 굵은 검은 선글라스. 64단위 = 16px 기준 1px. -->
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#31703d"/><stop offset="1" stop-color="#24532d"/></linearGradient></defs>
   <rect x="100" y="100" width="824" height="824" rx="229" ry="229" fill="url(#bg)"/>
-  <!-- ledger: 4..12px × 3..13px @16 -->
-  <rect x="256" y="192" width="512" height="640" rx="40" ry="40" fill="#fbfbf9"/>
-  <!-- single spine line: exactly 1px wide @16 -->
-  <rect x="320" y="192" width="64" height="640" fill="#2f6b3a" fill-opacity="0.6"/>
-  <!-- seal: 2×2px @16, 1px in from the ledger's right/bottom edges -->
-  <circle cx="640" cy="704" r="68" fill="#d9533f"/>
+  <path d="M256 384 L288 192 L448 320 Z" fill="#fbf8f0"/>
+  <path d="M768 384 L736 192 L576 320 Z" fill="#fbf8f0"/>
+  <rect x="256" y="288" width="512" height="480" rx="176" fill="#fbf8f0"/>
+  <rect x="288" y="448" width="448" height="144" rx="64" fill="#17171a"/>
 </svg>
