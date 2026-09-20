@@ -89,6 +89,7 @@ else {
   })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
   app.on('before-quit', (e) => {
+    chat?.flushDrafts()   // 아직 안 쓴 학생 입력을 먼저 남긴다 — 동기다
     void sidecar.stop()
     // Let in-flight agent connections finish their shutdown before the process exits.
     if (chat && !quitting) {

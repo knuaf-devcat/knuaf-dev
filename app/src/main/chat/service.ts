@@ -39,15 +39,36 @@ export class ChatService {
    * 프로젝트를 옮겼을 때 남의 초안이 따라가지 않는다(GUI 감사 GUI-01·GUI-06).
    */
   private draftFile(root: string) { return join(root, '.knuaf-gui', 'draft.txt') }
+  /**
+   * 초안은 메인이 쥐고 있다가 모아서 쓴다. 렌더러에 타이머를 두면 "쓰고 곧바로 종료"
+   * 하는 학생의 입력이 타이머가 돌기 전에 사라진다 — 실제로 테스트가 그 틈을 밟았다.
+   * 종료 직전 flushDrafts() 가 동기로 쓰므로 그 틈이 없다.
+   */
+  private draftPending = new Map<string, string>()
+  private draftTimer: ReturnType<typeof setTimeout> | null = null
   draft(root: string): string {
+    const pending = this.draftPending.get(root)
+    if (pending !== undefined) return pending   // 아직 안 쓴 값이 디스크보다 최신이다
     try { return readFileSync(this.draftFile(root), 'utf8') } catch { return '' }
   }
   setDraft(root: string, text: string): void {
-    const file = this.draftFile(root)
-    if (!text) { try { unlinkSync(file) } catch { /* 없으면 지울 것도 없다 */ } return }
-    mkdirSync(dirname(file), { recursive: true })
-    const tmp = file + '.tmp'
-    writeFileSync(tmp, text, { mode: 0o600 }); renameSync(tmp, file)
+    this.draftPending.set(root, text)
+    if (this.draftTimer) clearTimeout(this.draftTimer)
+    this.draftTimer = setTimeout(() => this.flushDrafts(), 250)
+  }
+  /** 대기 중인 초안을 지금 쓴다. 종료 직전에도 불리므로 동기다. */
+  flushDrafts(): void {
+    if (this.draftTimer) { clearTimeout(this.draftTimer); this.draftTimer = null }
+    for (const [root, text] of this.draftPending) {
+      const file = this.draftFile(root)
+      try {
+        if (!text) { unlinkSync(file); continue }
+        mkdirSync(dirname(file), { recursive: true })
+        const tmp = file + '.tmp'
+        writeFileSync(tmp, text, { mode: 0o600 }); renameSync(tmp, file)
+      } catch { /* 폴더가 사라졌거나 종료 중 — 초안 때문에 종료를 막지 않는다 */ }
+    }
+    this.draftPending.clear()
   }
   private publish(s: ChatSnapshot) {
     const file = this.file(s.root, s.provider); mkdirSync(dirname(file), { recursive: true })

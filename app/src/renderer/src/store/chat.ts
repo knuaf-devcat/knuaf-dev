@@ -65,25 +65,6 @@ interface ChatState {
 /** Login opens an external browser; poll status until the account connects (max 3 min). */
 let loginPoll: ReturnType<typeof setInterval> | null = null
 
-/**
- * 초안은 폴더별로 파일에 남는다(service.ts 의 draft.txt). 타건마다 디스크를 때리지
- * 않도록 묶어서 쓰되, 폴더를 바꾸거나 보낼 때는 기다리지 않고 바로 확정한다.
- */
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-let pendingSave: { root: string; draft: string } | null = null
-
-function scheduleDraftSave(root: string | null, draft: string): void {
-  if (!root) return
-  pendingSave = { root, draft }
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => { void flushDraft() }, 400)
-}
-
-async function flushDraft(): Promise<void> {
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-  const p = pendingSave; pendingSave = null
-  if (p) await window.knuaf.chat.setDraft(p.root, p.draft)
-}
 
 export const useChat = create<ChatState>((set, get) => ({
   root: null,
@@ -96,7 +77,7 @@ export const useChat = create<ChatState>((set, get) => ({
   error: null,
   mode: null,
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
-  setDraft: (draft) => { set({ draft }); scheduleDraftSave(get().root, draft) },
+  setDraft: (draft) => { set({ draft }); const r = get().root; if (r) void window.knuaf.chat.setDraft(r, draft) },
   insertPath: (path) => {
     const d = get().draft
     get().setDraft(d ? (d.endsWith('\n') ? d + path : d + '\n' + path) : path)
@@ -105,23 +86,32 @@ export const useChat = create<ChatState>((set, get) => ({
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
     if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
-    // 나가는 폴더의 초안을 먼저 확정한다. 묶어 쓰기 도중에 폴더를 바꾸면 그 입력이
-    // 사라지거나 새 폴더에 잘못 붙는다.
-    await flushDraft()
-    // draft 를 비우는 것이 핵심이다. 예전에는 여기서 안 비워서 A 에 쓰다 만 답변이
-    // B 를 열었을 때 그대로 보였다(GUI-01).
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, draft: '' })
+    // 폴더가 바뀔 때만 초안을 비운다. 예전에는 안 비워서 A 에 쓰다 만 답변이 B 를
+    // 열었을 때 그대로 보였다(GUI-01). 다만 같은 폴더를 다시 읽는 경우 — 공급자 전환,
+    // Chat.tsx 의 스냅샷 재동기 effect — 까지 비우면 학생이 방금 쓴 것이나 자료 화면이
+    // 넣은 파일 경로가 말없이 사라진다. 지울 이유는 "다른 폴더"뿐이다.
+    const sameRoot = get().root === root
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(sameRoot ? {} : { draft: '' }) })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
       window.knuaf.chat.draft(root) as Promise<Reply<string>>
     ])
     if (get().root !== root || get().provider !== provider) return
+    // 화면에 이미 무언가 있으면 그게 최신이다 — 디스크 값으로 덮지 않는다. 기다리는
+    // 동안 학생이 입력했거나 자료 화면이 경로를 넣은 경우다(status() 가 도우미
+    // 바이너리를 찾느라 몇 초씩 걸려 틈이 넓다).
+    //
+    // 여기서 sameRoot 를 기준으로 삼으면 안 된다. 앱을 새로 띄우면 load() 가 두 번
+    // 도는데(스토어 기본 provider → 설정이 정한 provider), 첫 번째는 provider 가
+    // 달라져 위 가드에서 빠지고 두 번째는 sameRoot 라 건너뛰어 아무도 복원하지
+    // 않았다. 기준은 "같은 폴더인가"가 아니라 "화면에 학생 것이 있는가"다.
+    const typedMeanwhile = get().draft !== ''
     set({
       snapshot: 'result' in snap ? snap.result : null,
       status: 'result' in st ? st.result : null,
       statusFailed: !('result' in st),
-      draft: 'result' in saved ? saved.result : '',
+      ...(typedMeanwhile ? {} : { draft: 'result' in saved ? saved.result : '' }),
       error: messageOf(snap) ?? messageOf(st)
     })
   },
@@ -161,7 +151,7 @@ export const useChat = create<ChatState>((set, get) => ({
     if ('result' in r) {
       const keep = text === undefined ? '' : get().draft
       set({ busy: false, snapshot: r.result, draft: keep })
-      scheduleDraftSave(root, keep); void flushDraft()   // 보낸 뒤에는 기다리지 않고 지운다
+      void window.knuaf.chat.setDraft(root, keep)   // 보낸 뒤에는 남겨 둘 초안이 없다
     }
     else set({ busy: false, error: messageOf(r) })
   },

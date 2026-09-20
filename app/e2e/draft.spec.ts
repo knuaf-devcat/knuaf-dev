@@ -37,7 +37,7 @@ test('앱을 껐다 켜도 초안이 남는다 (GUI-06)', async () => {
   await openProject(app1.page, root)
   await navTo(app1.page, '내 논문')
   await app1.page.fill(BOX, '쓰다 만 답변')
-  await app1.page.waitForTimeout(500)   // 저장이 있다면 쓸 시간
+  // 잠들 필요 없다 — 종료 직전에 메인이 동기로 쓴다.
   await app1.electronApp.close()
 
   const app2 = await launch({ userData })
