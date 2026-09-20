@@ -712,6 +712,9 @@ export const CHAT = {
   statusDrafting: (t: string) => `${t} 작성 중`,
   statusFix: (n: number) => `고칠 곳 ${n}개`,
   statusWait: (n: number) => `내 답변 ${n}건 기다리는 중`,
+  // tasks 의 needs_user 에는 한글 마무리(글꼴·여백·쪽 번호·HWP 변환)가 섞여 온다 —
+  // 그건 답변이 아니라 학생이 한글에서 직접 확인하는 일이다(GUI-10).
+  statusFinish: (n: number) => `한글에서 직접 확인할 것 ${n}건`,
   activityTitle: '방금 한 일',
   activityBusy: '도우미 작업 중',
   activitySections: (n: number) => `장 ${n}개 등록`,

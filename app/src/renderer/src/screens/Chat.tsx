@@ -161,12 +161,16 @@ export function Chat() {
 
   // 지금 상태 한 줄 — 행동 단위 사실만. 말할 사실이 없으면 그리지 않는다(03-화면/03 결정).
   const failCount = pStatus?.checks.filter((c) => c.status === 'fail').length ?? 0
-  const waitCount = pStatus?.tasks.filter((t) => t.status === 'needs_user').length ?? 0
+  // Checkup 과 같은 기준으로 마무리 항목을 빼야 "답변" 수가 진짜 질문 수가 된다.
+  const finishIds = new Set(pStatus?.user_finish_pending.map((u) => u.id) ?? [])
+  const waitCount = pStatus?.tasks.filter((t) => t.status === 'needs_user' && !finishIds.has(t.id)).length ?? 0
+  const finishCount = pStatus?.user_finish_pending.length ?? 0
   const drafting = sections?.find((s) => s.status === 'drafting')
   const statePieces: string[] = []
   if (drafting) statePieces.push(CHAT.statusDrafting(drafting.title))
   if (failCount > 0) statePieces.push(CHAT.statusFix(failCount))
   if (waitCount > 0) statePieces.push(CHAT.statusWait(waitCount))
+  if (finishCount > 0) statePieces.push(CHAT.statusFinish(finishCount))
 
   const lastAssistant = snapshot?.messages.filter((m) => m.role === 'assistant').at(-1)
   const lastAt = snapshot?.messages.at(-1)?.at ?? (lastArtifact ? lastArtifact.mtime * 1000 : null)
