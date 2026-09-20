@@ -2201,6 +2201,13 @@ def export_locked(root, kind):
     try:
         local(root, str(staging.relative_to(Path(root).resolve())))
         body = merged(root, p)
+        # 절이 하나도 없거나 모든 절의 초안이 비어 있으면 merged() 는 빈 문자열을
+        # 돌려준다. 그대로 쓰면 0바이트 파일이 생기고 호출자는 경로를 돌려받아
+        # "완료"로 읽는다 — 하지 않은 일을 했다고 말하는 것이므로 여기서 멈춘다.
+        if not body.strip():
+            raise ValueError(
+                "내보낼 본문이 없음: 등록된 절이 없거나 모든 절의 초안이 비어 있음"
+            )
         path = staging / (label + ".md")
         atomic(path, body.encode())
         state = completion(root, p, report)
