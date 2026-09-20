@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, navTo, openProject, python, scripts, synthProject } from './helpers'
+import { launch, navTo, openPreset, openProject, python, scripts, synthProject } from './helpers'
 
 const freshUserData = () => { const d = mkdtempSync(join(tmpdir(), 'kd-ud-')); mkdirSync(d, { recursive: true }); return d }
 
@@ -93,6 +93,30 @@ test('an existing folder can be removed from the recent list', async () => {
   await second.electronApp.close()
   // 설정에도 반영된다 — 폴더 자체는 지우지 않았다.
   expect(JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).recent).toEqual([])
+})
+
+// GUI-04 — open() 실패가 store.error 에만 담기고 Settings 는 그걸 그리지 않아서,
+// 경로를 입력한 화면에서는 아무 표시가 없었다. 실패한 자리에서 한 번만 알린다.
+test('a bad folder path reports on settings and says the open folder stays', async () => {
+  const userData = freshUserData()
+  const root = synthProject()
+  const { electronApp, page } = await launch({ userData })
+  await openProject(page, root)
+  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+
+  await navTo(page, '설정')
+  await openPreset(page, 'folder:path')
+  await page.fill('input[aria-label="폴더 경로"]', join(tmpdir(), 'knuaf-e2e-missing'))
+  await page.click('button:has-text("경로로 열기")')
+  const fb = page.locator('.feedback.error')
+  await expect(fb).toBeVisible()
+  // 열린 폴더가 어떻게 됐는지도 같은 자리에서 알려야 한다.
+  await expect(fb).toContainText('그대로')
+
+  // 실패한 자리에서 한 번이면 된다 — 내 논문에 같은 오류가 다시 뜨면 안 된다.
+  await navTo(page, '내 논문')
+  await expect(page.locator('.feedback.error')).toHaveCount(0)
+  await electronApp.close()
 })
 
 // 도우미가 하위 폴더에 init하면 앱은 <root>/project.json을 못 찾는다 — 빈 화면으로
