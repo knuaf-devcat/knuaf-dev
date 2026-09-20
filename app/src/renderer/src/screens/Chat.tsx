@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { rpc } from '../rpc'
@@ -12,7 +12,36 @@ import type { ChatMessage } from '../../../shared/chat'
 import type { ArtifactItem, ProjectPeek, RecentEntry, SectionRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
 
-function Message({ m, onResend }: { m: ChatMessage; onResend?: () => void }) {
+/** [이름](경로) 한 쌍. 줄바꿈을 넘지 않는다 — 산문 한가운데의 링크만 집는다. */
+const LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g
+/** 프로젝트 안 상대경로처럼 생긴 것만. 주소(http:)·절대경로·.. 는 제외한다. */
+const INSIDE_PATH = /^(?![/\\]|[a-zA-Z][a-zA-Z0-9+.-]*:)(?!.*(?:^|[/\\])\.\.(?:[/\\]|$)).+$/
+
+/**
+ * 도우미 답변의 파일 링크를 누를 수 있게 만든다 — 마크다운 원문이 그대로 보이고
+ * 접근성 역할도 일반 텍스트였다(GUI 감사 GUI-12).
+ *
+ * 경로는 "파일 얘기구나"를 판단하는 데만 쓰고 **절대 열지 않는다**. 도우미가 쓴
+ * 문자열을 그대로 여는 순간 답변 텍스트가 곧 실행 권한이 된다. 누르면 결과물 화면으로
+ * 갈 뿐이고, 파일에 닿는 일은 앱이 스스로 목록에서 확인한 경로로만 한다.
+ * 안쪽 상대경로가 아닌 링크는 원문 그대로 둔다 — 감추지 않는다.
+ */
+function withLinks(text: string, onGo: () => void): ReactNode {
+  const out: ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(LINK)) {
+    const [whole, label, target] = m
+    if (!INSIDE_PATH.test(target)) continue
+    out.push(text.slice(last, m.index))
+    out.push(<button key={m.index} className="lk" onClick={onGo}>{label}</button>)
+    last = (m.index ?? 0) + whole.length
+  }
+  if (!out.length) return text
+  out.push(text.slice(last))
+  return out
+}
+
+function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void }) {
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
   return (
     <div className={`chat-msg ${m.role}`}>
@@ -22,7 +51,7 @@ function Message({ m, onResend }: { m: ChatMessage; onResend?: () => void }) {
         {m.role === 'user' && m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
         {m.role === 'user' && m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
       </div>
-      <div className="prose">{m.text}</div>
+      <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(m.text, onGoArtifacts) : m.text}</div>
       {m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
   )
@@ -227,7 +256,7 @@ export function Chat() {
       )}
       <div className="chat-log" ref={logRef}>
         {snapshot?.messages.map((m) => (
-          <Message key={m.id} m={m} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined} />
+          <Message key={m.id} m={m} onGoArtifacts={() => setScreen('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined} />
         ))}
       </div>
 
