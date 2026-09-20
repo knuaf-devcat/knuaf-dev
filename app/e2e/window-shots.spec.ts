@@ -28,7 +28,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await navTo(page, '점검')
     await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
     await page.waitForTimeout(800)
-    const b = await electronApp.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.focus(); return w.getBounds() })
+    // w.focus() 만으로는 macOS 에서 앱이 앞으로 나오지 않는다 — 다른 앱이 활성이면
+    // 창만 자기 앱 안에서 올라온다. app.focus({steal:true}) 가 앱 자체를 활성화한다.
+    const b = await electronApp.evaluate(({ app, BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      app.focus({ steal: true }); w.show(); w.focus()
+      return w.getBounds()
+    })
     // screencapture -R 은 창이 아니라 그 화면 '영역'을 찍는다. w.focus() 는 요청일 뿐이고
     // macOS 가 들어주지 않으면 그 자리에 있던 남의 창이 그대로 찍힌다. 이 파일들은
     // 공개 저장소에 커밋되므로, 한 번 새면 남의 화면이 공개된다(실제로 개발 중
