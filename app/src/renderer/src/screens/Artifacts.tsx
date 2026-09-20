@@ -139,12 +139,16 @@ export function Artifacts() {
     if (making || runner.busy) return
     setMaking('docx'); setMakeFb(null)
     // 던져진 오류(RpcFailure)는 runner.err이 다음 렌더에 든다 — 어느 도구로 이어지는지만 기록.
-    const fail = (env: { block_reason?: string | null; stderr?: string } | null, tool: string) => {
+    // 스크립트가 계약을 지키면 block_reason 이 찬다. 안 지키면 이유가 stdout 평문으로
+    // 나오는데(build_docx 가 그랬다 — GUI-08), 거기까지 훑어도 없으면 "없다"고 말한다.
+    // 제목만 띄우고 끝내면 학생은 왜 안 됐는지 알 길이 없다.
+    const lastLine = (t?: string | null) => t?.trim().split('\n').filter(Boolean).at(-1) || undefined
+    const fail = (env: { block_reason?: string | null; stderr?: string; stdout?: string } | null, tool: string) => {
       setFailTool(tool)
       if (env) setMakeFb({
         kind: 'error',
         title: '만들기가 끝나지 않았어요',
-        body: env.block_reason ?? env.stderr?.trim().split('\n').filter(Boolean).at(-1),
+        body: lastLine(env.block_reason) ?? lastLine(env.stderr) ?? lastLine(env.stdout) ?? ARTIFACTS.make.failNoReason,
         actions: <button onClick={() => openSettings(tool)}>{ARTIFACTS.make.advancedOpen}</button>
       })
     }

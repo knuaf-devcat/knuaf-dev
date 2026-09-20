@@ -787,6 +787,8 @@ export const ARTIFACTS = {
     gateBlocked: '제출용 파일을 만들 수 없어요. 먼저 필요한 것',
     gateDetails: '자세히',
     advancedOpen: '고급 도구에서 직접 실행',
+    /** 실패했는데 스크립트가 이유를 안 남긴 경우 — 제목만 띄우고 끝내지 않는다(GUI-08). */
+    failNoReason: '도구가 이유를 남기지 않았어요. "자세히"의 실행 기록을 확인해 주세요.',
     xlsxGoto: '고급 도구에서 이어서 만들기',
     madeTitle: '만들어진 파일'
   }
