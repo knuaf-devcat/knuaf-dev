@@ -30,7 +30,12 @@ interface ProjectState {
   openSettings: (focus?: SettingsFocus) => void
   clearSettingsFocus: () => void
   loadSettings: () => Promise<void>
-  open: (root: string) => Promise<void>
+  /**
+   * `local: true` — 실패를 전역 error 대신 반환값으로 돌려준다. 경로를 입력한 화면이
+   * 제자리에서 알리게 하기 위함(GUI-04): 전역 error 는 Chat/Checkup 도 그리므로
+   * 둘 다 세면 같은 오류가 두 화면에 뜬다.
+   */
+  open: (root: string, opts?: { local?: boolean }) => Promise<DescribedError | null>
   refresh: () => Promise<void>
   /** 도우미가 멈춘 뒤 정본이 새로 생겼는지만 가볍게 확인한다. */
   recheckCanon: () => Promise<void>
@@ -71,10 +76,15 @@ export const useProject = create<ProjectState>((set, get) => ({
   openSettings: (focus = null) => { set({ screen: 'settings', settingsFocus: focus }); location.hash = 'settings' },
   clearSettingsFocus: () => set({ settingsFocus: null }),
   loadSettings: async () => set({ settings: await window.knuaf.getSettings() }),
-  open: async (root) => {
+  open: async (root, opts) => {
     set({ loading: true, error: null })
     const r = await window.knuaf.openProject(root)
-    if (r.error) { set({ loading: false, error: describeError(r.error) }); return }
+    if (r.error) {
+      const d = describeError(r.error)
+      if (!opts?.local) set({ error: d })
+      set({ loading: false })
+      return d
+    }
     const peek = await window.knuaf.peekProject(root)
     set({ root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null })
     stopCanonPoll()
@@ -89,6 +99,7 @@ export const useProject = create<ProjectState>((set, get) => ({
     void get().prepareDeps(root)
     void useChat.getState().load(root)
     get().setScreen('chat')
+    return null
   },
   /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */
   prepareDeps: async (root) => {

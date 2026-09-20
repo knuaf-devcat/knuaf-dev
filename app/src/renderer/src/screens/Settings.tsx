@@ -5,9 +5,10 @@ import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
 import { HelperSheet } from '../components/HelperSheet'
+import { Feedback } from '../components/Feedback'
 import { OutputsTools } from './Outputs'
 import { TroubleshootSections } from './Troubleshoot'
-import { HELPER, PRIVACY_NOTE, SETTINGS } from '../copy'
+import { HELPER, PRIVACY_NOTE, SETTINGS, type DescribedError } from '../copy'
 import { useShallow } from 'zustand/react/shallow'
 
 export function SettingsScreen() {
@@ -15,6 +16,10 @@ export function SettingsScreen() {
   const setMode = useChat((s) => s.setMode)
   const [override, setOverride] = useState('')
   const [folderPath, setFolderPath] = useState('')
+  // GUI-04: 폴더 열기 실패는 이 화면에서 한 번만 알린다 — 전역 error 에 두면
+  // 내 논문/점검 화면에도 같은 오류가 떠서 실패한 자리가 어디인지 흐려진다.
+  const [openErr, setOpenErr] = useState<DescribedError | null>(null)
+  const tryOpen = async (p: string) => { setOpenErr(null); setOpenErr(await open(p, { local: true })) }
   const [info, setInfo] = useState<{ version: string; packaged: boolean; logs: string; electron: string } | null>(null)
   const body = useRef<HTMLDivElement>(null)
   useEffect(() => { void window.knuaf.appInfo().then(setInfo) }, [])
@@ -29,7 +34,7 @@ export function SettingsScreen() {
   const save = async () => { await window.knuaf.setSettings({ python_override: override || null }); await loadSettings(); await window.knuaf.sidecarRestart(); await refreshSidecar() }
   const mode: ChatMode = resolveChatMode(null, settings)
   const pickHelper = async (m: ChatMode) => { await window.knuaf.setSettings({ helper_mode: m }); await loadSettings(); setMode(null) }
-  const pickFolder = async () => { const d = await window.knuaf.pickFolder(); if (d) void open(d) }
+  const pickFolder = async () => { const d = await window.knuaf.pickFolder(); if (d) void tryOpen(d) }
   const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
   return (
     <div ref={body}>
@@ -38,13 +43,18 @@ export function SettingsScreen() {
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.folderTitle}</h2></div>
         {root && <div className="row"><strong>{base(root)}</strong><span className="caption">{root}</span></div>}
+        {openErr && (
+          <Feedback kind={openErr.kind} title={openErr.title}
+            body={`${openErr.action ? openErr.action + ' ' : ''}${root ? `"${base(root)}" 폴더는 그대로 열려 있어요.` : '아직 열려 있는 폴더가 없어요.'}`}
+            details={<code>{openErr.raw}</code>} />
+        )}
         <div className="row" style={{ marginTop: 'var(--sp-2)' }}>
           <button onClick={pickFolder} disabled={loading}>{SETTINGS.folderOpenOther}</button>
         </div>
         {(settings?.recent.length ?? 0) > 0 && (
           <div className="row" style={{ marginTop: 'var(--sp-2)', flexWrap: 'wrap' }}>
             <span className="caption">최근:</span>
-            {settings!.recent.map((r) => <button key={r.root} className="quiet" onClick={() => void open(r.root)} disabled={loading || r.root === root}>{base(r.root)}</button>)}
+            {settings!.recent.map((r) => <button key={r.root} className="quiet" onClick={() => void tryOpen(r.root)} disabled={loading || r.root === root}>{base(r.root)}</button>)}
             <button className="quiet" onClick={async () => { await window.knuaf.setSettings({ recent: [] }); await loadSettings() }}>{SETTINGS.folderRecentClear}</button>
           </div>
         )}
@@ -64,8 +74,8 @@ export function SettingsScreen() {
         {/* 폴더를 경로로 여는 유일한 입력칸 — 일반 흐름은 폴더 선택 대화상자·드롭·최근 카드(03-화면/01 결정). */}
         <Disclosure label={SETTINGS.folderAdvanced} preset="folder:path">
           <div className="row">
-            <input aria-label={SETTINGS.folderPathLabel} style={{ minWidth: 360 }} value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/Users/…/논문 작업" onKeyDown={(e) => { if (e.key === 'Enter' && folderPath) void open(folderPath) }} />
-            <button onClick={() => folderPath && open(folderPath)} disabled={loading || !folderPath}>{SETTINGS.folderPathOpen}</button>
+            <input aria-label={SETTINGS.folderPathLabel} style={{ minWidth: 360 }} value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/Users/…/논문 작업" onKeyDown={(e) => { if (e.key === 'Enter' && folderPath) void tryOpen(folderPath) }} />
+            <button onClick={() => folderPath && void tryOpen(folderPath)} disabled={loading || !folderPath}>{SETTINGS.folderPathOpen}</button>
           </div>
         </Disclosure>
       </section>
