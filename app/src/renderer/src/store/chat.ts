@@ -108,9 +108,12 @@ export const useChat = create<ChatState>((set, get) => ({
     // 나가는 폴더의 초안을 먼저 확정한다. 묶어 쓰기 도중에 폴더를 바꾸면 그 입력이
     // 사라지거나 새 폴더에 잘못 붙는다.
     await flushDraft()
-    // draft 를 비우는 것이 핵심이다. 예전에는 여기서 안 비워서 A 에 쓰다 만 답변이
-    // B 를 열었을 때 그대로 보였다(GUI-01).
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, draft: '' })
+    // draft 를 비우는 것은 폴더가 바뀔 때만이다 — A 에 쓰다 만 답변이 B 에 그대로
+    // 보이는 것을 막는 게 목적(GUI-01). 같은 폴더의 재로드(provider 전환, 첫 로드가
+    // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서 비우면 그 사이
+    // 붙인 첨부 경로·쓴 글이 지워진다.
+    const switching = get().root !== root
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(switching ? { draft: '' } : {}) })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
@@ -121,7 +124,9 @@ export const useChat = create<ChatState>((set, get) => ({
       snapshot: 'result' in snap ? snap.result : null,
       status: 'result' in st ? st.result : null,
       statusFailed: !('result' in st),
-      draft: 'result' in saved ? saved.result : '',
+      // IPC 를 기다리는 동안 학생이 붙이거나 쓴 초안(자료의 "답변에 첨부" 등)이
+      // 있으면 디스크에서 읽어 온 값으로 덮지 않는다 — 현재 초안이 우선이다.
+      draft: switching && get().draft === '' && 'result' in saved ? saved.result : get().draft,
       error: messageOf(snap) ?? messageOf(st)
     })
   },
