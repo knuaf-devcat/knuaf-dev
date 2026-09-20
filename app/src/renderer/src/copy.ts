@@ -834,6 +834,9 @@ export const SETTINGS = {
   folderAdvanced: '고급 — 경로로 열기',
   folderPathLabel: '폴더 경로',
   folderPathOpen: '경로로 열기',
+  // GUI-04 — 열기 실패를 알릴 때 지금 폴더가 어떻게 됐는지를 같이 말한다.
+  folderKeptAfterFail: (name: string) => `"${name}" 폴더는 그대로 열려 있어요.`,
+  folderNoneAfterFail: '아직 열려 있는 폴더가 없어요.',
   helperTitle: '도우미 연결',
   helperChatWhich: '어느 도우미와 채팅할까요?',
   helperChatCodex: 'ChatGPT (Codex)',
