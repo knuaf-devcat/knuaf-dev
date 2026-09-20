@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { launch, navTo, openPreset, openProject, plantStaleLock, synthProject } from './helpers'
 
 const CREDIT_1 = 'knuaf-doc · 창업논문 작성 도우미'
-const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱'
+const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재'
 const KORDOC = '문서를 읽는 데 필요한 도구를 준비할게요. 처음 한 번은 시간이 조금 걸릴 수 있어요.'
 
 test('reduced motion collapses transitions but keeps the spinner', async () => {

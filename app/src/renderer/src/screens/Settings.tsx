@@ -111,7 +111,7 @@ export function SettingsScreen() {
 
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
-        <div className="caption">한농대 창업논문 헬퍼{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
+        <div className="caption">한농대 창업논문 헬퍼 · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
         <div className="row" style={{ marginTop: 'var(--sp-2)' }}>{info && <button onClick={() => window.knuaf.openPath(info.logs)}>로그 폴더 열기</button>}</div>
         <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{PRIVACY_NOTE}</p>
       </section>

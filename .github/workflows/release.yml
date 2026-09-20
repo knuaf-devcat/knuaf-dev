@@ -92,15 +92,27 @@ jobs:
 
       # dist:mac = build → prepare:resources(번들 CPython·휠하우스·아이콘·안내 PDF·스킬) → electron-builder.
       # PBS_SHA256 은 선택이다. 없으면 fetch-python.mjs 가 릴리스의 SHA256SUMS 를 받아 대조한다.
+      #
+      # 서명 자격을 "있을 때만" 내보낸다. 시크릿이 없으면 ${{ }} 가 빈 문자열로 펼쳐지고,
+      # env: 에 그대로 쓰면 CSC_LINK 가 "정의됐지만 빈 값"이 된다. electron-builder 는
+      # 정의된 CSC_LINK 를 인증서 파일 경로로 읽으므로 빈 값은 작업 디렉터리로 풀려
+      #   ⨯ .../app not a file
+      # 로 죽는다. 로컬에서는 변수 자체가 없어 정상 통과하던 것이 CI 에서만 터졌다.
       - name: 설치본 빌드
         working-directory: app
-        run: pnpm dist:mac
+        run: |
+          if [ -n "$IN_CSC_LINK" ]; then export CSC_LINK="$IN_CSC_LINK"; fi
+          if [ -n "$IN_CSC_KEY_PASSWORD" ]; then export CSC_KEY_PASSWORD="$IN_CSC_KEY_PASSWORD"; fi
+          if [ -n "$IN_APPLE_ID" ]; then export APPLE_ID="$IN_APPLE_ID"; fi
+          if [ -n "$IN_APPLE_APP_SPECIFIC_PASSWORD" ]; then export APPLE_APP_SPECIFIC_PASSWORD="$IN_APPLE_APP_SPECIFIC_PASSWORD"; fi
+          if [ -n "$IN_APPLE_TEAM_ID" ]; then export APPLE_TEAM_ID="$IN_APPLE_TEAM_ID"; fi
+          pnpm dist:mac
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IN_CSC_LINK: ${{ secrets.CSC_LINK }}
+          IN_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          IN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          IN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          IN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       # 서명이 실제로 붙었는지 기록에 남긴다. adhoc 이면 릴리스 본문이 해제 안내를 달고,
       # 정식 서명이면 그 문단을 뺀다 — 안내가 사실과 어긋나지 않게 빌드가 직접 판정한다.
@@ -130,6 +142,10 @@ jobs:
         working-directory: app/dist
         run: |
           {
+            echo "> [!WARNING]"
+            echo "> **초기 베타입니다.** 아직 실사용 검증이 충분하지 않습니다."
+            echo "> 실제 제출용 논문에 쓰시기 전에 원본 답변·자료를 따로 백업해 두세요."
+            echo
             echo "## 설치"
             echo
             echo "\`.dmg\` 를 내려받아 여세요."
