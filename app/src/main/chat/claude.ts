@@ -290,9 +290,14 @@ export class ClaudeConnection implements AgentConnection {
         // 매번 묻는 것은 동의를 구하는 게 아니라 읽지도 못할 것을 클릭하게 만드는 일이고,
         // 그러면 정작 폴더 밖을 건드리는 순간에도 습관적으로 허용을 누르게 된다.
         if (this.autoAllowed(name, input)) return { behavior: 'allow', updatedInput: input }
-        // 학생이 이 폴더를 신뢰하기로 했으면 더 묻지 않는다. heredoc 으로 밀어 넣는
-        // 프로그램처럼 판정 자체가 불가능한 것이 있어, 읽을 수 없는 것을 반복해서 묻는
-        // 대신 폴더 단위로 한 번 정하게 한다(설정에서 되돌릴 수 있다).
+        // 여기서 통과하는 두 경우가 있다. (1) 설정의 "도우미가 도구를 쓸 때 물어볼까요?"
+        // 가 기본값 '묻지 않기'다 — 그러면 폴더를 가리지 않고 통과한다. (2) 학생이 권한
+        // 카드에서 "이 폴더에서는 계속 허용"을 직접 눌렀다.
+        //
+        // 기본을 묻지 않기로 둔 것은 편의를 위한 결정이고, 무엇을 포기하는지는 설정
+        // 화면에 그대로 적혀 있다(도우미는 폴더 밖 PDF·웹 문서도 읽고, 그 안에 섞인
+        // 지시를 앱이 걸러 주지 않는다). 물어보기로 되돌리면 위의 autoAllow 가 폴더 안
+        // 일을 걸러 주므로, 그때 남는 질문은 폴더 밖·읽을 수 없는 명령뿐이다.
         if (this.options.trusted?.()) return { behavior: 'allow', updatedInput: input }
         const id = randomUUID()
         const allowed = await new Promise<boolean>(resolve => {
