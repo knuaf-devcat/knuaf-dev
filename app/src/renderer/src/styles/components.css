@@ -133,8 +133,10 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
    동작 줄이기에서는 맨 아래 블록이 장식을 지우고 한 번의 페이드만 남긴다. */
 @keyframes intro-bloom { from { opacity: 0; transform: scale(.2); } 55% { opacity: .85; } to { opacity: 0; transform: scale(1.9); } }
 @keyframes intro-ring { from { opacity: 0; transform: rotate(-120deg) scale(.6); } 40% { opacity: .9; } to { opacity: 0; transform: rotate(220deg) scale(1.35); } }
-@keyframes intro-mark { from { opacity: 0; transform: scale(.4) rotate(-14deg); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
-@keyframes intro-ch { from { opacity: 0; transform: translateY(14px) scale(.9); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes intro-mark { from { opacity: 0; transform: translateZ(-460px) rotateX(58deg) rotateY(-34deg) scale(.6); filter: blur(9px); }
+  to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes intro-float { 0%, 100% { transform: rotateY(-7deg) rotateX(3deg); } 50% { transform: rotateY(7deg) rotateX(-3deg); } }
+@keyframes intro-ch { from { opacity: 0; transform: translateZ(-120px) rotateX(-84deg); } to { opacity: 1; transform: none; } }
 @keyframes intro-rule { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: none; } }
 @keyframes intro-reveal { from { opacity: 0; transform: translateY(12px); clip-path: inset(0 0 100% 0); } to { opacity: 1; transform: none; clip-path: inset(0 0 0 0); } }
 @keyframes intro-sweep { from { transform: translateX(-130%); } to { transform: translateX(130%); } }
@@ -144,46 +146,52 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 .intro[data-leaving] { animation: intro-out 360ms ease-in forwards; }
 .intro-bloom { position: absolute; width: min(86vw, 760px); aspect-ratio: 1; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent) 0%, color-mix(in srgb, var(--accent) 16%, transparent) 42%, transparent 70%);
-  animation: intro-bloom 1800ms ease-out both; }
+  animation: intro-bloom 1900ms ease-out both; }
 .intro-bloom.two { width: min(52vw, 460px); animation-delay: 260ms; animation-duration: 1600ms;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 66%); }
-.intro-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8); }
+.intro-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8);
+  /* 깊이는 여기서 만든다. perspective 는 바로 아래 자식에게만 걸리므로 마크의 부모인
+     이 줄과 글자의 부모인 .intro-title 두 곳에 둔다. preserve-3d 사슬은 쓰지 않는다 —
+     filter 가 걸린 요소에서 평평해지는데, 마크에는 그림자가 걸려 있다. */
+  perspective: 1100px; }
 
 .intro-mark { position: relative; display: grid; place-items: center; width: 160px; height: 160px;
-  animation: intro-mark 520ms both; animation-timing-function: var(--spring-sheet);
-  /* 고양이는 흰 고양이다 — 초록을 너무 먹이면 탁해진다. 초록은 뒤 배경이 맡고,
-     마크에는 형태를 띄울 만큼만 얹는다. */
-  filter: drop-shadow(0 8px 22px rgb(0 0 0 / .28)) drop-shadow(0 0 26px color-mix(in srgb, var(--accent) 28%, transparent)); }
+  animation: intro-mark 820ms var(--spring-sheet) both, intro-float 6s ease-in-out 1100ms infinite; }
+/* 그림자는 자식이 진다. 한 요소에서 filter 를 애니메이션하면 정적 filter 를 통째로
+   덮어쓰기 때문이다 — 마크는 들어올 때 blur 를 쓰므로 그림자를 같이 둘 수 없다.
+   고양이는 흰 고양이다. 초록을 너무 먹이면 탁해지므로 초록은 뒤 배경이 맡는다. */
+.intro-mark .cat { filter: drop-shadow(0 8px 22px rgb(0 0 0 / .28)) drop-shadow(0 0 26px color-mix(in srgb, var(--accent) 28%, transparent)); }
 .intro-mark::before { content: ''; position: absolute; inset: -46px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 66%);
   animation: backdrop-in 700ms ease-out both; animation-delay: 300ms; }
 .intro-ring { position: absolute; inset: -28px; border-radius: 50%; pointer-events: none;
   background: conic-gradient(from 0deg, transparent 0turn, color-mix(in srgb, var(--accent) 85%, white) .16turn, var(--accent) .24turn, transparent .46turn);
   mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 6px));
-  animation: intro-ring 1100ms ease-out both; animation-delay: 80ms; }
+  animation: intro-ring 1200ms ease-out both; animation-delay: 80ms; }
 
 .intro-title { font-size: calc(var(--fs-heading) * 1.9); font-weight: 700; letter-spacing: -.015em; color: var(--ink);
-  position: relative; overflow: hidden; margin-top: var(--sp-3); }
-.intro-ch { display: inline-block; animation: intro-ch 620ms both; animation-timing-function: var(--spring);
-  animation-delay: calc(640ms + var(--c, 0) * 22ms); }
+  position: relative; overflow: hidden; margin-top: var(--sp-3); perspective: 800px; }
+.intro-ch { display: inline-block; animation: intro-ch 640ms both; animation-timing-function: var(--spring);
+  animation-delay: calc(680ms + var(--c, 0) * 18ms); }
 /* 제목이 다 앉은 뒤 빛이 한 번 지나간다. 글자를 덮으면 형광펜 자국처럼 보이므로
    blend 로 밝히기만 한다 — 흰 띠가 지나가며 글자가 잠깐 빛난다. */
 .intro-title::after { content: ''; position: absolute; inset: -20% -10%; pointer-events: none;
   mix-blend-mode: overlay; opacity: .9;
   background: linear-gradient(104deg, transparent 40%, rgba(255, 255, 255, .95) 50%, transparent 60%);
-  animation: intro-sweep 780ms ease-in-out both; animation-delay: 1000ms; }
+  animation: intro-sweep 780ms ease-in-out both; animation-delay: 1020ms; }
 
 .intro-rule { width: 72px; height: 3px; border-radius: 2px; opacity: .9;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: intro-rule 460ms both; animation-timing-function: var(--spring); animation-delay: 1060ms; }
+  animation: intro-rule 460ms both; animation-timing-function: var(--spring); animation-delay: 1100ms; }
 .intro-line { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--muted); }
-.intro-line.one { animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1180ms; }
+.intro-line.one { animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1220ms; }
 .intro-line.two { color: var(--ink-2); font-weight: 600;
   animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1340ms; }
 
 /* ---- 고양이 마크 ----
    올려 받은 선화를 조각으로 나눠 들고 있어 부위별로 들어온다. 얼굴이 튀어 오르고,
-   선이 위에서 아래로 그어지고, 귀가 쫑긋 서고, 안경알이 툭 떨어진 뒤 빛이 지나간다.
+   선이 위에서 아래로 그어지고, 귀가 쫑긋 서고, 안경이 앞에서 날아와 앉은 뒤 빛이 지나간다.
+   까딱임은 두지 않는다 — 마크 자체가 계속 떠 있어서 둘이 겹치면 산만하다.
    잉크와 얼굴색은 고양이의 것이라 테마를 따르지 않는다 — 흰 고양이에 검은 선이다. */
 .cat { display: block; --cat-ink: #17171a; --cat-face: #fbf8f0; }
 .cat-body, .cat-fill, .cat-line, .cat-ear, .cat-glass, .cat-shine, .cat-nose, .cat-wipe {
@@ -191,25 +199,25 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 @keyframes cat-fill { from { opacity: 0; transform: scale(.34) rotate(-16deg); } to { opacity: 1; transform: none; } }
 @keyframes cat-wipe { from { transform: translateY(-100%); } to { transform: none; } }
 @keyframes cat-ear { from { opacity: 0; transform: translateY(40%) scale(.2); } to { opacity: 1; transform: none; } }
-@keyframes cat-glass { from { opacity: 0; transform: translateY(-420%) rotate(-12deg); } to { opacity: 1; transform: none; } }
+/* 안경은 앞쪽에서 날아와 얼굴에 앉는다 — 마크가 굴러 들어오는 결과 맞춘다. */
+@keyframes cat-glass { from { opacity: 0; transform: translateZ(340px) translateY(-150%) rotateX(-46deg) scale(1.5); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: blur(0); } }
 @keyframes cat-nose { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
-@keyframes cat-nod { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(-3.5deg); } }
 @keyframes cat-shine { from { transform: translateX(0); } to { transform: translateX(1500px); } }
-.cat-anim .cat-fill { animation: cat-fill 540ms both; animation-timing-function: var(--spring-sheet); }
-.cat-anim .cat-wipe { animation: cat-wipe 620ms both; animation-timing-function: cubic-bezier(.22,.7,.3,1); animation-delay: 180ms; }
+.cat-anim .cat-fill { animation: cat-fill 540ms both; animation-timing-function: var(--spring-sheet); animation-delay: 120ms; }
+.cat-anim .cat-wipe { animation: cat-wipe 620ms both; animation-timing-function: cubic-bezier(.22,.7,.3,1); animation-delay: 260ms; }
 .cat-anim .cat-ear { animation: cat-ear 440ms both; animation-timing-function: var(--spring-sheet); }
-.cat-anim .cat-ear.l { animation-delay: 320ms; }
-.cat-anim .cat-ear.r { animation-delay: 400ms; }
-.cat-anim .cat-glass { animation: cat-glass 580ms both; animation-timing-function: var(--spring-sheet); animation-delay: 620ms; }
-.cat-anim .cat-nose { animation: cat-nose 380ms both; animation-timing-function: var(--spring-sheet); animation-delay: 900ms; }
-.cat-anim .cat-body { animation: cat-nod 620ms ease-in-out both; animation-delay: 1060ms; }
-.cat-anim .cat-shine { animation: cat-shine 700ms ease-in-out both; animation-delay: 1180ms; }
+.cat-anim .cat-ear.l { animation-delay: 380ms; }
+.cat-anim .cat-ear.r { animation-delay: 460ms; }
+.cat-anim .cat-glass { animation: cat-glass 700ms both; animation-timing-function: var(--spring-sheet); animation-delay: 660ms; }
+.cat-anim .cat-nose { animation: cat-nose 380ms both; animation-timing-function: var(--spring-sheet); animation-delay: 980ms; }
+.cat-anim .cat-shine { animation: cat-shine 700ms ease-in-out both; animation-delay: 1240ms; }
 
 @media (prefers-reduced-motion: reduce) {
   /* 장식은 지우고, 글자는 제자리에서 한 번에 나타난다. */
   .intro-bloom, .intro-ring, .intro-title::after, .cat-shine { display: none; }
   .cat-anim .cat-fill, .cat-anim .cat-wipe, .cat-anim .cat-ear, .cat-anim .cat-glass,
-  .cat-anim .cat-nose, .cat-anim .cat-body {
+  .cat-anim .cat-nose {
     animation: none !important; opacity: 1 !important; transform: none !important;
   }
   .intro-mark, .intro-ch, .intro-rule, .intro-line.one, .intro-line.two {
