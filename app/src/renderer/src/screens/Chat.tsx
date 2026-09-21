@@ -41,8 +41,18 @@ function withLinks(text: string, onGo: () => void): ReactNode {
   return out
 }
 
+/**
+ * 한 말풍선이 이보다 길면 접는다. 도우미가 도구 보고 원문을 그대로 채팅에 쏟으면
+ * (주행에서 20,600자가 들어왔다) 대화가 사람이 지나갈 수 없는 길이가 된다.
+ * 내용을 버리지는 않는다 — 펼치면 전문이 그대로 있다.
+ */
+const LONG_MESSAGE = 2000
+
 function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void }) {
+  const [open, setOpen] = useState(false)
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
+  const long = m.text.length > LONG_MESSAGE
+  const shown = long && !open ? m.text.slice(0, LONG_MESSAGE) : m.text
   return (
     <div className={`chat-msg ${m.role}`}>
       <div className="chat-msg-head">
@@ -51,7 +61,8 @@ function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: ()
         {m.role === 'user' && m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
         {m.role === 'user' && m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
       </div>
-      <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(m.text, onGoArtifacts) : m.text}</div>
+      <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(shown, onGoArtifacts) : shown}</div>
+      {long && <button className="lk" onClick={() => setOpen(!open)}>{open ? CHAT.showLess : CHAT.showMore(m.text.length - LONG_MESSAGE)}</button>}
       {m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
   )
@@ -122,7 +133,8 @@ export function Chat() {
   const setScreen = useProject((s) => s.setScreen)
   const revision = pStatus?.revision ?? peek?.revision ?? null
   const { root, snapshot, status, statusFailed, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
-  const logRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const [atBottom, setAtBottom] = useState(true)
   const [dragging, setDragging] = useState(false)
   const [claudeFound, setClaudeFound] = useState(false)
   const [sections, setSections] = useState<SectionRow[] | null>(null)
@@ -135,7 +147,29 @@ export function Chat() {
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
   // codex 대화가 claude 화면에 남는 식의 혼합은 없어야 한다.
   useEffect(() => { if (projectRoot && (projectRoot !== root || provider !== snapshot?.provider)) void load(projectRoot, provider) }, [projectRoot, root, snapshot?.provider, provider, load])
-  useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }) }, [snapshot?.messages.length, snapshot?.state])
+  /**
+   * 예전에는 `.chat-log` 를 스크롤하려 했는데 그 요소에는 overflow 가 없다 — 실제로
+   * 흐르는 것은 화면 전체(.main)여서 이 호출은 아무 일도 하지 않았다. 그래서 답변이
+   * 길어지면 입력칸은 물론 **권한 카드까지 화면 밖으로 밀렸고**, 학생은 아래쪽의
+   * "도우미가 작업 중"만 보고 기다렸다. 실제로는 앱이 학생의 답을 기다리며 멈춰
+   * 있었다(시험주행 발견 5).
+   *
+   * 바닥에 붙어 있을 때만 따라 내려간다 — 위를 읽는 중인 학생의 화면을 빼앗지 않는다.
+   * 권한 카드는 예외다. 진행을 막는 것이라 어디를 보고 있든 데려간다.
+   */
+  const toBottom = (smooth = false) => endRef.current?.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' })
+  useEffect(() => {
+    const el = endRef.current
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => setAtBottom(e.isIntersecting), { rootMargin: '0px 0px -8px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+  // 화면에 들어올 때는 늘 바닥이다 — 다른 메뉴에 갔다 오면 대화 맨 위로 돌아가
+  // 답변 입력칸까지 다시 내려가야 했다(시험주행 발견 9).
+  useEffect(() => { toBottom() }, [root, snapshot?.provider])
+  useEffect(() => { if (atBottom) toBottom() }, [snapshot?.messages.length, snapshot?.state])
+  useEffect(() => { if (snapshot?.permission) toBottom() }, [snapshot?.permission?.id])
   useEffect(() => {
     if (!projectRoot) { setClaudeFound(false); return }
     let alive = true
@@ -205,7 +239,9 @@ export function Chat() {
   const lastAt = snapshot?.messages.at(-1)?.at ?? (lastArtifact ? lastArtifact.mtime * 1000 : null)
   // "방금 한 일"의 제목은 행동·결과여야 한다 — 도우미가 되물은 문장은 제목이 아니라
   // 상태 한 줄의 "내 답변 N건 기다리는 중"이 말한다(06 4단계). 질문이면 결과물 이름으로 넘긴다.
-  const lastAssistantLine = lastAssistant?.text.split('\n')[0]?.trim()
+  // 첫 줄이 늘 행동은 아니다 — 도우미 답변은 `> knuaf-doc · …` 머리글로 시작할 때가
+  // 있어서, 그대로 집으면 "방금 한 일"이 배너만 되뇌는 빈 카드가 된다(시험주행 발견 4).
+  const lastAssistantLine = lastAssistant?.text.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('>') && !l.startsWith('#'))
   const actTitle = (lastAssistantLine && !lastAssistantLine.endsWith('?') ? lastAssistantLine : null) ?? lastArtifact?.name ?? null
   const sumBits = [sections && sections.length > 0 ? CHAT.activitySections(sections.length) : null, lastArtifact ? CHAT.activityFile(lastArtifact.name) : null].filter(Boolean)
 
@@ -258,7 +294,7 @@ export function Chat() {
           </>) : <div>{CHAT.emptyBody}</div>}
         </div>
       )}
-      <div className="chat-log" ref={logRef}>
+      <div className="chat-log">
         {snapshot?.messages.map((m) => (
           <Message key={m.id} m={m} onGoArtifacts={() => setScreen('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined} />
         ))}
@@ -354,6 +390,10 @@ export function Chat() {
             <button className="primary" onClick={() => void send()} disabled={running || busy || !draft.trim()}>{CHAT.send}</button>
           </div>
         </div>
+      )}
+      <div ref={endRef} aria-hidden="true" />
+      {!atBottom && snapshot && snapshot.messages.length > 0 && (
+        <button className="to-bottom" onClick={() => toBottom(true)}>{CHAT.toBottom}</button>
       )}
     </div>
   )

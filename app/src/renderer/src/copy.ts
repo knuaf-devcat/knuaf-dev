@@ -704,6 +704,14 @@ export function officeHint(reason: string | null | undefined): { title: string; 
 }
 
 export const CHAT = {
+  /** 로그 맨 아래가 화면 밖일 때 뜨는 고정 버튼 — 권한 카드·입력칸이 거기 있다. */
+  toBottom: '맨 아래로',
+  /**
+   * 아주 긴 도우미 답변은 접어 둔다. 주행에서 도구 보고 원문 20,600자가 통째로 들어와
+   * 대화가 사람이 지나갈 수 없는 길이가 됐다(시험주행 발견 10).
+   */
+  showMore: (n: number) => `${n.toLocaleString('ko-KR')}자 더 보기`,
+  showLess: '접기',
   title: '내 논문',
   checking: '연결 확인 중…',
   statusFailTitle: '도우미 상태를 확인하지 못했어요',

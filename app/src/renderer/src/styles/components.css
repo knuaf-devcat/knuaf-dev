@@ -156,6 +156,8 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 
 /* ---- Chat (내 논문) ---- */
 .chat-log { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-4) 0; }
+/* 대화 바닥이 화면 밖일 때만 뜨는 고정 버튼 — 권한 카드와 입력칸이 거기에 있다. */
+.to-bottom { position: fixed; right: var(--sp-8); bottom: var(--sp-6); z-index: 5; box-shadow: var(--shadow-2, 0 2px 10px rgb(0 0 0 / 18%)); }
 .chat-msg { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); max-width: 88%; }
 .chat-msg.user { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
 .chat-msg.assistant { align-self: flex-start; }
