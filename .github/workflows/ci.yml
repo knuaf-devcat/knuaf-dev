@@ -34,8 +34,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-          cache-dependency-path: skills/knuaf-doc/scripts/requirements-runtime.txt
-      - run: python -m pip install -r skills/knuaf-doc/scripts/requirements-runtime.txt pytest pytest-timeout
+          cache-dependency-path: skills/knuaf-dev/scripts/requirements-runtime.txt
+      - run: python -m pip install -r skills/knuaf-dev/scripts/requirements-runtime.txt pytest pytest-timeout
       - run: python -m pytest
   py39-guard:
     runs-on: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
         with:
           python-version: "3.9"
           update-environment: false
-      - run: python -m pip install -r skills/knuaf-doc/scripts/requirements-runtime.txt pytest pytest-timeout
+      - run: python -m pip install -r skills/knuaf-dev/scripts/requirements-runtime.txt pytest pytest-timeout
       - run: python -m pytest tests/test_py39_guard.py
         env:
           PY39: ${{ steps.py39.outputs.python-path }}
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install -r ../skills/knuaf-doc/scripts/requirements-runtime.txt
+      - run: python -m pip install -r ../skills/knuaf-dev/scripts/requirements-runtime.txt
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build

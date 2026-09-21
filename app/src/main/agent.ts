@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
-import { APP_NAME_ASCII } from '../shared/name'
+import { APP_NAME_SHORT } from '../shared/name'
 
 // ---------------------------------------------------------------- types
 
@@ -125,9 +125,9 @@ export function probeVersion(path: string): Promise<string | null> {
 
 // ---------------------------------------------------------------- 3. skill source + version
 
-/** Checkout: `<appRoot>/../skills/knuaf-doc`; packaged: `<resourcesPath>/skill` (see scripts/stage-skill.mjs). */
+/** Checkout: `<appRoot>/../skills/knuaf-dev`; packaged: `<resourcesPath>/skill` (see scripts/stage-skill.mjs). */
 export function skillSource(appRoot: string, isPackaged: boolean, resourcesPath: string): string {
-  return isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-doc')
+  return isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-dev')
 }
 
 /** Walk `abs`, collecting "rel/path:sha256(content)" for the files installSkill copies. */
@@ -166,13 +166,22 @@ export function skillVersion(source: string): string {
 
 // ---------------------------------------------------------------- 4. targets + state
 
-export const VERSION_FILE = '.knuaf-doc-version'
+export const VERSION_FILE = '.knuaf-dev-version'
+
+export const SKILL_NAME = 'knuaf-dev'
+
+/**
+ * 이름이 바뀌기 전의 스킬 폴더 이름. 학생 작업폴더에 이미 깔려 있던 것을 그대로 두면
+ * 같은 스킬 둘이 함께 enabled 로 보여 모델이 옛 지침을 따를 수 있다 —
+ * `skillBackupDir` 주석이 말하는 바로 그 사고다. 새로 깔 때 형제 자리에서 치운다.
+ */
+export const SUPERSEDED_SKILL_NAMES = ['knuaf-doc']
 
 /** Project-local install dirs: the skill lives inside the open project, never in the user's home. */
 export function skillTargets(root: string): Record<AgentKind, string> {
   return {
-    claude: join(root, '.claude', 'skills', 'knuaf-doc'),
-    codex: join(root, '.agents', 'skills', 'knuaf-doc')
+    claude: join(root, '.claude', 'skills', SKILL_NAME),
+    codex: join(root, '.agents', 'skills', SKILL_NAME)
   }
 }
 
@@ -202,16 +211,40 @@ function copyFilter(src: string): boolean {
 /**
  * Where a superseded copy goes. It must NOT be a sibling of `target`: a backup left
  * inside `<root>/.claude/skills/` is itself discovered as a skill, so the project ends
- * up with two near-identical knuaf-doc entries competing to be loaded.
- * `target` is `<root>/<.claude|.agents>/skills/knuaf-doc` (see skillTargets).
+ * up with two near-identical knuaf-dev entries competing to be loaded.
+ * `target` is `<root>/<.claude|.agents>/skills/knuaf-dev` (see skillTargets).
  */
 export function skillBackupDir(target: string): string {
   const root = dirname(dirname(dirname(target)))
   return join(root, '.knuaf-gui', 'skill-backups')
 }
 
+/**
+ * 옛 이름으로 깔려 있던 형제 폴더를 백업으로 옮긴다. 지우지 않는 이유는 그 안에
+ * 학생이 손댄 것이 있을 수 있어서다 — 백업 자리는 skills/ 밖이라 다시 발견되지 않는다.
+ * 새로 깔 것이 이미 최신이어도 돌려야 한다. 옛 폴더는 그와 무관하게 남아 있다.
+ */
+export function retireSupersededSkills(target: string): string[] {
+  const skills = dirname(target)
+  const moved: string[] = []
+  for (const name of SUPERSEDED_SKILL_NAMES) {
+    const old = join(skills, name)
+    if (old === target || !existsSync(old)) continue
+    const dir = skillBackupDir(target)
+    mkdirSync(dir, { recursive: true })
+    const kind = basename(dirname(skills))  // '.claude' | '.agents'
+    let dest = join(dir, `${kind}-${name}-${stamp()}`)
+    let i = 1
+    while (existsSync(dest)) dest = join(dir, `${kind}-${name}-${stamp()}-${i++}`)
+    renameSync(old, dest)
+    moved.push(dest)
+  }
+  return moved
+}
+
 /** Copy SKILL.md + references/ + scripts/ into `target` (only ever that directory), leaving a version marker. */
 export function installSkill(source: string, target: string, version: string): InstallResult {
+  retireSupersededSkills(target)
   const state = skillState(target, version)
   if (state === 'installed') return { action: 'unchanged' }
 
@@ -248,17 +281,17 @@ export function sq(s: string): string {
 
 /**
  * `codex -c` 오버라이드 문자열 — ~/.codex/skills·~/.agents/skills 에 남은 전역
- * `knuaf-doc` 사본을 이 프로세스에서만 끈다. 같은 이름의 낡은 사본이 프로젝트 사본과
+ * `knuaf-dev` 사본을 이 프로세스에서만 끈다. 같은 이름의 낡은 사본이 프로젝트 사본과
  * 함께 enabled 로 보이면 모델이 옛 지침을 따를 수 있다(~/.codex 는 deprecated 지만
  * 아직 스캔된다). 사용자의 config.toml 은 건드리지 않는다 — 오버라이드는 이 프로세스만.
  * 전역 사본이 없으면 null — 인자를 늘리지 않는다.
  */
 export function codexSkillConfigOverride(home: string | undefined): string | null {
   if (!home) return null
-  const paths = [
-    join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md'),
-    join(home, '.agents', 'skills', 'knuaf-doc', 'SKILL.md')
-  ].filter((p) => existsSync(p))
+  const paths = [SKILL_NAME, ...SUPERSEDED_SKILL_NAMES].flatMap((name) => [
+    join(home, '.codex', 'skills', name, 'SKILL.md'),
+    join(home, '.agents', 'skills', name, 'SKILL.md')
+  ]).filter((p) => existsSync(p))
   if (paths.length === 0) return null
   const esc = (p: string) => p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   return `skills.config=[${paths.map((p) => `{path="${esc(p)}",enabled=false}`).join(',')}]`
@@ -266,7 +299,7 @@ export function codexSkillConfigOverride(home: string | undefined): string | nul
 
 // 터미널 한 줄이라 여기서는 ASCII 짧은 이름을 쓴다 — 긴 이름을 넣으면 "도우미가 AI
 // 도우미를 엽니다" 가 되어 같은 말이 두 번 나온다.
-export const BANNER = `${APP_NAME_ASCII} 가 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.`
+export const BANNER = `${APP_NAME_SHORT} 가 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.`
 
 /** Directories an agent process needs ahead of PATH: project venv, bundled runtime, user installs. */
 export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBin'>): string[] {
@@ -282,7 +315,7 @@ export function buildLaunchScript(o: LaunchScriptOptions): string {
   pathParts.push('"$HOME/.local/bin"', '"$PATH"')
 
   // 비상구(외부 터미널)에도 앱 채팅과 같은 가드레일을 둔다 — 프로젝트 스킬만 유효하게
-  // (--setting-sources project,local / 전역 knuaf-doc 사본 비활성) 하고 도구 팝업
+  // (--setting-sources project,local / 전역 knuaf-dev 사본 비활성) 하고 도구 팝업
   // (AskUserQuestion)은 끈다. `--disallowedTools=…` 는 `=` 로 묶어야 한다 — 공백이면
   // 가변 인자가 뒤따르는 첫 프롬프트까지 삼킨다(7364349).
   const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null

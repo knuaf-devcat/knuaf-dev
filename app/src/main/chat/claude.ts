@@ -263,7 +263,7 @@ export class ClaudeConnection implements AgentConnection {
     if (!(await this.status()).connected) throw new Error('Claude 구독 계정 로그인을 완료해 주세요.')
     this.controller = new AbortController()
     // 첫 프롬프트에 작업 루트를 명시 — 모델이 하위 폴더를 추측해 만들지 않게.
-    const q = this.active = query({ prompt: sessionId ? text : `/knuaf-doc ${text}\n\n작업 폴더: ${this.options.root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.`, options: {
+    const q = this.active = query({ prompt: sessionId ? text : `/knuaf-dev ${text}\n\n작업 폴더: ${this.options.root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.`, options: {
       cwd: this.options.root, pathToClaudeCodeExecutable: this.options.binary,
       // The project's own skill copy stays authoritative — a stale ~/.claude/skills
       // cannot shadow or mix with it. The external .command launcher pins the same
@@ -272,7 +272,7 @@ export class ClaudeConnection implements AgentConnection {
       resume: sessionId, abortController: this.controller, permissionMode: 'default',
       // 테스트 전용 모델 핀(live 스펙이 sonnet 으로 비용을 낮춘다). 미설정이면 기본.
       ...(this.options.env.KNUAF_CLAUDE_MODEL ? { model: this.options.env.KNUAF_CLAUDE_MODEL } : {}),
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: '이 세션은 개인용 knuaf-doc GUI입니다. knuaf-doc 스킬과 참조 지침을 그대로 따르세요. 질문과 답변은 채팅 텍스트로 유지하고 인터뷰 원문과 해석을 스킬의 로그 계약대로 기록하세요. 셸 명령은 앱이 그대로 읽고 판단할 수 있어야 자동으로 통과합니다. 변수 대입($PY=… 같은)·$PWD 같은 변수 참조·`…`·$(…)·서브셸·리다이렉트를 쓰지 말고, 경로는 따옴표로 감싼 절대경로를 그대로 적으세요. 그러지 않으면 학생에게 읽을 수 없는 승인 창이 뜹니다. 셸에 프로그램을 밀어 넣지 마세요(heredoc·python -c 등). 엑셀·문서 읽기는 스킬의 스크립트에 이미 있으니 그것을 쓰세요. 서브에이전트를 백그라운드로 띄우지 마세요(run_in_background 금지). 턴이 끝난 뒤에 도구를 쓰면 승인 통로가 이미 닫혀 있어 그 작업은 반드시 실패합니다.' },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: '이 세션은 개인용 knuaf-dev GUI입니다. knuaf-dev 스킬과 참조 지침을 그대로 따르세요. 질문과 답변은 채팅 텍스트로 유지하고 인터뷰 원문과 해석을 스킬의 로그 계약대로 기록하세요. 셸 명령은 앱이 그대로 읽고 판단할 수 있어야 자동으로 통과합니다. 변수 대입($PY=… 같은)·$PWD 같은 변수 참조·`…`·$(…)·서브셸·리다이렉트를 쓰지 말고, 경로는 따옴표로 감싼 절대경로를 그대로 적으세요. 그러지 않으면 학생에게 읽을 수 없는 승인 창이 뜹니다. 셸에 프로그램을 밀어 넣지 마세요(heredoc·python -c 등). 엑셀·문서 읽기는 스킬의 스크립트에 이미 있으니 그것을 쓰세요. 서브에이전트를 백그라운드로 띄우지 마세요(run_in_background 금지). 턴이 끝난 뒤에 도구를 쓰면 승인 통로가 이미 닫혀 있어 그 작업은 반드시 실패합니다.' },
       // 백그라운드 서브에이전트를 막는 것은 취향이 아니다. SDK 는 문자열 prompt 를 단일
       // 턴으로 보고 첫 result 에서 CLI 의 stdin 을 닫는다(sdk.mjs: isSingleUserTurn).
       // 그 뒤에 오는 쓰기 계열 호출은 승인 요청이 전송되기도 전에
@@ -281,7 +281,7 @@ export class ClaudeConnection implements AgentConnection {
       // (시험주행 발견 11, 재현으로 확인). 제대로 된 해법은 세션 동안 stdin 을 열어 두는
       // 스트리밍 입력이며 연결 수명 구조를 바꿔야 한다. 그때까지는 말로 막는다.
       canUseTool: async (name, input, options): Promise<PermissionResult> => {
-        if (name === 'AskUserQuestion') return { behavior: 'deny', message: 'knuaf-doc 인터뷰 지침에 따라 질문을 채팅 텍스트로 제시하세요.' }
+        if (name === 'AskUserQuestion') return { behavior: 'deny', message: 'knuaf-dev 인터뷰 지침에 따라 질문을 채팅 텍스트로 제시하세요.' }
         // 작업폴더 안에서 하는 일은 학생이 이미 요청한 일이다 — 그 폴더를 직접 골라
         // "여기에 논문을 써 달라"고 한 것이 동의다. Codex 는 sandbox: 'workspace-write'
         // 로 같은 선을 이미 긋고 있고(codex.ts), 앱도 file:read/save-as 를 insideRoot 로,
@@ -312,7 +312,7 @@ export class ClaudeConnection implements AgentConnection {
     } })
     try {
       const commands = await q.supportedCommands()
-      if (!commands.some(c => c.name === 'knuaf-doc' || c.name.endsWith(':knuaf-doc'))) throw new Error('Claude가 knuaf-doc 스킬을 찾지 못했어요.')
+      if (!commands.some(c => c.name === 'knuaf-dev' || c.name.endsWith(':knuaf-dev'))) throw new Error('Claude가 knuaf-dev 스킬을 찾지 못했어요.')
       events.skill()
       const account = await q.accountInfo()
       if (account.apiKeySource && account.apiKeySource !== 'none') throw new Error('API 인증이 감지되어 중단했어요. 구독 인증을 확인해 주세요.')

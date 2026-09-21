@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const app = resolve(import.meta.dirname, '..')
-const req = resolve(app, '..', 'skills', 'knuaf-doc', 'scripts', 'requirements-runtime.txt')
+const req = resolve(app, '..', 'skills', 'knuaf-dev', 'scripts', 'requirements-runtime.txt')
 const out = resolve(app, 'resources', 'wheelhouse')
 const bundled = process.platform === 'win32' ? resolve(app, 'resources', 'python', 'python.exe') : resolve(app, 'resources', 'python', 'bin', 'python3')
 const py = process.env.PYTHON ?? (existsSync(bundled) ? bundled : 'python3')

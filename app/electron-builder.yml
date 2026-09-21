@@ -2,7 +2,7 @@ appId: kr.ac.knuaf.doc.companion
 # 이름이 세 군데로 갈린다. 개명하면서 하나씩 실측한 결과다.
 #
 # 표시 이름의 원본은 src/shared/name.ts 다. 여기 값이 그것과 어긋나면 e2e 가 잡는다.
-#  productName    → 헬퍼 번들 이름(KNUAF-Dev Helper.app). 여기에 한글을 쓰면
+#  productName    → 헬퍼 번들 이름(knuaf-dev Helper.app). 여기에 한글을 쓰면
 #                   "… 헬퍼 Helper.app" 이 되어 앱이 시작하자마자 SIGTRAP 으로 죽는다.
 #                   설치판의 userData 폴더 이름도 여기서 온다 — 반드시 ASCII.
 #  executableName → .app 번들 파일 이름. Finder·응용 프로그램 목록이 보여주는 이름은
@@ -11,7 +11,7 @@ appId: kr.ac.knuaf.doc.companion
 #                   재검사해 깨지지 않는 것을 확인했다(전에 dmg 의 한글 파일명이 봉인을
 #                   깬 적이 있어 그냥 넘기지 않았다).
 #  artifactName   → 내려받는 파일 이름. 링크에 %20 이 끼지 않도록 공백 없는 ASCII.
-productName: KNUAF-Dev
+productName: knuaf-dev
 executableName: KNUAF-Dev · 창업논문 작성 도우미
 afterSign: scripts/after-sign.mjs
 # 정식 서명·공증: Apple Developer 계정이 생기면 CSC_LINK(.p12) / CSC_KEY_PASSWORD /
@@ -21,7 +21,7 @@ afterSign: scripts/after-sign.mjs
 # 않으므로(서명만 된 앱은 Gatekeeper가 계속 막는다) 이 키를 지우지 말 것.
 # 다운로드 링크에 %20 이 끼지 않도록 파일명은 공백 없이 만든다
 # (productName 에는 공백이 있어야 하므로 여기서 따로 지정한다).
-artifactName: KNUAF-Dev-${version}-${arch}.${ext}
+artifactName: knuaf-dev-${version}-${arch}.${ext}
 directories:
   output: dist
   buildResources: build
@@ -55,7 +55,7 @@ mac:
   extendInfo:
     CFBundleDisplayName: KNUAF-Dev · 창업논문 작성 도우미
     # 스킬이 osascript/AppleScript 로 Word·Excel 을 직접 몬다
-    # (skills/knuaf-doc/scripts/gg_office.py). entitlements 의
+    # (skills/knuaf-dev/scripts/gg_office.py). entitlements 의
     # com.apple.security.automation.apple-events 는 '보낼 수 있다'만 정할 뿐,
     # 이 문자열이 없으면 macOS 가 자동화 동의 창 자체를 띄우지 못해 변환이
     # 그 자리에서 실패한다. 학생이 무엇에 쓰는지 읽고 허용할 문장이라 한국어로 쓴다.

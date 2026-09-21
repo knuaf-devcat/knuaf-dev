@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO / "skills" / "knuaf-doc" / "scripts"
+SCRIPTS = REPO / "skills" / "knuaf-dev" / "scripts"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))

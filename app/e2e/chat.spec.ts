@@ -38,7 +38,7 @@ function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => 
 
 // ~/.claude/CLAUDE.md의 @import가 외부 경로를 가리키면 학생에게 영어 보안 프롬프트
 // ("Allow external CLAUDE.md file imports?")가 뜬다 — 앱이 띄우는 도우미의 환경에서는
-// 메모리 파일을 아예 읽지 않는다. 스킬(.claude/skills/knuaf-doc) 탐색과는 무관하다.
+// 메모리 파일을 아예 읽지 않는다. 스킬(.claude/skills/knuaf-dev) 탐색과는 무관하다.
 test('subscriptionEnv puts the agent bin dirs on PATH', () => {
   // Finder 로 띄운 앱의 PATH 는 /usr/bin:/bin:/usr/sbin:/sbin 뿐이다. codex 는
   // `#!/usr/bin/env node` 스크립트라 그 PATH 로는 셔뱅이 죽고 학생은
@@ -251,7 +251,7 @@ test('an outdated project skill copy is reinstalled with a system notice and a b
   expect(ok.messages).toHaveLength(1)
   expect(ok.skillHash).toBeTruthy()
 
-  writeFileSync(join(root, '.agents', 'skills', 'knuaf-doc', VERSION_FILE), 'tampered\n', 'utf-8')
+  writeFileSync(join(root, '.agents', 'skills', 'knuaf-dev', VERSION_FILE), 'tampered\n', 'utf-8')
   await svc.send(root, 'codex', '다음 답변', 'req-5')
   const s = await settled(svc, root)
   // prior messages preserved: 2 user messages + exactly 1 system notice
@@ -260,9 +260,9 @@ test('an outdated project skill copy is reinstalled with a system notice and a b
   expect(notice).toHaveLength(1)
   expect(notice[0].text).toContain('규칙집이 갱신됐어요')
   // the copy was reinstalled to the current version and the old one backed up
-  expect(readFileSync(join(root, '.agents', 'skills', 'knuaf-doc', VERSION_FILE), 'utf-8').trim()).toBe(s.skillHash)
+  expect(readFileSync(join(root, '.agents', 'skills', 'knuaf-dev', VERSION_FILE), 'utf-8').trim()).toBe(s.skillHash)
   // The backup lives outside skills/, so it is not discovered as a second skill.
-  expect(readdirSync(join(root, '.agents', 'skills'))).toEqual(['knuaf-doc'])
+  expect(readdirSync(join(root, '.agents', 'skills'))).toEqual(['knuaf-dev'])
   expect(readdirSync(join(root, '.knuaf-gui', 'skill-backups')).some((n) => n.startsWith('.agents-'))).toBe(true)
   await svc.close()
 })
@@ -337,7 +337,7 @@ test('셸은 스킬 스크립트만 통과한다', () => {
 test('여러 조각을 이어 붙인 명령도 전부 안전하면 통과한다', () => {
   // 실제로 도우미가 보낸 환경 점검 명령. 조각마다 검사해서 전부 안전하면 묻지 않는다.
   const real = `cd "${ROOT}" && ls .venv/bin | head -20; echo "---"; python3 --version 2>&1; `
-    + `echo "--- deps python ---"; python3 .claude/skills/knuaf-doc/scripts/gg_deps.py python "${ROOT}" 2>&1 | tail -5`
+    + `echo "--- deps python ---"; python3 .claude/skills/knuaf-dev/scripts/gg_deps.py python "${ROOT}" 2>&1 | tail -5`
   expect(autoAllow(ROOT, 'Bash', { command: real })).toBe(true)
 })
 

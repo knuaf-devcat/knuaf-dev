@@ -10,7 +10,7 @@ import type { SidecarInfo } from '../shared/types'
 export function scriptsDir(): string {
   if (process.env.KNUAF_SCRIPTS_DIR) return process.env.KNUAF_SCRIPTS_DIR
   if (app.isPackaged) return join(process.resourcesPath, 'skill', 'scripts')
-  return join(APP_ROOT, '..', 'skills', 'knuaf-doc', 'scripts')
+  return join(APP_ROOT, '..', 'skills', 'knuaf-dev', 'scripts')
 }
 
 export function sidecarDir(): string {

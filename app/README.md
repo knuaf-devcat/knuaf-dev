@@ -18,7 +18,7 @@
 - `src/main/chat/` — Codex App Server(`codex app-server`)·Claude Agent SDK와의 구조화 채팅. 스냅샷은
   `<프로젝트>/.knuaf-gui/chat-<provider>.json`에 남고, 실행 중 종료는 `interrupted`/`uncertain`으로 복구됩니다.
   도우미 실행 중에는 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
-  `~/.codex/skills`·`~/.agents/skills`에 남은 전역 `knuaf-doc` 사본은 codex `-c skills.config=…` 오버라이드로
+  `~/.codex/skills`·`~/.agents/skills`에 남은 전역 `knuaf-dev` 사본은 codex `-c skills.config=…` 오버라이드로
   그 세션에서만 끕니다(사용자 config.toml은 건드리지 않음) — 낡은 사본이 프로젝트 사본과 이름 충돌하지 않게.
 - `src/main/userdata.ts` — 앱 표시이름이 바뀌며 생긴 옛 `userData` 폴더에서 `settings.json`을 한 번 이어 받습니다.
   새 폴더가 이미 설정을 갖고 있으면 건드리지 않고 옛 폴더도 삭제하지 않습니다. 이름을 또 바꾸면
@@ -38,14 +38,14 @@
     build/native)가 있을 때만 그 PDF를 보여 주며, 없으면 Office 렌더 버튼과 "원래 앱으로 열기"를 둡니다.
     XLSX는 사이드카가 openpyxl로 읽은 표를 그립니다(재계산 안 된 수식이 과반이면 경고).
 
-스킬(`knuaf-doc`)은 전역이 아니라 프로젝트 로컬(`<프로젝트>/.claude/skills`, `<프로젝트>/.agents/skills`)에 설치됩니다.
+스킬(`knuaf-dev`)은 전역이 아니라 프로젝트 로컬(`<프로젝트>/.claude/skills`, `<프로젝트>/.agents/skills`)에 설치됩니다.
 
 ## 개발
 
 ```bash
 cd app
 pnpm install
-KNUAF_PYTHON=$(which python3.13) pnpm dev          # 개발 실행 (스크립트는 ../skills/knuaf-doc/scripts 를 사용)
+KNUAF_PYTHON=$(which python3.13) pnpm dev          # 개발 실행 (스크립트는 ../skills/knuaf-dev/scripts 를 사용)
 pnpm typecheck
 pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-electron 스모크
 ```
@@ -72,7 +72,7 @@ pnpm fetch:python       # python-build-standalone 3.12 → resources/python
 pnpm build:wheelhouse   # openpyxl·python-docx·lxml·pypdf 휠 → resources/wheelhouse
 pnpm build:icons        # build/icon.svg → icns·ico·png
 pnpm build:guide        # docs/학생용-사용안내.md → .html·.pdf
-pnpm stage:skill        # ../skills/knuaf-doc → resources/skill
+pnpm stage:skill        # ../skills/knuaf-dev → resources/skill
 ```
 
 번들 python은 `gg_deps.py ensure`의 base 인터프리터로만 쓰이고, 패키지는 계약대로 `<프로젝트>/.venv`에 설치됩니다.

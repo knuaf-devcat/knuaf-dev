@@ -4,7 +4,7 @@ import { APP_NAME } from '../../shared/name'
  *
  * Tone: calm, short, plain Korean in '-요' form. The student never sees a command,
  * a JSON key or a model name here; technical names live only in FIELD_HINT (고급).
- * Sanctioned wording comes from skills/knuaf-doc/SKILL.md (credit line, four lanes,
+ * Sanctioned wording comes from skills/knuaf-dev/SKILL.md (credit line, four lanes,
  * "not approval"), references/interview-ui.md (chat is the record; the app is read-only)
  * and references/parser-setup.md (Kordoc sentence).
  *

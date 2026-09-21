@@ -24,7 +24,7 @@ import re
 PACKAGE = "kordoc"
 VERSION = "4.13.1"
 REGISTRY = "https://registry.npmjs.org"
-OWNER = "knuaf-doc.gg_kordoc"
+OWNER = "knuaf-dev.gg_kordoc"
 LEGACY_OWNERS = frozenset({"ginseng-goat.gg_kordoc"})  # caches made before the rename
 DEFAULT_TIMEOUT = 180
 REQUIRED_PARSE_FLAGS = (
@@ -57,8 +57,8 @@ def _cache_root(value: str | os.PathLike[str] | None) -> Path:
         return Path(value).expanduser().resolve()
     base = os.environ.get("XDG_CACHE_HOME")
     if base:
-        return (Path(base).expanduser() / "knuaf-doc" / "kordoc").resolve()
-    return (Path.home() / ".cache" / "knuaf-doc" / "kordoc").resolve()
+        return (Path(base).expanduser() / "knuaf-dev" / "kordoc").resolve()
+    return (Path.home() / ".cache" / "knuaf-dev" / "kordoc").resolve()
 
 
 def _legacy_cache_roots() -> list[Path]:
@@ -450,7 +450,7 @@ def ensure(*, cache_dir=None, node=None, pnpm=None, kordoc=None, timeout=DEFAULT
     stage.mkdir(mode=0o700)
     try:
         (stage / "package.json").write_text(
-            json.dumps({"name": "knuaf-doc-kordoc-cache", "private": True}, indent=2) + "\n",
+            json.dumps({"name": "knuaf-dev-kordoc-cache", "private": True}, indent=2) + "\n",
             encoding="utf-8",
         )
         install_cmd = pnpm_cmd + [

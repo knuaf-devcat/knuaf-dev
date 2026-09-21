@@ -3,7 +3,7 @@
  *
  * 10: 도구 보고 원문 20,600자가 한 말풍선으로 통째로 들어와 대화가 사람이 지나갈 수
  *     없는 길이가 됐다. 내용을 버리지 않으면서 접을 수 있어야 한다.
- * 4:  "방금 한 일" 카드가 답변의 첫 줄을 그대로 집는데, 도우미 답변은 `> knuaf-doc · …`
+ * 4:  "방금 한 일" 카드가 답변의 첫 줄을 그대로 집는데, 도우미 답변은 `> knuaf-dev · …`
  *     머리글로 시작할 때가 있어서 배너만 되뇌는 빈 카드가 됐다. 바로 위 말풍선과
  *     같은 줄이 한 번 더 보여 학생에게는 같은 말이 두 번 뜬 것으로 읽힌다.
  */
@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 
-const BANNER = '> knuaf-doc · 창업논문 작성 도우미'
+const BANNER = '> KNUAF-Dev · 창업논문 작성 도우미'
 const TAIL = '여기가 답변의 맨 끝입니다'
 /** 앞머리는 배너·인용, 본문은 2,000자 한도를 훌쩍 넘긴다. */
 const LONG = `${BANNER}\n> prod. 시험용\n\n강의자료 발췌본을 그대로 옮깁니다.\n${'슬라이드 내용 '.repeat(500)}\n${TAIL}`
@@ -65,7 +65,7 @@ test('"방금 한 일"이 답변 머리글을 되뇌지 않는다 (발견 4)', a
     const title = page.locator('.activity .title')
     await expect(title).toBeVisible({ timeout: 30_000 })
     const text = (await title.innerText()).trim()
-    expect(text, '머리글(배너) 줄을 그대로 집었다').not.toContain('knuaf-doc ·')
+    expect(text, '머리글(배너) 줄을 그대로 집었다').not.toContain('knuaf-dev ·')
     expect(text.startsWith('>'), '인용 줄을 제목으로 삼았다').toBe(false)
   } finally {
     await electronApp.close()

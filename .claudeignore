@@ -1,4 +1,4 @@
-# Mirror of .codexignore: the skill package is skills/knuaf-doc only.
+# Mirror of .codexignore: the skill package is skills/knuaf-dev only.
 # README says app/ and tests/ are development directories that do not ship;
 # without this, a Claude Code marketplace install pulls the whole repo.
 app/

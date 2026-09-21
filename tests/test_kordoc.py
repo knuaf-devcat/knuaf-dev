@@ -233,9 +233,9 @@ def test_a_populated_directory_is_never_taken_over(tmp_path):
 
 @pytest.mark.parametrize("marker", [
     {"owner": "someone.else", "package": "kordoc", "version": "4.13.1", "registry": "https://registry.npmjs.org"},
-    {"owner": "knuaf-doc.gg_kordoc", "package": "other", "version": "4.13.1", "registry": "https://registry.npmjs.org"},
-    {"owner": "knuaf-doc.gg_kordoc", "package": "kordoc", "version": "9.9.9", "registry": "https://registry.npmjs.org"},
-    {"owner": "knuaf-doc.gg_kordoc", "package": "kordoc", "version": "4.13.1", "registry": "http://evil.example"},
+    {"owner": "knuaf-dev.gg_kordoc", "package": "other", "version": "4.13.1", "registry": "https://registry.npmjs.org"},
+    {"owner": "knuaf-dev.gg_kordoc", "package": "kordoc", "version": "9.9.9", "registry": "https://registry.npmjs.org"},
+    {"owner": "knuaf-dev.gg_kordoc", "package": "kordoc", "version": "4.13.1", "registry": "http://evil.example"},
 ])
 def test_a_cache_claimed_by_something_else_is_refused(tmp_path, marker):
     root = tmp_path / "cache"

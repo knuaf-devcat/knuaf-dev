@@ -63,10 +63,10 @@ Python·라이브러리 설치는 앱이 알아서 합니다. 따로 준비할 �
 
 앱 없이 Codex CLI나 Claude Code에 스킬로 붙여 쓸 수도 있습니다. **Python 3.10 이상이 필요합니다** — macOS 기본 `python3`(3.9)로는 첫 명령에서 안내와 함께 종료됩니다.
 
-- **Claude Code**: 이 저장소를 플러그인 마켓플레이스로 추가하거나, `skills/knuaf-doc` 을 `~/.claude/skills/knuaf-doc` 로 복사합니다.
+- **Claude Code**: 이 저장소를 플러그인 마켓플레이스로 추가하거나, `skills/knuaf-dev` 을 `~/.claude/skills/knuaf-dev` 로 복사합니다.
 - **Codex**: 저장소를 플러그인으로 등록하면 `.codex-plugin/plugin.json` 이 같은 스킬을 노출합니다.
 
-실행 의존성은 `skills/knuaf-doc/scripts/requirements-runtime.txt` 에 있습니다 (`openpyxl`, `python-docx`, `pypdf`). Windows에서 네이티브 Office 자동화를 쓰려면 `pywin32` 가 추가로 필요합니다.
+실행 의존성은 `skills/knuaf-dev/scripts/requirements-runtime.txt` 에 있습니다 (`openpyxl`, `python-docx`, `pypdf`). Windows에서 네이티브 Office 자동화를 쓰려면 `pywin32` 가 추가로 필요합니다.
 
 ## 플랫폼
 
@@ -85,7 +85,7 @@ Windows에서 써보시고 문제를 만나면 이슈로 알려주세요.
 
 ```bash
 python3.13 -m venv .venv-dev
-.venv-dev/bin/pip install pytest pytest-timeout -r skills/knuaf-doc/scripts/requirements-runtime.txt
+.venv-dev/bin/pip install pytest pytest-timeout -r skills/knuaf-dev/scripts/requirements-runtime.txt
 .venv-dev/bin/python -m pytest
 ```
 

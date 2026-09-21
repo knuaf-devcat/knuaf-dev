@@ -231,7 +231,7 @@ export function Chat() {
   const lastAt = snapshot?.messages.at(-1)?.at ?? (lastArtifact ? lastArtifact.mtime * 1000 : null)
   // "방금 한 일"의 제목은 행동·결과여야 한다 — 도우미가 되물은 문장은 제목이 아니라
   // 상태 한 줄의 "내 답변 N건 기다리는 중"이 말한다(06 4단계). 질문이면 결과물 이름으로 넘긴다.
-  // 첫 줄이 늘 행동은 아니다 — 도우미 답변은 `> knuaf-doc · …` 머리글로 시작할 때가
+  // 첫 줄이 늘 행동은 아니다 — 도우미 답변은 `> knuaf-dev · …` 머리글로 시작할 때가
   // 있어서, 그대로 집으면 "방금 한 일"이 배너만 되뇌는 빈 카드가 된다(시험주행 발견 4).
   const lastAssistantLine = lastAssistant?.text.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('>') && !l.startsWith('#'))
   const actTitle = (lastAssistantLine && !lastAssistantLine.endsWith('?') ? lastAssistantLine : null) ?? lastArtifact?.name ?? null

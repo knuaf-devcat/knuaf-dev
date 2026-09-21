@@ -10,7 +10,7 @@ export function realOrSelf(p: string): string {
 }
 
 /**
- * `codex app-server` argv. `-c 'skills.config=…'`(전역 knuaf-doc 사본 끄기)는 subcommand
+ * `codex app-server` argv. `-c 'skills.config=…'`(전역 knuaf-dev 사본 끄기)는 subcommand
  * 앞에 온다 — codex 의 config 오버라이드는 루트 인자다. 존재하는 사본이 없으면 순수
  * `['app-server']`. 단위 테스트가 이 모양을 고정한다(e2e/agent.spec.ts).
  */
@@ -30,7 +30,7 @@ export class CodexConnection implements AgentConnection {
   private messages = new Map<string, string>()
   /**
    * 최신 CLI 는 평문 `app-server`; 실패하면 옛 `--listen stdio://` 로 한 번 재시도한다.
-   * 앞의 `-c` 는 전역 knuaf-doc 스킬 사본을 끄는 config 오버라이드 — ~/.codex/skills 등에
+   * 앞의 `-c` 는 전역 knuaf-dev 스킬 사본을 끄는 config 오버라이드 — ~/.codex/skills 등에
    * 낡은 사본이 있으면 프로젝트 사본과 함께 enabled 로 보여 모델이 옛 지침을 따른다.
    * Claude 는 settingSources 로 막는 자리이고 Codex 에는 세션 범위 옵션이 없어 프로세스
    * 오버라이드로 대신한다(사용자 config.toml 은 건드리지 않는다). live 스모크가 검증.
@@ -74,7 +74,7 @@ export class CodexConnection implements AgentConnection {
     rpc.onClose = () => { this.waiter?.reject(new Error('Codex 연결이 종료됐어요. 답변은 자동 재전송하지 않아요.')); this.waiter = undefined }
     let init: { userAgent?: string } | undefined
     try {
-      init = await rpc.request('initialize', { clientInfo: { name: 'knuaf_doc_gui', version: '0.2.0' }, capabilities: { experimentalApi: true } })
+      init = await rpc.request('initialize', { clientInfo: { name: 'knuaf_dev_gui', version: '0.2.0' }, capabilities: { experimentalApi: true } })
     } catch (e) {
       this.rpc = undefined
       await rpc.stop().catch(() => {})
@@ -89,7 +89,7 @@ export class CodexConnection implements AgentConnection {
       const detail = [(e as Error)?.message, rpc.lastStderr].filter(Boolean).join(' / ')
       throw new Error('Codex와 연결하지 못했어요.' + (detail ? ` (${detail})` : ''))
     }
-    // The server answers with a userAgent like "knuaf_doc_gui/0.133.0 (Mac OS …)": first token after '/' is the Codex version.
+    // The server answers with a userAgent like "knuaf_dev_gui/0.133.0 (Mac OS …)": first token after '/' is the Codex version.
     const ua = typeof init?.userAgent === 'string' ? init.userAgent : ''
     this.serverVersion = /^[^/\s]+\/([^\s]+)/.exec(ua)?.[1] ?? /(\d+\.\d+\.\d+)/.exec(ua)?.[1] ?? null
     rpc.send({ method: 'initialized', params: {} })
@@ -117,9 +117,9 @@ export class CodexConnection implements AgentConnection {
     // (임시 폴더 /var → /private/var 가 live 스모크에서 이걸 먼저 드러냈다).
     const want = realOrSelf(skillPath)
     const skills = await rpc.request('skills/list', { cwds: [this.options.root], forceReload: true })
-    if (!skills.data?.some((entry: any) => entry.skills?.some((s: any) => realOrSelf(s.path) === want && s.enabled))) throw new Error('Codex가 프로젝트의 knuaf-doc 스킬을 찾지 못했어요.')
+    if (!skills.data?.some((entry: any) => entry.skills?.some((s: any) => realOrSelf(s.path) === want && s.enabled))) throw new Error('Codex가 프로젝트의 knuaf-dev 스킬을 찾지 못했어요.')
     events.skill()
-    const args = { cwd: this.options.root, approvalPolicy: 'on-request', sandbox: 'workspace-write', developerInstructions: '이 세션은 knuaf-doc 개인용 GUI입니다. 제공된 knuaf-doc 스킬과 참조 지침을 그대로 따르세요. 같은 이름의 사용자·전역 스킬 사본이 보여도 무시하고 이 프로젝트의 스킬만 따르세요. 질문은 채팅 텍스트로 제시하세요. 인터뷰 원문과 해석은 스킬의 로그 계약대로 기록하세요. GUI의 첨부는 사용자 답변의 일부이며 현재 작성물 채택은 스킬의 확인 절차를 따르세요. 셸 명령은 앱이 그대로 읽고 판단할 수 있어야 자동으로 통과합니다. 변수 대입($PY=… 같은)·$PWD 같은 변수 참조·`…`·$(…)·서브셸·리다이렉트를 쓰지 말고, 경로는 따옴표로 감싼 절대경로를 그대로 적으세요. 그러지 않으면 학생에게 읽을 수 없는 승인 창이 뜹니다. 셸에 프로그램을 밀어 넣지 마세요(heredoc·python -c 등). 엑셀·문서 읽기는 스킬의 스크립트에 이미 있으니 그것을 쓰세요.' }
+    const args = { cwd: this.options.root, approvalPolicy: 'on-request', sandbox: 'workspace-write', developerInstructions: '이 세션은 knuaf-dev 개인용 GUI입니다. 제공된 knuaf-dev 스킬과 참조 지침을 그대로 따르세요. 같은 이름의 사용자·전역 스킬 사본이 보여도 무시하고 이 프로젝트의 스킬만 따르세요. 질문은 채팅 텍스트로 제시하세요. 인터뷰 원문과 해석은 스킬의 로그 계약대로 기록하세요. GUI의 첨부는 사용자 답변의 일부이며 현재 작성물 채택은 스킬의 확인 절차를 따르세요. 셸 명령은 앱이 그대로 읽고 판단할 수 있어야 자동으로 통과합니다. 변수 대입($PY=… 같은)·$PWD 같은 변수 참조·`…`·$(…)·서브셸·리다이렉트를 쓰지 말고, 경로는 따옴표로 감싼 절대경로를 그대로 적으세요. 그러지 않으면 학생에게 읽을 수 없는 승인 창이 뜹니다. 셸에 프로그램을 밀어 넣지 마세요(heredoc·python -c 등). 엑셀·문서 읽기는 스킬의 스크립트에 이미 있으니 그것을 쓰세요.' }
     const r = sessionId ? await rpc.request('thread/resume', { ...args, threadId: sessionId }) : await rpc.request('thread/start', args)
     this.thread = r.thread.id; events.session(r.thread.id)
     // Replayed turns use a different id space (item-N) than the live stream (msg_*), so
@@ -131,7 +131,7 @@ export class CodexConnection implements AgentConnection {
     const prompt = sessionId ? text : `${text}\n\n작업 폴더: ${this.options.root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.`
     await new Promise<void>((resolve, reject) => {
       this.waiter = { resolve, reject }
-      rpc.request('turn/start', { threadId: this.thread, input: [{ type: 'text', text: prompt, text_elements: [] }, { type: 'skill', name: 'knuaf-doc', path: skillPath }] }).then(r => { this.turn = r.turn.id }).catch(e => { this.waiter = undefined; reject(e) })
+      rpc.request('turn/start', { threadId: this.thread, input: [{ type: 'text', text: prompt, text_elements: [] }, { type: 'skill', name: 'knuaf-dev', path: skillPath }] }).then(r => { this.turn = r.turn.id }).catch(e => { this.waiter = undefined; reject(e) })
     })
   }
   respond(id: string, allow: boolean) {

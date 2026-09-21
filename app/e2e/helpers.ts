@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 
 export const app = resolve(__dirname, '..')
 export const repo = resolve(app, '..')
-export const scripts = join(repo, 'skills', 'knuaf-doc', 'scripts')
+export const scripts = join(repo, 'skills', 'knuaf-dev', 'scripts')
 export const python = process.env.KNUAF_PYTHON ?? join(repo, '.venv-dev', 'bin', 'python')
 
 /** init-only project (revision 0) or a project with a source, a section and a fact (revision 1). */

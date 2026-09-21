@@ -16,10 +16,11 @@ import { join } from 'node:path'
  * 이름은 `<appData>/<이름>` 으로 해석된다(모든 플랫폼에서 같은 규칙).
  */
 export const LEGACY_USERDATA_NAMES = [
+  'KNUAF-Dev',            // 2026-09-21 잠깐 나갔던 대문자 productName
   'KNUAF Thesis Helper', // 2026-09-20~09-21 설치판(CFBundleName)
   '한농대 창업논문 헬퍼',    // 같은 기간의 표시이름 — 개발 모드가 이쪽에 만들기도 했다
-  'knuaf-doc 동반 앱',    // 그 전 설치판
-  'knuaf-doc Companion'  // 그 전 개발 모드
+  'knuaf-doc 동반 앱',    // 그 전 설치판 — 디스크에 이 철자로 있다. 개명해도 바꾸지 말 것
+  'knuaf-doc Companion'  // 그 전 개발 모드 — 위와 같다
 ]
 // 2026-09-20 개명("한농대 창업논문 헬퍼") 때 실측: 설치판의 새 폴더는 표시이름이 아니라
 // CFBundleName(= productName)으로 생겼고, 옛 이름에서 settings.json 을 가져오는 것까지

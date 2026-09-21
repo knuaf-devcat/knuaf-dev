@@ -1,8 +1,8 @@
 {
   "name": "knuaf-thesis-helper",
-  "productName": "KNUAF-Dev",
+  "productName": "knuaf-dev",
   "version": "0.1.0",
-  "description": "knuaf-doc 창업논문 작성 도우미의 데스크톱 동반 GUI (에이전트가 작성, 앱은 상태·검사·발행 담당)",
+  "description": "knuaf-dev 창업논문 작성 도우미의 데스크톱 동반 GUI (에이전트가 작성, 앱은 상태·검사·발행 담당)",
   "main": "./out/main/index.js",
   "private": true,
   "license": "MIT",

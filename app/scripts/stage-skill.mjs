@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const app = resolve(import.meta.dirname, '..')
-const src = resolve(app, '..', 'skills', 'knuaf-doc')
+const src = resolve(app, '..', 'skills', 'knuaf-dev')
 const dst = resolve(app, 'resources', 'skill')
 if (!existsSync(resolve(src, 'scripts', 'gg_core.py'))) { console.error('skill scripts not found at', src); process.exit(1) }
 rmSync(dst, { recursive: true, force: true })

@@ -1,4 +1,4 @@
-"""knuaf-doc companion sidecar: JSON-lines RPC over stdio, stdlib only.
+"""knuaf-dev companion sidecar: JSON-lines RPC over stdio, stdlib only.
 
 The Electron main process spawns `python -m knuaf_sidecar --scripts-dir <S>`
 and talks to it line by line. Core operations import gg_core in-process;

@@ -26,7 +26,7 @@ test('external terminal button installs the skill into the project and writes a 
   await claudeBtn.waitFor({ timeout: 30_000 }) // status probe is async (claude --version)
   await claudeBtn.click()
   await expect(sheet.locator('text=터미널 창에서 AI 도우미가 열렸어요')).toBeVisible({ timeout: 30_000 })
-  const skillDir = join(root, '.claude', 'skills', 'knuaf-doc')
+  const skillDir = join(root, '.claude', 'skills', 'knuaf-dev')
   expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true)
   expect(existsSync(join(skillDir, 'scripts', 'gg_core.py'))).toBe(true)
   const launchDir = join(userData, 'launch')

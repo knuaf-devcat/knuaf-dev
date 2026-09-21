@@ -4,7 +4,7 @@ import re
 
 from conftest import REPO
 
-SKILL_DIR = REPO / "skills" / "knuaf-doc"
+SKILL_DIR = REPO / "skills" / "knuaf-dev"
 SKILL = SKILL_DIR / "SKILL.md"
 REFS = SKILL_DIR / "references"
 

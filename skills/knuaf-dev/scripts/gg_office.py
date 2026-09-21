@@ -42,7 +42,7 @@ def _default_workspace_dir() -> Path:
     without an import-time crash, even though word/excel automation itself
     is only implemented for macOS and Windows.
     """
-    return _workspace_dir_for("knuaf-doc")
+    return _workspace_dir_for("knuaf-dev")
 
 
 def _workspace_dir_for(name: str) -> Path:
@@ -56,7 +56,7 @@ def _workspace_dir_for(name: str) -> Path:
 
 def _legacy_workspace_dirs() -> list[Path]:
     """Workspaces from before the package rename. Reported by doctor, never written."""
-    return [d for d in (_workspace_dir_for("ginseng-goat"),) if d.is_dir()]
+    return [d for d in (_workspace_dir_for("knuaf-doc"), _workspace_dir_for("ginseng-goat")) if d.is_dir()]
 
 
 JOB_ID_RE = re.compile(r"^job-[0-9a-f]{12}-\d+$")

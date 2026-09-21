@@ -117,7 +117,7 @@ export class ChatService {
     this.owners.add(root)
     return () => { this.owners.delete(root) }
   }
-  private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-doc') }
+  private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-dev') }
   private connection(root: string, provider: Provider): AgentConnection {
     const key = this.key(root, provider)
     let c = this.connections.get(key)

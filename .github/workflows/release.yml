@@ -32,8 +32,8 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: skills/knuaf-doc/scripts/requirements-runtime.txt
-      - run: python -m pip install -r skills/knuaf-doc/scripts/requirements-runtime.txt pytest pytest-timeout
+          cache-dependency-path: skills/knuaf-dev/scripts/requirements-runtime.txt
+      - run: python -m pip install -r skills/knuaf-dev/scripts/requirements-runtime.txt pytest pytest-timeout
       - run: python -m pytest
       - uses: pnpm/action-setup@v4
         with:

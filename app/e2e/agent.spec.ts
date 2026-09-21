@@ -43,7 +43,7 @@ test.describe('findExecutable / probeVersion', () => {
 
 test.describe('skill source + version', () => {
   test('skillSource resolves the checkout and packaged layouts', () => {
-    expect(source).toBe(resolve(appRoot, '..', 'skills', 'knuaf-doc'))
+    expect(source).toBe(resolve(appRoot, '..', 'skills', 'knuaf-dev'))
     expect(existsSync(join(source, 'SKILL.md'))).toBe(true)
     expect(skillSource(appRoot, true, '/App/Contents/Resources')).toBe('/App/Contents/Resources/skill')
   })
@@ -102,8 +102,8 @@ test.describe('installSkill', () => {
   test('installs into a tmp project root, is unchanged on rerun, and backs up when tampered', () => {
     const root = mkdtempSync(join(tmpdir(), 'kd-root-'))
     const targets = skillTargets(root)
-    expect(targets.claude).toBe(join(root, '.claude', 'skills', 'knuaf-doc'))
-    expect(targets.codex).toBe(join(root, '.agents', 'skills', 'knuaf-doc'))
+    expect(targets.claude).toBe(join(root, '.claude', 'skills', 'knuaf-dev'))
+    expect(targets.codex).toBe(join(root, '.agents', 'skills', 'knuaf-dev'))
     const version = skillVersion(source)
 
     expect(skillState(targets.claude, version)).toBe('missing')
@@ -116,7 +116,7 @@ test.describe('installSkill', () => {
     expect(existsSync(join(targets.claude, 'scripts', '__pycache__'))).toBe(false)
     expect(readdirSync(join(targets.claude, 'scripts')).some((n) => n.endsWith('.py'))).toBe(true)
     // only the three parts + marker, never anything else
-    expect(readdirSync(targets.claude).sort()).toEqual(['.knuaf-doc-version', 'SKILL.md', 'references', 'scripts'])
+    expect(readdirSync(targets.claude).sort()).toEqual(['.knuaf-dev-version', 'SKILL.md', 'references', 'scripts'])
 
     expect(installSkill(source, targets.claude, version)).toEqual({ action: 'unchanged' })
 
@@ -130,7 +130,7 @@ test.describe('installSkill', () => {
 
     // The backup must not be a sibling of the skill: anything under skills/ is
     // discovered as its own skill, so a sibling backup competes with the real one.
-    expect(readdirSync(join(root, '.claude', 'skills'))).toEqual(['knuaf-doc'])
+    expect(readdirSync(join(root, '.claude', 'skills'))).toEqual(['knuaf-dev'])
     expect(third.backup).toBe(join(skillBackupDir(targets.claude), basename(third.backup!)))
     expect(basename(third.backup!)).toMatch(/^\.claude-\d{8}-\d{6}$/)
     expect(third.backup!.startsWith(join(root, '.knuaf-gui'))).toBe(true)
@@ -182,15 +182,15 @@ test.describe('buildLaunchScript', () => {
     expect(firstPromptFor(3)).toBe('이어서 하기')
   })
 
-  test('a stale global knuaf-doc copy is disabled for the external codex launch', () => {
+  test('a stale global knuaf-dev copy is disabled for the external codex launch', () => {
     // ~/.codex/skills·~/.agents/skills 의 낡은 사본이 프로젝트 사본과 함께 enabled 로
     // 보이면 모델이 옛 지침을 따른다 — 비상구 터미널에서도 그 사본을 끈다.
     const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
     expect(codexSkillConfigOverride(home)).toBeNull()
-    mkdirSync(join(home, '.codex', 'skills', 'knuaf-doc'), { recursive: true })
-    writeFileSync(join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md'), '# old\n')
+    mkdirSync(join(home, '.codex', 'skills', 'knuaf-dev'), { recursive: true })
+    writeFileSync(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n')
     const cfg = codexSkillConfigOverride(home)
-    expect(cfg).toBe(`skills.config=[{path="${join(home, '.codex', 'skills', 'knuaf-doc', 'SKILL.md')}",enabled=false}]`)
+    expect(cfg).toBe(`skills.config=[{path="${join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md')}",enabled=false}]`)
     const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/codex', venvBin: null, bundledBin: null, firstPrompt: '', home })
     expect(s).toContain(`-c '${cfg}'`)
 
@@ -198,8 +198,8 @@ test.describe('buildLaunchScript', () => {
     expect(serverArgsFor({ HOME: home })).toEqual(['-c', cfg, 'app-server'])
     expect(serverArgsFor({ HOME: join(mkdtempSync(join(tmpdir(), 'kd-home-')), 'none') })).toEqual(['app-server'])
     // ~/.agents/skills 도 스캔 대상 — 두 사본이 함께 있으면 둘 다 끈다.
-    mkdirSync(join(home, '.agents', 'skills', 'knuaf-doc'), { recursive: true })
-    writeFileSync(join(home, '.agents', 'skills', 'knuaf-doc', 'SKILL.md'), '# old\n')
+    mkdirSync(join(home, '.agents', 'skills', 'knuaf-dev'), { recursive: true })
+    writeFileSync(join(home, '.agents', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n')
     expect(serverArgsFor({ HOME: home })[1]).toContain('.agents')
   })
 })
@@ -249,7 +249,7 @@ test.describe('agentApi', () => {
     expect(st.skillVersion).toBe(skillVersion(source))
 
     expect(agentApi.installSkill(ctx, 'codex', root)).toEqual({ action: 'installed' })
-    expect(existsSync(join(root, '.agents', 'skills', 'knuaf-doc', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(root, '.agents', 'skills', 'knuaf-dev', 'SKILL.md'))).toBe(true)
     expect((await agentApi.status(ctx, root)).skill).toEqual({ claude: 'missing', codex: 'installed' })
 
     // launch resolves the real binary, so it only runs where claude is installed.
