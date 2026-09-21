@@ -340,16 +340,39 @@ def calculate(spec):
         or len(spec["periods"]) != years
     ):
         raise ValueError("기간 오류 또는 교체투자 필요: 자동 지원 범위 밖")
+    # 거절은 옳다. 다만 무엇에 걸렸는지는 사실대로 말해야 한다. 예전에는 세 조건을
+    # 한 문장으로 묶어 돌려주어서, 실제로 걸린 것이 "분석기간 != 내용연수"인데도
+    # 화면에는 "기존 사업 일부 투자/경영주 급여" 이야기가 떴다. 도우미는 걸리지도 않은
+    # 조건을 고치려 들고, 학생은 왜 안 되는지 알 수 없다(시험주행 발견 14).
+    #
+    # 맞추려고 값을 바꾸라고 하지도 않는다. 5개년 계획의 감가상각을 내용연수에 맞춰
+    # 부풀리면 손익·현금흐름·손익분기점이 전부 어긋난다. 도구에 계획을 맞추는 것이
+    # 아니라, 도구가 못 하는 일이라고 말하고 제대로 된 경로를 가리킨다.
+    TEMPLATE_PATH = (
+        "값을 바꿔 맞추지 말 것. 학교 재무 양식 원본을 받아 "
+        "gg_excel_template inspect/clear + gg_excel_fill 경로로 채운다"
+    )
     if spec.get("repayment") != "equal_principal":
-        return {"status": "unsupported", "reason": "원금균등 이외 상환 산식 미검증"}
-    if (
-        spec.get("investment_basis") != "school_farm_new_business"
-        or spec.get("owner_labor_in_costs") is not False
-        or years != life
-    ):
         return {
             "status": "unsupported",
-            "reason": "학교 농가 신규사업 전체 투자·주 투자 내용연수 분석만 지원. 기존 사업 일부 투자/경영주 급여 포함 모델은 별도 검토 필요",
+            "reason": "이 생성기는 원금균등 상환만 검산한다. 원리금 균등(PMT)으로 세운 "
+            "상환 계획은 여기서 만들지 않는다. " + TEMPLATE_PATH,
+        }
+    outside = []
+    if spec.get("investment_basis") != "school_farm_new_business":
+        outside.append("전체 투자가 아닌 기존 사업 일부 투자")
+    if spec.get("owner_labor_in_costs") is not False:
+        outside.append("경영주 급여를 비용에 넣은 모델")
+    if years != life:
+        outside.append(
+            "분석기간 %d년과 주 투자 내용연수 %d년이 다름" % (years, life)
+        )
+    if outside:
+        return {
+            "status": "unsupported",
+            "reason": "이 생성기가 검산하지 못하는 조건: "
+            + ", ".join(outside)
+            + ". " + TEMPLATE_PATH,
         }
     dep = (initial["facility"] - initial["salvage"]) / life
     if dep < 0:
