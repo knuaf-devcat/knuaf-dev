@@ -1,6 +1,6 @@
 {
   "name": "knuaf-dev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "한국농수산대학교 학교 공식 작성지침에 맞춰 창업논문 초안 작성·검토를 돕는 로컬 스킬. 생성된 결과물은 지도교수 승인과 학교 제출 절차를 거쳐야 합니다.",
   "author": {"name": "knuaf-dev"},
   "license": "MIT",

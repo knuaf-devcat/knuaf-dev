@@ -1,7 +1,7 @@
 {
   "name": "knuaf-thesis-helper",
   "productName": "knuaf-dev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "knuaf-dev 창업논문 작성 도우미의 데스크톱 동반 GUI (에이전트가 작성, 앱은 상태·검사·발행 담당)",
   "main": "./out/main/index.js",
   "private": true,
