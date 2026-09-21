@@ -32,7 +32,7 @@ license: MIT
 - “고칠 부분 보기”: `check <폴더>`의 위치별 결과와 내용검토 결과를 구분해 설명한다.
 - “검토본 받기”: `export <폴더> --kind review`. 생성된 실제 경로와 미검증 항목을 알려준다. 교수 승인으로 표시하지 않는다.
 
-명령은 이 스킬의 실제 `scripts/gg.py` 경로와 현재 Python 실행기를 사용한다. 최소 Python 3.10이 필요하며(3.9 이하는 `gg.py`가 안내 후 종료) `scripts/gg_deps.py python <폴더>`가 가리키는 인터프리터를 우선한다. 특정 홈 경로나 다른 호스트 설치를 가정하지 않는다. 먼저 `doctor <폴더>`로 설치 탐지 정보를 확인하되 탐지가 실제 기능 시험을 대신하지 않는다. `doctor`의 `lock.verdict`가 `stale_releasable`이면 `unlock <폴더>`로 잔류 잠금을 해제할 수 있고, `history <폴더>`·`restore <폴더> --revision N --expected-revision M`으로 이전 정본 스냅샷을 새 개정으로 되돌릴 수 있다(절 파일·build/는 건드리지 않음).
+**명령·인자·출력 모양·`apply` 변경 JSON 계약은 [명령 목록](references/commands.md)에 전부 있다. 구현 파일(`scripts/gg_core.py` 등)을 열어 확인하지 않는다** — 2,957줄이라 한 번 읽으면 맥락이 3만 토큰 넘게 찬다. 그 문서에 없으면 `--help`를 쓴다. 명령은 이 스킬의 실제 `scripts/gg.py` 경로와 현재 Python 실행기를 사용하며, 특정 홈 경로나 다른 호스트 설치를 가정하지 않는다. 먼저 `doctor <폴더>`로 설치 탐지 정보를 확인하되 탐지가 실제 기능 시험을 대신하지 않는다.
 
 ## 불변 조건
 
