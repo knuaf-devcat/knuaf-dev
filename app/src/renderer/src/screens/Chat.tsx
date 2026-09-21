@@ -7,7 +7,7 @@ import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Feedback } from '../components/Feedback'
 import { ProjectCard } from '../components/ProjectCard'
-import { CHAT, CREDIT, EMPTY, describeChatError, relativeTime } from '../copy'
+import { CHAT, EMPTY, describeChatError, relativeTime } from '../copy'
 import type { ChatMessage } from '../../../shared/chat'
 import type { ArtifactItem, ProjectPeek, RecentEntry, SectionRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
@@ -74,14 +74,7 @@ function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: ()
  */
 function NoFolder() {
   const { open, settings, error, loading, loadSettings } = useProject(useShallow((s) => ({ open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings })))
-  const [showCredit, setShowCredit] = useState(false)
   const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})
-  useEffect(() => {
-    if (settings && !settings.credit_shown_at) {
-      setShowCredit(true)
-      void window.knuaf.setSettings({ credit_shown_at: new Date().toISOString() })
-    }
-  }, [settings])
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -96,7 +89,6 @@ function NoFolder() {
   return (
     <div>
       <Toolbar title={CHAT.title} />
-      {showCredit && <div className="credit">{CREDIT.line1}<br />{CREDIT.line2}</div>}
       {error && <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>} />}
       <div className="empty" style={{ padding: 'var(--sp-8)' }}>
         <div className="t" style={{ fontSize: 'var(--fs-heading)' }}>{CHAT.noFolderTitle}</div>

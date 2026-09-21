@@ -1,5 +1,5 @@
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -34,8 +34,20 @@ export function plantStaleLock(root: string): void {
   writeFileSync(join(root, '.gg-lock', 'owner.json'), JSON.stringify({ pid: 999999, host: require('node:os').hostname(), token: 'x', acquired_at: Date.now() / 1000 - 3600 }))
 }
 
-export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference'; env?: Record<string, string> } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
+export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference'; env?: Record<string, string>; intro?: boolean } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
   const userData = opts.userData ?? mkdtempSync(join(tmpdir(), 'kd-userdata-'))
+  /**
+   * 첫 실행 여는 화면은 화면을 덮고 몇 초를 쓴다. 대부분의 테스트는 그것을 보려는 게
+   * 아니라 그 뒤의 화면을 보려는 것이므로, 기본적으로 "이미 본 사용자"로 시작한다
+   * (`intro: true` 를 주면 진짜 첫 실행이 된다). 실제 학생의 두 번째 실행과 같은 상태다.
+   */
+  if (!opts.intro) {
+    const f = join(userData, 'settings.json')
+    if (!existsSync(f)) {
+      mkdirSync(userData, { recursive: true })
+      writeFileSync(f, JSON.stringify({ credit_shown_at: new Date().toISOString() }), 'utf-8')
+    }
+  }
   // A shell that exports ELECTRON_RUN_AS_NODE would make the app run as plain Node (require('electron') yields the binary path).
   const env = { ...process.env, KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData, ...opts.env }
   delete env.ELECTRON_RUN_AS_NODE

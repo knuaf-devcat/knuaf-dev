@@ -586,7 +586,9 @@ export const PRIVACY_NOTE = 'AI 도우미를 연결하면 답변과 작업 폴�
 /** SKILL.md:8 — shown once on first entry, never inside a document or author field. */
 export const CREDIT = {
   line1: 'knuaf-doc · 창업논문 작성 도우미',
-  line2: 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재'
+  line2: 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재',
+  /** 앱(GUI)을 만든 사람. 학번은 넣지 않는다 — 공개 저장소와 배포본에 같이 실린다. */
+  gui: 'GUI: made by 산업곤충전공 이준재'
 } as const
 
 /** parser-setup.md:12 — the only sentence said when Kordoc is actually installed. */

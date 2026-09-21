@@ -7,6 +7,7 @@ import { app, launch, navTo, openPreset, openProject, plantStaleLock, synthProje
 
 const CREDIT_1 = 'knuaf-doc · 창업논문 작성 도우미'
 const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재'
+const CREDIT_GUI = 'GUI: made by 산업곤충전공 이준재'
 const KORDOC = '문서를 읽는 데 필요한 도구를 준비할게요. 처음 한 번은 시간이 조금 걸릴 수 있어요.'
 
 // copy.ts 첫 줄 규칙 — "every user-facing string of the companion app in one place".
@@ -56,13 +57,28 @@ test('reduced motion collapses transitions but keeps the spinner', async () => {
 
 test('credit shows on first launch only', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
-  const first = await launch({ userData })
+  const first = await launch({ userData, intro: true })
+  // 크레딧은 이제 첫 실행 여는 화면 안에 있다 — 점선 상자로 조용히 얹혀 있던 것을 옮겼다.
+  await expect(first.page.locator('[data-intro]')).toHaveCount(1)
   await expect(first.page.locator(`text=${CREDIT_1}`)).toHaveCount(1)
   await expect(first.page.locator(`text=${CREDIT_2}`)).toHaveCount(1)
+  await expect(first.page.locator(`text=${CREDIT_GUI}`), '만든 사람 줄이 빠졌다').toHaveCount(1)
   await first.electronApp.close()
-  const second = await launch({ userData })
+  const second = await launch({ userData, intro: true })
+  await expect(second.page.locator('[data-intro]'), '두 번째 실행에도 여는 화면이 떴다').toHaveCount(0)
   await expect(second.page.locator(`text=${CREDIT_1}`)).toHaveCount(0)
   await second.electronApp.close()
+})
+
+/** 동작 줄이기를 켜도 크레딧은 남는다 — 줄이는 것은 움직임이지 내용이 아니다. */
+test('reduced motion keeps the intro readable', async () => {
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const { electronApp, page } = await launch({ userData, reducedMotion: 'reduce', intro: true })
+  await expect(page.locator('[data-intro]')).toHaveCount(1)
+  await expect(page.locator(`text=${CREDIT_GUI}`)).toBeVisible()
+  // 장식 층은 사라진다(움직임만 있는 요소라 남겨 둘 이유가 없다).
+  await expect(page.locator('.intro-bloom').first()).toBeHidden()
+  await electronApp.close()
 })
 
 test('hard rules hold across screens', async () => {

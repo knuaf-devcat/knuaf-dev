@@ -128,6 +128,63 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 .project.gone { opacity: .55; }
 .credit { border: var(--hairline) dashed var(--line-strong); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-caption); margin-bottom: var(--sp-4); }
 
+/* ---- 첫 실행 여는 화면 ---------------------------------------------------
+   장식 층(블룸·링·스윕)은 전부 aria-hidden 이고 transform·opacity·filter 만 움직인다.
+   동작 줄이기에서는 맨 아래 블록이 장식을 지우고 한 번의 페이드만 남긴다. */
+@keyframes intro-bloom { from { opacity: 0; transform: scale(.2); } 55% { opacity: .85; } to { opacity: 0; transform: scale(1.9); } }
+@keyframes intro-ring { from { opacity: 0; transform: rotate(-120deg) scale(.6); } 40% { opacity: .9; } to { opacity: 0; transform: rotate(220deg) scale(1.35); } }
+@keyframes intro-mark { from { opacity: 0; transform: scale(.4) rotate(-14deg); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes intro-ch { from { opacity: 0; transform: translateY(14px) scale(.9); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes intro-rule { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: none; } }
+@keyframes intro-reveal { from { opacity: 0; transform: translateY(12px); clip-path: inset(0 0 100% 0); } to { opacity: 1; transform: none; clip-path: inset(0 0 0 0); } }
+@keyframes intro-sweep { from { transform: translateX(-130%); } to { transform: translateX(130%); } }
+@keyframes intro-out { to { opacity: 0; transform: scale(1.05); filter: blur(4px); } }
+
+.intro { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden; background: var(--bg); animation: backdrop-in var(--fade); }
+.intro[data-leaving] { animation: intro-out 420ms ease-in forwards; }
+.intro-bloom { position: absolute; width: min(86vw, 760px); aspect-ratio: 1; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent) 0%, color-mix(in srgb, var(--accent) 16%, transparent) 42%, transparent 70%);
+  animation: intro-bloom 2400ms ease-out both; }
+.intro-bloom.two { width: min(52vw, 460px); animation-delay: 420ms; animation-duration: 2100ms;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 66%); }
+.intro-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8); }
+
+.intro-mark { position: relative; display: grid; place-items: center; width: 92px; height: 92px;
+  animation: intro-mark var(--spring-slow-dur) both; animation-timing-function: var(--spring-sheet);
+  filter: drop-shadow(0 10px 28px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.intro-ring { position: absolute; inset: -24px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0turn, color-mix(in srgb, var(--accent) 85%, white) .16turn, var(--accent) .24turn, transparent .46turn);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 6px));
+  animation: intro-ring 1500ms ease-out both; animation-delay: 120ms; }
+
+.intro-title { font-size: calc(var(--fs-heading) * 1.9); font-weight: 700; letter-spacing: -.015em; color: var(--ink);
+  position: relative; overflow: hidden; margin-top: var(--sp-3); }
+.intro-ch { display: inline-block; animation: intro-ch 620ms both; animation-timing-function: var(--spring);
+  animation-delay: calc(360ms + var(--c, 0) * 26ms); }
+/* 제목이 다 앉은 뒤 빛이 한 번 지나간다. 글자를 덮으면 형광펜 자국처럼 보이므로
+   blend 로 밝히기만 한다 — 흰 띠가 지나가며 글자가 잠깐 빛난다. */
+.intro-title::after { content: ''; position: absolute; inset: -20% -10%; pointer-events: none;
+  mix-blend-mode: overlay; opacity: .9;
+  background: linear-gradient(104deg, transparent 40%, rgba(255, 255, 255, .95) 50%, transparent 60%);
+  animation: intro-sweep 1000ms ease-in-out both; animation-delay: 1200ms; }
+
+.intro-rule { width: 72px; height: 3px; border-radius: 2px; opacity: .9;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: intro-rule 520ms both; animation-timing-function: var(--spring); animation-delay: 1250ms; }
+.intro-line { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--muted); }
+.intro-line.one { animation: intro-reveal 560ms both; animation-timing-function: var(--spring); animation-delay: 1400ms; }
+.intro-line.two { color: var(--ink-2); font-weight: 600;
+  animation: intro-reveal 560ms both; animation-timing-function: var(--spring); animation-delay: 1620ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* 장식은 지우고, 글자는 제자리에서 한 번에 나타난다. */
+  .intro-bloom, .intro-ring, .intro-title::after { display: none; }
+  .intro-mark, .intro-ch, .intro-rule, .intro-line.one, .intro-line.two {
+    animation: backdrop-in 120ms both !important; animation-delay: 0ms !important;
+  }
+  .intro[data-leaving] { animation: backdrop-in var(--fade) reverse forwards; }
+}
+
 /* ---- Sheet (dialog) ---- */
 dialog.sheet { border: var(--hairline) solid var(--line); border-radius: var(--r-lg); background: var(--panel); color: var(--ink); padding: var(--sp-5); max-width: 560px; width: min(560px, calc(100vw - 48px)); box-shadow: var(--shadow-sheet); transform-origin: center; }
 dialog.sheet.side { position: fixed; inset: 0 0 0 auto; margin: 0; height: 100vh; max-height: 100vh; width: min(640px, 70vw); max-width: none; border-radius: 0; border-width: 0 0 0 var(--hairline); transform-origin: right center; display: flex; flex-direction: column; }

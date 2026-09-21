@@ -7,6 +7,7 @@ import { Artifacts } from './screens/Artifacts'
 import { Checkup } from './screens/Checkup'
 import { SettingsScreen } from './screens/Settings'
 import { Shell } from './components/Shell'
+import { Intro } from './components/Intro'
 import { Sidebar, type NavItem } from './components/Sidebar'
 import { NAV } from './copy'
 import { useShallow } from 'zustand/react/shallow'
@@ -22,8 +23,19 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export function App() {
-  const { screen, setScreen, root, hasProject, status, loadSettings, pushLog, open } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open })))
+  const { screen, setScreen, root, hasProject, status, settings, loadSettings, pushLog, open } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, settings: s.settings, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open })))
   const [dragging, setDragging] = React.useState(false)
+  /**
+   * 첫 실행 여는 화면. 크레딧을 "내 논문" 화면 안쪽 점선 상자로 얹어 두던 것을
+   * 앱 전체 위로 올렸다 — 처음 여는 순간에 한 번만 보이고, 본 사실은 그 자리에서
+   * 기록해 다시 뜨지 않는다(설정의 credit_shown_at).
+   */
+  const [intro, setIntro] = React.useState(false)
+  useEffect(() => {
+    if (!settings || settings.credit_shown_at) return
+    setIntro(true)
+    void window.knuaf.setSettings({ credit_shown_at: new Date().toISOString() })
+  }, [settings])
   useEffect(() => {
     void loadSettings()
     const h = location.hash.replace('#', '') as Screen
@@ -57,6 +69,7 @@ export function App() {
   const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? root : null
   return (
     <div style={{ height: '100%' }} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop} data-dragging={dragging || undefined}>
+    {intro && <Intro onDone={() => setIntro(false)} />}
     <Shell screenKey={screen} sidebar={<Sidebar items={NAV_ITEMS} active={screen} enabled={!!(root && hasProject)} onSelect={(s) => setScreen(s)} projectName={name} projectPath={root} revision={status?.revision ?? null} />}>
       {screens[screen]}
     </Shell>
