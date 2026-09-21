@@ -4,11 +4,15 @@ The contract that matters here is honesty about missing values: SKILL.md says
 unsupplied values stay `[확인 필요]`. A regression that turns a missing number
 into 0 or an empty cell would put an invented figure in a submitted thesis.
 """
+import json
 import re
 
 import pytest
 
+from conftest import parse_json, run_gg, run_script
+
 import gg_school_paper as sp
+from gg_frontmatter import frontmatter_lines, normalize_school_profile
 
 
 # --- years(): the 5-year plan window is derived, not supplied -----------------
@@ -110,3 +114,133 @@ def test_submitted_date_is_printed_when_supplied():
     not because the generator drops it."""
     out = sp.paper({**MINIMAL, "submitted": "2026년 12월"})
     assert "2026년 12월" in out
+
+
+# --- the caller's own body --------------------------------------------------
+#
+# The generated skeleton is the 2020 Ⅰ–Ⅵ 목차. A student who wrote to the 2026
+# 강의자료 목차 (Ⅰ머리말/Ⅱ농장현황/…/Ⅶ참고문헌) used to have no way to reach a
+# submittable DOCX: running the generator rearranged their chapters, and
+# bypassing it dropped the whole frontmatter (겉표지·제출면·인준서·목차).
+
+SCHOOL = {**MINIMAL, "school_profile": {"mode": "school", "layout": "forms_1_to_4"}}
+OWN_BODY = "\n".join([
+    "Ⅰ. 머리말", "", "딸기를 주작목으로 정한 이유를 적는다.", "",
+    "Ⅱ. 농장현황", "", "경영주와 가족 노동력을 적는다.", "",
+    "Ⅶ. 참고문헌 및 인터넷 참고 사이트", "", "[보류: 인용이 확정된 뒤 등재합니다]", "",
+])
+LEGACY_CHAPTERS = ("Ⅱ. 외부환경분석", "Ⅲ. 영농계획수립", "Ⅳ. 재무계획",
+                   "Ⅴ. 맺음말 및 발전방향", "Ⅵ. 참고문헌")
+
+
+def test_paper_keeps_the_frontmatter_when_the_caller_brings_its_own_body():
+    out = sp.paper({**SCHOOL, "body_markdown": OWN_BODY})
+    for form in ("겉표지", "표제면", "제출서", "인준서", "목차"):
+        assert form in out, form
+    assert "테스트 논문" in out, "겉표지의 제목이 사라짐"
+    for line in OWN_BODY.strip().splitlines():
+        assert line in out, line
+    # The 2020 skeleton must not reappear alongside the student's chapters.
+    for chapter in LEGACY_CHAPTERS:
+        assert chapter not in out, chapter
+
+
+def test_paper_without_its_own_body_is_byte_for_byte_the_generated_skeleton():
+    """새 입력을 주지 않으면 결과는 이전과 똑같아야 한다.
+
+    기대값은 옛 구현 그대로 조립한다: 정규화된 앞머리 + 프로필을 legacy 키로
+    덮어쓴 Ⅰ–Ⅵ 본문."""
+    merged = {**SCHOOL, "author": "홍길동", "major": "특용작물전공",
+              "school": "한국농수산대학교"}
+    legacy = sp._legacy_paper(merged)
+    body = legacy[legacy.index("Ⅰ. 머리말"):]
+    front = frontmatter_lines(normalize_school_profile(SCHOOL))
+    assert sp.paper(SCHOOL) == "\n".join(front + ["", body])
+    for chapter in LEGACY_CHAPTERS:
+        assert chapter in sp.paper(SCHOOL), chapter
+
+
+def test_paper_without_a_school_profile_is_byte_for_byte_the_legacy_output():
+    assert sp.paper(MINIMAL) == sp._legacy_paper(MINIMAL)
+
+
+def test_paper_with_its_own_body_still_refuses_to_invent_frontmatter_values():
+    """지도교수·제출연월이 비어 있으면 표시만 하고 지어내지 않는다."""
+    spec = {k: v for k, v in SCHOOL.items() if k != "advisor"}
+    out = sp.paper({**spec, "body_markdown": OWN_BODY})
+    assert "지도교수 " + sp.PENDING in out
+    assert not re.search(r"20\d{2}\s*년\s*\d{1,2}\s*월", out), "제출일을 지어냄"
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "\n\n\\ufeff \n"])
+def test_paper_refuses_an_empty_body_instead_of_emitting_a_frontmatter_only_file(bad):
+    """빈 본문으로 DOCX 가 나오면 호출자는 그것을 완료로 읽는다."""
+    with pytest.raises(ValueError, match="비어 있음"):
+        sp.paper({**SCHOOL, "body_markdown": bad})
+
+
+@pytest.mark.parametrize("bad", ["Ⅱ. 농장현황\n\n본론부터", "요약\n\nⅠ. 머리말"])
+def test_paper_refuses_a_body_that_does_not_start_at_the_first_chapter(bad):
+    with pytest.raises(ValueError, match="머리말"):
+        sp.paper({**SCHOOL, "body_markdown": bad})
+
+
+@pytest.mark.parametrize("bad", [42, ["Ⅰ. 머리말"], {"text": "Ⅰ. 머리말"}])
+def test_paper_refuses_a_body_that_is_not_text(bad):
+    with pytest.raises(TypeError, match="문자열"):
+        sp.paper({**SCHOOL, "body_markdown": bad})
+
+
+def test_paper_refuses_a_body_without_the_frontmatter_it_would_be_missing():
+    """앞머리를 만들 수 없는 모드에서는 본문만 돌려주지 않는다."""
+    with pytest.raises(ValueError, match="school_profile"):
+        sp.paper({**MINIMAL, "body_markdown": OWN_BODY})
+
+
+def test_paper_accepts_a_markdown_heading_as_the_first_chapter():
+    out = sp.paper({**SCHOOL, "body_markdown": "# Ⅰ. 머리말\n\n첫 문단.\n"})
+    assert "첫 문단." in out
+
+
+# --- the same road through both CLIs -----------------------------------------
+
+def _write_inputs(folder):
+    (folder / "paper.json").write_text(
+        json.dumps({"title": "T", "writing_year": 2026}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    merged = folder / "build" / "19" / "review" / "검토용.md"
+    merged.parent.mkdir(parents=True, exist_ok=True)
+    merged.write_text(OWN_BODY, encoding="utf-8")
+    return "build/19/review/검토용.md"
+
+
+def test_gg_paper_accepts_a_merged_body_file(empty_folder):
+    body = _write_inputs(empty_folder)
+    r = run_gg(empty_folder, "paper", "--input", "paper.json", "--body", body,
+               "--out", "build/본문.md", cwd=empty_folder, timeout=60)
+    assert r.returncode == 0, "stdout=%r stderr=%r" % (r.stdout, r.stderr)
+    out = (empty_folder / "build" / "본문.md").read_text(encoding="utf-8")
+    assert "겉표지" in out and "인준서" in out
+    assert "Ⅱ. 농장현황" in out
+    assert "Ⅲ. 영농계획수립" not in out
+
+
+def test_gg_paper_reports_a_reason_for_an_empty_body_file(empty_folder):
+    _write_inputs(empty_folder)
+    (empty_folder / "비었음.md").write_text("", encoding="utf-8")
+    r = run_gg(empty_folder, "paper", "--input", "paper.json", "--body", "비었음.md",
+               "--out", "build/본문.md", cwd=empty_folder, timeout=60)
+    assert r.returncode == 2
+    assert parse_json(r.stdout)["status"] == "blocked"
+    assert not (empty_folder / "build" / "본문.md").exists(), "빈 본문으로 산출물을 남김"
+
+
+def test_school_paper_script_accepts_the_same_body_file(empty_folder):
+    body = _write_inputs(empty_folder)
+    r = run_script("gg_school_paper.py", empty_folder, "--input", "paper.json",
+                   "--body", body, "--out", "build/본문.md", timeout=60)
+    assert r.returncode == 0, "stdout=%r stderr=%r" % (r.stdout, r.stderr)
+    out = (empty_folder / "build" / "본문.md").read_text(encoding="utf-8")
+    assert "겉표지" in out and "Ⅱ. 농장현황" in out
+    assert "Ⅲ. 영농계획수립" not in out

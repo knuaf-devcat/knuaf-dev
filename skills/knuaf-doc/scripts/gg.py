@@ -66,6 +66,10 @@ def main(argv=None):
     )
     ap.add_argument("--field")
     ap.add_argument("--input")
+    ap.add_argument(
+        "--body",
+        help="paper: 정본 절을 합친 본문 마크다운 경로 (예: build/19/review/검토용.md)",
+    )
     ap.add_argument("--observer")
     a = ap.parse_args(argv)
     try:
@@ -107,6 +111,11 @@ def main(argv=None):
             spec = json.loads(src.read_text(encoding="utf-8"))
             if not isinstance(spec, dict):
                 raise ValueError("논문 입력은 객체여야 함")
+            if a.body:
+                # 본문을 주면 앞머리만 생성하고 Ⅰ–Ⅵ 골격은 쓰지 않는다.
+                spec["body_markdown"] = core.local(a.folder, a.body).read_text(
+                    encoding="utf-8"
+                )
             spec.setdefault("school_profile", {"mode": "school", "layout": "forms_1_to_4"})
             dest.write_text(school_paper(spec), encoding="utf-8")
             value = {"path": str(dest), "status": "generated"}
