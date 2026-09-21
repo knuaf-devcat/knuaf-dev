@@ -26,15 +26,19 @@ export function App() {
   const { screen, setScreen, root, hasProject, status, settings, loadSettings, pushLog, open } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, settings: s.settings, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open })))
   const [dragging, setDragging] = React.useState(false)
   /**
-   * 첫 실행 여는 화면. 크레딧을 "내 논문" 화면 안쪽 점선 상자로 얹어 두던 것을
-   * 앱 전체 위로 올렸다 — 처음 여는 순간에 한 번만 보이고, 본 사실은 그 자리에서
-   * 기록해 다시 뜨지 않는다(설정의 credit_shown_at).
+   * 여는 화면. 크레딧을 "내 논문" 화면 안쪽 점선 상자로 얹어 두던 것을 앱 전체 위로
+   * 올렸다. 처음에는 첫 실행에만 띄웠지만(설정의 credit_shown_at) 켤 때마다 보고 싶다는
+   * 요청이 있어 매번 띄운다 — 누르거나 아무 키나 누르면 그 자리에서 건너뛴다.
+   *
+   * 한 번 띄운 뒤로는 `shown` 이 막는다. 설정은 나중에도 바뀌므로(권한 토글 등)
+   * 그때마다 다시 뜨면 안 된다.
    */
   const [intro, setIntro] = React.useState(false)
+  const shown = React.useRef(false)
   useEffect(() => {
-    if (!settings || settings.credit_shown_at) return
+    if (!settings || shown.current || settings.show_intro === false) return
+    shown.current = true
     setIntro(true)
-    void window.knuaf.setSettings({ credit_shown_at: new Date().toISOString() })
   }, [settings])
   useEffect(() => {
     void loadSettings()

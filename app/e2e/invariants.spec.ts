@@ -55,19 +55,24 @@ test('reduced motion collapses transitions but keeps the spinner', async () => {
   await electronApp.close()
 })
 
-test('credit shows on first launch only', async () => {
+test('credit shows on every launch', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const first = await launch({ userData, intro: true })
-  // 크레딧은 이제 첫 실행 여는 화면 안에 있다 — 점선 상자로 조용히 얹혀 있던 것을 옮겼다.
+  // 크레딧은 이제 여는 화면 안에 있다 — 점선 상자로 조용히 얹혀 있던 것을 옮겼다.
   await expect(first.page.locator('[data-intro]')).toHaveCount(1)
   await expect(first.page.locator(`text=${CREDIT_1}`)).toHaveCount(1)
   await expect(first.page.locator(`text=${CREDIT_2}`)).toHaveCount(1)
   await expect(first.page.locator(`text=${CREDIT_GUI}`), '만든 사람 줄이 빠졌다').toHaveCount(1)
   await first.electronApp.close()
+  // 같은 폴더로 다시 켜도 또 뜬다 — 한 번 보고 마는 화면이 아니다.
   const second = await launch({ userData, intro: true })
-  await expect(second.page.locator('[data-intro]'), '두 번째 실행에도 여는 화면이 떴다').toHaveCount(0)
-  await expect(second.page.locator(`text=${CREDIT_1}`)).toHaveCount(0)
+  await expect(second.page.locator('[data-intro]'), '두 번째 실행에는 여는 화면이 안 떴다').toHaveCount(1)
+  await expect(second.page.locator(`text=${CREDIT_GUI}`)).toHaveCount(1)
   await second.electronApp.close()
+  // 끄는 길은 남겨 둔다(설정 show_intro=false — 시험이 쓰는 것과 같은 스위치).
+  const off = await launch({ userData: mkdtempSync(join(tmpdir(), 'kd-ud-')) })
+  await expect(off.page.locator('[data-intro]'), 'show_intro=false 인데 떴다').toHaveCount(0)
+  await off.electronApp.close()
 })
 
 /** 동작 줄이기를 켜도 크레딧은 남는다 — 줄이는 것은 움직임이지 내용이 아니다. */

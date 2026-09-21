@@ -53,7 +53,9 @@ export function Intro({ onDone }: { onDone: () => void }): React.JSX.Element {
       <div className="intro-inner">
         <div className="intro-mark">
           <span className="intro-ring" aria-hidden="true" />
-          <CatMark size={160} animated label={CREDIT.markAlt} />
+          {/* 굴러 들어오는 것과 떠 있는 것을 다른 요소에 나눠 건다. 한 요소에서 같은
+              속성(transform)을 두 애니메이션이 건드리면 합성기가 맡지 않는다. */}
+          <span className="intro-tilt"><CatMark size={160} animated label={CREDIT.markAlt} /></span>
         </div>
         <div className="intro-title"><Letters text={CREDIT.line1} /></div>
         <div className="intro-rule" aria-hidden="true" />

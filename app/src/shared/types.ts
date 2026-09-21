@@ -51,6 +51,11 @@ export interface RecentEntry { root: string; opened_at: string }
 export interface Settings {
   recent: RecentEntry[]
   credit_shown_at: string | null
+  /**
+   * 여는 화면을 띄울지. 기본은 띄운다 — 켤 때마다 본다.
+   * 시험이 이것으로 끈다(스펙 90개가 저마다 2.6초를 더 기다릴 이유가 없다).
+   */
+  show_intro?: boolean
   python_override: string | null
   codex_terminal?: boolean
   /**
