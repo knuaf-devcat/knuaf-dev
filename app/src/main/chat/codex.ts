@@ -15,8 +15,14 @@ export function realOrSelf(p: string): string {
  * `['app-server']`. 단위 테스트가 이 모양을 고정한다(e2e/agent.spec.ts).
  */
 export function serverArgsFor(env: NodeJS.ProcessEnv): string[] {
+  const args: string[] = []
   const cfg = codexSkillConfigOverride(env.HOME)
-  return cfg ? ['-c', cfg, 'app-server'] : ['app-server']
+  if (cfg) args.push('-c', cfg)
+  // 모델·추론 강도도 같은 방식으로 이 프로세스에서만 정한다. 값이 없으면 인자를 늘리지
+  // 않고 CLI 기본값(학생의 config.toml)을 그대로 쓴다.
+  if (env.KNUAF_CODEX_MODEL) args.push('-c', `model=${env.KNUAF_CODEX_MODEL}`)
+  if (env.KNUAF_CODEX_EFFORT) args.push('-c', `model_reasoning_effort=${env.KNUAF_CODEX_EFFORT}`)
+  return [...args, 'app-server']
 }
 
 export class CodexConnection implements AgentConnection {

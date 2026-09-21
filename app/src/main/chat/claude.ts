@@ -158,6 +158,9 @@ function bashOutside(root: string, raw: string): string[] | null {
 const PERMISSION_LOST = /Tool permission request failed/i
 
 /** 이 메시지에 "승인 통로가 닫혀 죽은 도구 호출"이 몇 건 들어 있는가. */
+/** SDK 가 받는 추론 강도. 알 수 없는 값은 조용히 무시한다 — 오타로 세션이 죽지 않게. */
+const CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
+
 export function lostToolCalls(message: unknown): number {
   const content = (message as { message?: { content?: unknown } })?.message?.content
   if (!Array.isArray(content)) return 0
@@ -270,8 +273,11 @@ export class ClaudeConnection implements AgentConnection {
       // scope (buildLaunchScript in ../agent.ts).
       env: this.options.env, settingSources: ['project', 'local'],
       resume: sessionId, abortController: this.controller, permissionMode: 'default',
-      // 테스트 전용 모델 핀(live 스펙이 sonnet 으로 비용을 낮춘다). 미설정이면 기본.
+      // 모델·추론 강도 핀. 미설정이면 CLI 기본값을 그대로 쓴다 — 학생 설정을 덮지 않는다.
+      // (live 스펙이 sonnet 으로 비용을 낮추는 데도 같은 통로를 쓴다.)
       ...(this.options.env.KNUAF_CLAUDE_MODEL ? { model: this.options.env.KNUAF_CLAUDE_MODEL } : {}),
+      ...(CLAUDE_EFFORTS.has(this.options.env.KNUAF_CLAUDE_EFFORT ?? '')
+        ? { effort: this.options.env.KNUAF_CLAUDE_EFFORT as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', append: '이 세션은 개인용 knuaf-dev GUI입니다. knuaf-dev 스킬과 참조 지침을 그대로 따르세요. 질문과 답변은 채팅 텍스트로 유지하고 인터뷰 원문과 해석을 스킬의 로그 계약대로 기록하세요. 셸 명령은 앱이 그대로 읽고 판단할 수 있어야 자동으로 통과합니다. 변수 대입($PY=… 같은)·$PWD 같은 변수 참조·`…`·$(…)·서브셸·리다이렉트를 쓰지 말고, 경로는 따옴표로 감싼 절대경로를 그대로 적으세요. 그러지 않으면 학생에게 읽을 수 없는 승인 창이 뜹니다. 셸에 프로그램을 밀어 넣지 마세요(heredoc·python -c 등). 엑셀·문서 읽기는 스킬의 스크립트에 이미 있으니 그것을 쓰세요. 서브에이전트를 백그라운드로 띄우지 마세요(run_in_background 금지). 턴이 끝난 뒤에 도구를 쓰면 승인 통로가 이미 닫혀 있어 그 작업은 반드시 실패합니다.' },
       // 백그라운드 서브에이전트를 막는 것은 취향이 아니다. SDK 는 문자열 prompt 를 단일
       // 턴으로 보고 첫 result 에서 CLI 의 stdin 을 닫는다(sdk.mjs: isSingleUserTurn).
