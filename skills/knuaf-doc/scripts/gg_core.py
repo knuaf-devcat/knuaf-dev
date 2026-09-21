@@ -1282,6 +1282,13 @@ def _finance_unsupported_units(p):
     return out
 
 
+class _UnsupportedFormula(ValueError):
+    """검사기가 표현하지 못하는 산식. 데이터가 틀린 것이 아니라 도구의 한계다."""
+
+
+_SUPPORTED_OPS = "지금 도구는 두 항 나눗셈·뺄셈과 두 항 이상 덧셈·곱셈만 검산할 수 있음"
+
+
 def checks(root, p):
     from gg_document import parse
 
@@ -1375,20 +1382,33 @@ def checks(root, p):
                     if src["period"] != f["period"] or src["scope"] != f["scope"]:
                         raise ValueError("환산으로 기간/범위를 바꿀 수 없음")
                     value = vals[0] * Decimal(factors[(src["unit"], f["unit"])])
-                elif op in {"multiply", "divide", "add", "subtract"}:
-                    if len(vals) != 2 or not f["formula"].get("unit_reason"):
-                        raise ValueError("이항 산식/단위 근거 필요")
-                    a, b = vals
-                    if op == "multiply":
-                        value = a * b
-                    elif op == "divide":
-                        value = a / b
-                    elif op == "add":
-                        value = a + b
-                    else:
-                        value = a - b
+                # 덧셈·곱셈만 n항으로 받는다. 항을 늘려도 검사기가 하는 일은 같은
+                # 종류의 검산이라 틀린 계산이 숨을 자리가 늘지 않는다. 임의 수식을
+                # 평가하게 만들면 그때부터 검사기가 틀린 계산을 맞다고 말할 수 있다.
+                # 나눗셈·뺄셈은 순서가 뜻을 바꾸므로 n항의 의미가 모호해 두 항 그대로,
+                # PMT 같은 금융 함수는 반올림·관례가 학교 지침과 갈릴 수 있어 넣지 않는다.
+                elif op in {"add", "multiply", "divide", "subtract"}:
+                    n_ary = op in {"add", "multiply"}
+                    if len(vals) < 2 or (not n_ary and len(vals) != 2):
+                        raise _UnsupportedFormula(
+                            "피연산자 %d개: %s" % (len(vals), _SUPPORTED_OPS)
+                        )
+                    if not f["formula"].get("unit_reason"):
+                        raise ValueError("단위 근거 필요")
+                    value = vals[0]
+                    for v in vals[1:]:
+                        if op == "add":
+                            value = value + v
+                        elif op == "multiply":
+                            value = value * v
+                        elif op == "divide":
+                            value = value / v
+                        else:
+                            value = value - v
                 else:
-                    raise ValueError("미지원 산식")
+                    raise _UnsupportedFormula(
+                        "미지원 연산 '%s': %s" % (op, _SUPPORTED_OPS)
+                    )
                 if value != Decimal(f["value"]):
                     raise ValueError("계산 결과 불일치")
             except (
@@ -1398,7 +1418,16 @@ def checks(root, p):
                 ArithmeticError,
                 TypeError,
             ) as e:
-                add("calculation", fid, str(e))
+                # 도구가 표현하지 못하는 산식을 본문·정본의 잘못으로 세지 않는다 —
+                # 확인 못 한 것은 보류다. 값이 실제로 안 맞는 "계산 결과 불일치"는
+                # 진짜 오류이므로 그대로 실패로 센다. 보류도 severity 는 error 라
+                # blocks_skill_candidate() 가 제출 관문을 똑같이 막는다.
+                add(
+                    "calculation",
+                    fid,
+                    str(e),
+                    status="blocked" if isinstance(e, _UnsupportedFormula) else "fail",
+                )
     for sid, s in p["sections"].items():
         try:
             raw = local(root, s["path"]).read_text(encoding="utf-8")
