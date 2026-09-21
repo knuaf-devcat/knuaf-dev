@@ -1515,6 +1515,11 @@ def _table_claim_verdict(rows, context, label, expected_d, unit, period_keys, sc
     return matched, conflicted
 
 
+# `finance.own_capital` 처럼 점·밑줄로 이어 붙인 ASCII 식별자. `매출액`·`NPV`·
+# `수매 판매량` 처럼 사람이 본문에 쓰는 말은 여기 걸리지 않는다.
+_MACHINE_FIELD_ID = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._][A-Za-z0-9]+)+$")
+
+
 def crosscheck_body(text, values):
     """Check explicit scope/period/metric/amount/unit claims, not arbitrary prose.
 
@@ -1556,7 +1561,18 @@ def crosscheck_body(text, values):
             continue
         issue["location"] = label
         if label not in text:
-            issue["reason"] = "본문에 재무 항목 없음"
+            # 기계용 식별자는 본문에 있을 수가 없다. 그것을 "본문에 항목이 없다"고
+            # 말하면 앱이 확인하지 못한 것을 본문의 잘못으로 돌린다 — 실제로 자기자본이
+            # 본문에 분명히 적혀 있는데도 36건이 그렇게 실패로 세어졌다. 대조 자체가
+            # 불가능하므로 보류다. 통과가 아니며 제출 관문은 그대로 막힌다.
+            if _MACHINE_FIELD_ID.match(label):
+                issue["status"] = "blocked"
+                issue["reason"] = (
+                    "사실 이름이 기계용 식별자라 본문에서 찾을 수 없음: "
+                    "field_id 를 본문에 쓰는 항목 이름(예: 매출액)으로 두어야 대조한다"
+                )
+            else:
+                issue["reason"] = "본문에 재무 항목 없음"
             issues.append(issue)
             continue
 

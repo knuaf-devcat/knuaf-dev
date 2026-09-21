@@ -1595,10 +1595,12 @@ def checks(root, p):
             from gg_school_excel import crosscheck_body
 
             for item in crosscheck_body(body, items):
+                # 대조기가 "확인 못 함"이라고 한 것을 여기서 "틀림"으로 바꾸지 않는다.
                 add(
                     "body_finance_crosscheck",
                     item.get("fact_id") or item["location"],
                     item["reason"],
+                    status=item.get("status", "fail"),
                 )
     except (OSError, ValueError, KeyError, ImportError) as e:
         add("document_parse", "body", str(e), status="blocked")
