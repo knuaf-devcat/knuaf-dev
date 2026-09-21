@@ -2,6 +2,8 @@ import type { ConnectionStatus, PermissionRequest } from '../../shared/chat'
 export interface AgentEvents {
   message: (id: string, text: string) => void
   permission: (request: PermissionRequest) => void
+  /** 앱이 학생에게 직접 하는 말 — 도우미의 답변이 아니라 대화에 남는 시스템 줄. */
+  note: (text: string) => void
   session: (id: string) => void
   skill: () => void
 }

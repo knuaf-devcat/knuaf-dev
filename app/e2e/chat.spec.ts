@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { skillSource, VERSION_FILE } from '../src/main/agent'
-import { autoAllow, describeTool } from '../src/main/chat/claude'
+import { autoAllow, describeTool, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
 import { subscriptionEnv } from '../src/main/chat/contracts'
 import type { AgentConnection } from '../src/main/chat/contracts'
@@ -166,6 +166,34 @@ test('계속 허용을 고르면 줄에 남은 요청도 묻지 않는다', asyn
   expect(answered, '줄에 남은 요청도 허용으로 닫혀야 한다').toEqual([{ id: 'p1', allow: true }, { id: 'p2', allow: true }])
   done()
   await settled(svc, root)
+  await svc.close()
+})
+
+// 시험주행 발견 11 — SDK 는 문자열 prompt 를 단일 턴으로 보고 첫 result 에서 CLI 의
+// stdin 을 닫는다. 그 뒤의 쓰기 호출은 요청이 전송되기도 전에 죽어 canUseTool 이 불리지
+// 않고, 앱은 승인 창을 띄울 기회조차 없다. 학생 화면에는 아무 일도 없었던 것처럼 보이고
+// 도우미만 "쓰기 권한 차단"이라고 말한다. 막지는 못해도 말은 해야 한다.
+const lostResult = (body: string) => ({ type: 'user', message: { content: [{ type: 'tool_result', is_error: true, content: body }] } })
+
+test('승인 통로가 닫혀 죽은 도구 호출을 집어낸다 (발견 11)', () => {
+  expect(lostToolCalls(lostResult('Tool permission request failed: AbortError: Stream closed'))).toBe(1)
+  expect(lostToolCalls(lostResult('Tool permission request failed: AbortError: Tool permission stream closed before response received'))).toBe(1)
+  // 학생이 직접 거절한 것은 실패가 아니다 — 이것까지 세면 정상적인 거절이 오류로 보인다.
+  expect(lostToolCalls(lostResult('사용자가 허용하지 않았습니다.'))).toBe(0)
+  // 평범한 도구 오류도 아니다.
+  expect(lostToolCalls(lostResult('File not found'))).toBe(0)
+  expect(lostToolCalls({ type: 'assistant', message: { content: [{ type: 'text', text: '안녕하세요' }] } })).toBe(0)
+  expect(lostToolCalls(undefined)).toBe(0)
+})
+
+test('앱이 하는 말은 도우미 말이 아니라 시스템 줄로 남는다', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
+  const svc = service(fake({ run: async (_t, _sid, events) => { events.note('저장하지 못한 것이 있어요') } }))
+  await svc.send(root, 'codex', '자료를 읽어 주세요', 'req-note')
+  const s = await settled(svc, root)
+  const note = s.messages.find((m) => m.role === 'system')
+  expect(note, '앱의 말이 대화에 남지 않았다').toBeTruthy()
+  expect(note!.text).toContain('저장하지 못한 것이 있어요')
   await svc.close()
 })
 

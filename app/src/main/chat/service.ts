@@ -196,6 +196,10 @@ export class ChatService {
           delivered()
           this.publish(s)
         },
+        note: text => {
+          s.messages.push({ id: randomUUID(), role: 'system', text, at: new Date().toISOString() })
+          this.publish(s)
+        },
         permission: permission => {
           const q = this.waiting.get(key) ?? []
           q.push(permission); this.waiting.set(key, q)

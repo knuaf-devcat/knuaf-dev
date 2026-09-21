@@ -116,6 +116,33 @@ function bashOutside(root: string, raw: string): string[] | null {
   return out
 }
 
+/**
+ * 승인 통로가 이미 닫힌 뒤에 들어온 도구 호출의 흔적.
+ *
+ * SDK 는 문자열 prompt 를 단일 턴으로 보고 첫 `result` 에서 CLI 의 stdin 을 닫는다.
+ * 그 뒤의 쓰기 계열 호출은 요청이 전송되기도 전에 죽어 `canUseTool` 이 불리지 않고,
+ * 앱은 승인 창을 띄울 기회조차 없다. 학생 화면에는 아무 일도 없었던 것처럼 보이고
+ * 도우미만 "쓰기 권한이 차단됐다"고 말한다(시험주행 발견 11).
+ *
+ * 막을 수는 없어도 **말할 수는 있다.** 실패한 도구 결과는 앱이 이미 읽고 있는
+ * 메시지 스트림에 그대로 흘러오므로 여기서 집어 낸다.
+ */
+const PERMISSION_LOST = /Tool permission request failed/i
+
+/** 이 메시지에 "승인 통로가 닫혀 죽은 도구 호출"이 몇 건 들어 있는가. */
+export function lostToolCalls(message: unknown): number {
+  const content = (message as { message?: { content?: unknown } })?.message?.content
+  if (!Array.isArray(content)) return 0
+  let n = 0
+  for (const block of content) {
+    const b = block as { type?: unknown; is_error?: unknown; content?: unknown }
+    if (b?.type !== 'tool_result' || b.is_error !== true) continue
+    const body = typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '')
+    if (PERMISSION_LOST.test(body)) n++
+  }
+  return n
+}
+
 /** 원시 JSON 대신 학생이 읽을 수 있는 한 문장. 자세한 값은 그대로 덧붙인다. */
 function describeTool(name: string, input: unknown, root: string): { title: string; detail: string } {
   const keys = PATH_TOOLS[name] ?? []
@@ -248,14 +275,19 @@ export class ClaudeConnection implements AgentConnection {
       events.skill()
       const account = await q.accountInfo()
       if (account.apiKeySource && account.apiKeySource !== 'none') throw new Error('API 인증이 감지되어 중단했어요. 구독 인증을 확인해 주세요.')
+      let lost = 0
       for await (const message of q) {
         if ('session_id' in message && message.session_id) events.session(message.session_id)
+        lost += lostToolCalls(message)
         if (message.type === 'assistant') {
           const text = message.message.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
           if (text) events.message(message.uuid, text)
         }
         if (message.type === 'result' && message.is_error) throw new Error('Claude 작업이 완료되지 않았어요. 연결·사용 한도와 마지막 대화를 확인해 주세요.')
       }
+      // 턴이 성공으로 끝나도 그 안에서 조용히 죽은 작업이 있으면 그대로 말한다.
+      // 이걸 안 하면 도우미의 마무리 인사만 남고 실패는 아무 데도 안 보인다.
+      if (lost > 0) events.note(`도우미가 이번 작업 중에 파일 ${lost}건을 저장하지 못했어요. 앱이 승인 창을 띄우기 전에 통로가 닫혀서, 그 저장은 일어나지 않았어요. 필요하면 다시 요청해 주세요.`)
     } finally {
       q.close(); this.active = undefined
       // 답을 기다리던 요청은 거절로 닫고 지운다. 그냥 지우면 canUseTool 의 promise 가
