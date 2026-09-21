@@ -19,6 +19,8 @@ import type { ReactNode } from 'react'
 const KIND_LABEL: Record<string, string> = { docx: 'DOCX', xlsx: 'XLSX', pdf: 'PDF', md: 'MD' }
 const PAPER_IN = 'paper-input.json'
 const PAPER_MD = 'build/검토전_본문.md'
+/** 검토본 export 가 내놓는 병합 본문 — `build/<개정>/review/검토용.md`. */
+const REVIEW_MD = /(?:^|\/)review\/[^/]+\.md$/
 
 /** Check rows whose target mentions this file name; fail beats pass, no rows → neutral. */
 function CheckBadge({ name, checks }: { name: string; checks: CheckRow[] | null }) {
@@ -67,6 +69,15 @@ export function Artifacts() {
   const missing = !!status?.lanes.content_review.independent_review_missing
   const taken = (p: string) => !!items?.some((i) => i.path === p)
   const hasMdInput = !!items?.some((i) => i.path === PAPER_MD)
+  /**
+   * 도우미가 실제로 쓰는 길 — 정본의 절을 합친 검토본. 앱이 `build/검토전_본문.md`
+   * 한 이름만 인정하던 때에는 Ⅰ~Ⅶ 이 다 쓰이고 검토본까지 나온 뒤에도 버튼이 잠긴 채
+   * "도우미가 아직 본문을 준비하지 않았어요"라고 했다(시험주행 발견 17).
+   * 개정이 여럿이면 가장 최근 것을 쓴다.
+   */
+  const reviewMd = useMemo(() => (items ?? [])
+    .filter((i) => i.kind === 'md' && REVIEW_MD.test(i.path))
+    .sort((a, b) => (b.revision ?? -1) - (a.revision ?? -1) || b.mtime - a.mtime)[0]?.path ?? null, [items])
   const financeReady = !!materials?.current_finance.provided
   if (!root) return null
 
@@ -153,13 +164,17 @@ export function Artifacts() {
       })
     }
     try {
-      // 본문 md가 이미 있으면 그대로, 없으면 도우미의 paper-input.json으로 먼저 만든다.
+      // 본문 md가 있으면 그대로. 없으면 도우미의 paper-input.json 으로 만들고,
+      // 그것도 없으면 검토본을 쓴다 — 학교 양식 입력이 있으면 그쪽이 먼저다.
       let md = PAPER_MD
-      if (!hasMdInput) {
+      if (!hasMdInput && hasPaperInput) {
         setFailTool('tools:paper')
         md = versioned(PAPER_MD, taken)
         const env = await runner.run('paper.generate', { root, input: PAPER_IN, out: md })
         if (!env?.ok) { fail(env, 'tools:paper'); return }
+      } else if (!hasMdInput) {
+        if (!reviewMd) return   // 버튼이 잠겨 있어 여기까지 오지 않는다
+        md = reviewMd
       }
       setFailTool('tools:docx')
       const out = versioned('build/검토전_논문.docx', taken)
@@ -181,8 +196,8 @@ export function Artifacts() {
         <div className="card-head"><h2>{ARTIFACTS.make.title}</h2></div>
         <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.review}</div><div className="caption">{ARTIFACTS.make.reviewBody}</div></div>
           <button onClick={() => void doExport('review')} disabled={making === 'review'}>{ARTIFACTS.make.review}</button></div>
-        <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.docx}</div><div className="caption">{(hasMdInput || hasPaperInput) ? ARTIFACTS.make.docxBody : ARTIFACTS.make.docxNoInput}</div></div>
-          <button onClick={() => void doDocx()} disabled={making === 'docx' || !(hasMdInput || hasPaperInput)}>{ARTIFACTS.make.docx}</button></div>
+        <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.docx}</div><div className="caption">{(hasMdInput || reviewMd || hasPaperInput) ? ARTIFACTS.make.docxBody : ARTIFACTS.make.docxNoInput}</div></div>
+          <button onClick={() => void doDocx()} disabled={making === 'docx' || !(hasMdInput || reviewMd || hasPaperInput)}>{ARTIFACTS.make.docx}</button></div>
         <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.submit}</div><div className="caption">{ARTIFACTS.make.submitBody}</div></div>
           <button onClick={() => void doExport('submission_candidate')} disabled={making === 'submission_candidate'}>{ARTIFACTS.make.submit}</button></div>
         <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.xlsx}</div><div className="caption">{financeReady ? ARTIFACTS.make.xlsxBody : ARTIFACTS.make.xlsxNoInput}</div></div>
