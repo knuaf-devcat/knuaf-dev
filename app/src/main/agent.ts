@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
+import { APP_NAME_ASCII } from '../shared/name'
 
 // ---------------------------------------------------------------- types
 
@@ -263,7 +264,9 @@ export function codexSkillConfigOverride(home: string | undefined): string | nul
   return `skills.config=[${paths.map((p) => `{path="${esc(p)}",enabled=false}`).join(',')}]`
 }
 
-export const BANNER = '한농대 창업논문 헬퍼이 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.'
+// 터미널 한 줄이라 여기서는 ASCII 짧은 이름을 쓴다 — 긴 이름을 넣으면 "도우미가 AI
+// 도우미를 엽니다" 가 되어 같은 말이 두 번 나온다.
+export const BANNER = `${APP_NAME_ASCII} 가 AI 도우미를 엽니다. 이 창을 닫으면 도우미도 종료돼요.`
 
 /** Directories an agent process needs ahead of PATH: project venv, bundled runtime, user installs. */
 export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBin'>): string[] {

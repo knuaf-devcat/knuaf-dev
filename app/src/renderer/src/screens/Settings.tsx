@@ -10,6 +10,7 @@ import { OutputsTools } from './Outputs'
 import { TroubleshootSections } from './Troubleshoot'
 import { HELPER, PRIVACY_NOTE, SETTINGS, type DescribedError } from '../copy'
 import { useShallow } from 'zustand/react/shallow'
+import { APP_NAME } from '../../../shared/name'
 
 export function SettingsScreen() {
   const { root, settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper, open, loading, settingsFocus, clearSettingsFocus } = useProject(useShallow((s) => ({ root: s.root, settings: s.settings, loadSettings: s.loadSettings, sidecar: s.sidecar, refreshSidecar: s.refreshSidecar, logs: s.logs, clearLogs: s.clearLogs, openHelper: s.openHelper, open: s.open, loading: s.loading, settingsFocus: s.settingsFocus, clearSettingsFocus: s.clearSettingsFocus })))
@@ -135,7 +136,7 @@ export function SettingsScreen() {
 
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
-        <div className="caption">한농대 창업논문 헬퍼 · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
+        <div className="caption">{APP_NAME} · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
         <div className="row" style={{ marginTop: 'var(--sp-2)' }}>{info && <button onClick={() => window.knuaf.openPath(info.logs)}>로그 폴더 열기</button>}</div>
         <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{PRIVACY_NOTE}</p>
       </section>

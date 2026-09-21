@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../shared/name'
 /**
  * copy.ts — every user-facing string of the companion app in one place.
  *
@@ -585,12 +586,15 @@ export const PRIVACY_NOTE = 'AI 도우미를 연결하면 답변과 작업 폴�
 
 /** SKILL.md:8 — shown once on first entry, never inside a document or author field. */
 export const CREDIT = {
-  line1: 'knuaf-doc · 창업논문 작성 도우미',
+  line1: APP_NAME,
   line2: 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재',
   /** 앱(GUI)을 만든 사람. 학번은 넣지 않는다 — 공개 저장소와 배포본에 같이 실린다. */
   gui: 'GUI: made by 산업곤충전공 이준재',
-  /** 여는 화면의 앱 마크를 화면 낭독기가 읽는 이름. */
-  markAlt: '한농대 창업논문 헬퍼'
+  /**
+   * 여는 화면의 앱 마크를 화면 낭독기가 읽는 이름. 이름 앞의 토막(KNUAF-Dev)은 뺀다 —
+   * 낭독기가 글자를 하나씩 읽어 무슨 말인지 알 수 없게 된다. 바로 아래 제목이 전체 이름을 준다.
+   */
+  markAlt: '창업논문 작성 도우미'
 } as const
 
 /** parser-setup.md:12 — the only sentence said when Kordoc is actually installed. */

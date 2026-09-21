@@ -4,6 +4,7 @@ import { CatMark } from './CatMark'
 import { rpc } from '../rpc'
 import { Sheet } from './Sheet'
 import { Badge } from './Badge'
+import { APP_NAME } from '../../../shared/name'
 import { NAV, READ_ONLY_NOTE, STATUS_LABEL } from '../copy'
 import type { Screen } from '../store/project'
 import type { SectionRow } from '../../../shared/types'
@@ -40,7 +41,7 @@ export function Sidebar({ items, active, enabled, onSelect, projectName, project
   const openSection = async (id: string) => { if (!projectPath) return; try { setSel(await rpc.readSection(projectPath, id)) } catch { /* missing section — row stays */ } }
   return (
     <nav className="sidebar" aria-label="화면">
-      <div className="brand"><CatMark size={22} /><span>한농대 창업논문 헬퍼</span></div>
+      <div className="brand"><CatMark size={22} /><span>{APP_NAME}</span></div>
       <div className="project-chip">
         {projectPath ? <div className="name" title={projectPath}>{projectName}{/* revision rises on every apply (gg_core.py:872), including the agent's — not only
             on something the student did, so "저장"(학생 행위)이 아니라 "기록". */}

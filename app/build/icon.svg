@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- 한농대 창업논문 헬퍼 앱 아이콘. 사진은 base64 로 박아 둔다 — build-icons.mjs 가
+  <!-- KNUAF-Dev · 창업논문 작성 도우미 앱 아이콘. 사진은 base64 로 박아 둔다 — build-icons.mjs 가
        Chromium 으로 렌더하므로 외부 파일 참조 없이 이대로 PNG/icns/ico 가 나온다.
        32px 이하는 사진이 뭉개져 icon-small.svg 의 마크로 갈린다(SMALL_MAX=32). -->
   <defs><clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="229" ry="229"/></clipPath></defs>

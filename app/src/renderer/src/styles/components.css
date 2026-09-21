@@ -6,8 +6,10 @@
 [data-platform="win32"] .sidebar { padding-top: calc(40px + var(--sp-2)); border-right: var(--hairline) solid var(--line); }
 [data-platform="darwin"][data-vibrancy="off"] .sidebar, [data-platform="linux"] .sidebar { border-right: var(--hairline) solid var(--line); }
 .sidebar button, .toolbar button, .toolbar input, .toolbar select { -webkit-app-region: no-drag; }
-.brand { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-3); font-weight: 600; letter-spacing: var(--ls-heading); }
-.brand svg { width: 22px; height: 22px; color: var(--accent); flex: none; }
+/* 이름이 두 줄로 넘어간다(사이드바 224px). 마크는 첫 줄에 맞춰 붙인다 —
+   가운데 정렬로 두면 두 줄 한가운데에 떠서 글자와 어긋나 보인다. */
+.brand { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-3); font-weight: 600; letter-spacing: var(--ls-heading); line-height: 1.35; }
+.brand svg { width: 22px; height: 22px; flex: none; margin-top: 1px; }
 .project-chip { padding: 0 var(--sp-2) var(--sp-3); min-width: 0; }
 .project-chip .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chip .path { font-size: var(--fs-micro); letter-spacing: var(--ls-micro); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }

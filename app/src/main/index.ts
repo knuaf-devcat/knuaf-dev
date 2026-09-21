@@ -7,6 +7,7 @@ import type { ChatService } from './chat/service'
 import { APP_ROOT } from './python'
 import { installMenu, type MenuAction } from './menu'
 import { LEGACY_USERDATA_NAMES, migrateUserDataDir } from './userdata'
+import { APP_NAME } from '../shared/name'
 
 // Tests point userData at a temp dir so first-run state (credit, recents) is isolated.
 if (process.env.KNUAF_USER_DATA) app.setPath('userData', process.env.KNUAF_USER_DATA)
@@ -27,10 +28,10 @@ function sendMenu(action: MenuAction): void {
 }
 
 app.setAboutPanelOptions({
-  applicationName: '한농대 창업논문 헬퍼',
+  applicationName: APP_NAME,
   applicationVersion: app.getVersion(),
   version: '',
-  credits: 'knuaf-doc · 창업논문 작성 도우미\nprod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재\n\n논문은 AI 도우미(Claude Code)가 채팅으로 쓰고, 이 앱은 저장 상태·검사·산출물·복구를 맡습니다.',
+  credits: 'KNUAF-Dev · 창업논문 작성 도우미\nprod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재\n\n논문은 AI 도우미(Claude Code)가 채팅으로 쓰고, 이 앱은 저장 상태·검사·산출물·복구를 맡습니다.',
   copyright: 'MIT'
 })
 
@@ -51,7 +52,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: '한농대 창업논문 헬퍼',
+    title: APP_NAME,
     backgroundColor: colors.bg,
     show: false,
     ...(isMac

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { APP_ROOT } from './python'
 import { loadSettings } from './settings'
+import { APP_NAME } from '../shared/name'
 
 export type MenuAction =
   | { type: 'open-folder' }
@@ -42,7 +43,7 @@ export function installMenu(send: (a: MenuAction) => void): void {
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { label: '한농대 창업논문 헬퍼 정보', role: 'about' as const },
+        { label: `${APP_NAME} 정보`, role: 'about' as const },
         { type: 'separator' as const },
         { label: '설정…', accelerator: 'CmdOrCtrl+,', click: () => send({ type: 'settings' }) },
         { type: 'separator' as const },

@@ -16,12 +16,15 @@ import { join } from 'node:path'
  * 이름은 `<appData>/<이름>` 으로 해석된다(모든 플랫폼에서 같은 규칙).
  */
 export const LEGACY_USERDATA_NAMES = [
-  'knuaf-doc 동반 앱',   // 설치판이 쓰던 폴더
-  'knuaf-doc Companion' // 개발 모드가 쓰던 폴더
+  'KNUAF Thesis Helper', // 2026-09-20~09-21 설치판(CFBundleName)
+  '한농대 창업논문 헬퍼',    // 같은 기간의 표시이름 — 개발 모드가 이쪽에 만들기도 했다
+  'knuaf-doc 동반 앱',    // 그 전 설치판
+  'knuaf-doc Companion'  // 그 전 개발 모드
 ]
 // 2026-09-20 개명("한농대 창업논문 헬퍼") 때 실측: 설치판의 새 폴더는 표시이름이 아니라
-// CFBundleName(= productName, "KNUAF Thesis Helper")으로 생겼고, 위 두 이름에서
-// settings.json 을 가져오는 것까지 확인했다(credit_shown_at 가 그대로 넘어왔다).
+// CFBundleName(= productName)으로 생겼고, 옛 이름에서 settings.json 을 가져오는 것까지
+// 확인했다(credit_shown_at 가 그대로 넘어왔다). 2026-09-21 "KNUAF-Dev" 개명 때 두 이름을
+// 앞에 더했다 — 최근 폴더·권한 설정이 날아가지 않게 한다. 먼저 찾은 것을 쓰므로 새 것부터 적는다.
 
 /**
  * current 에 settings.json 이 없고 legacy 중 하나에 있으면 복사해 온다.

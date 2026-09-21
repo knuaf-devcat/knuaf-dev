@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ts from 'typescript'
 import { app, launch, navTo, openPreset, openProject, plantStaleLock, synthProject } from './helpers'
+import { APP_NAME, APP_NAME_ASCII } from '../src/shared/name'
 
-const CREDIT_1 = 'knuaf-doc · 창업논문 작성 도우미'
+const CREDIT_1 = APP_NAME
 const CREDIT_2 = 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재'
 const CREDIT_GUI = 'GUI: made by 산업곤충전공 이준재'
 const KORDOC = '문서를 읽는 데 필요한 도구를 준비할게요. 처음 한 번은 시간이 조금 걸릴 수 있어요.'
@@ -36,9 +37,10 @@ function koreanStrings(file: string): string[] {
   return hits
 }
 
-// 기존 위반이 271건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
+// 기존 위반이 270건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
 // 건다. 하나라도 줄이면 이 숫자도 같이 줄일 것(0이면 toEqual([])로 바꾼다).
-const KNOWN_USER_STRING_VIOLATIONS = 271
+// 271 → 270: 사이드바에 박혀 있던 앱 이름을 src/shared/name.ts 로 옮겼다.
+const KNOWN_USER_STRING_VIOLATIONS = 270
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []
@@ -46,6 +48,24 @@ test('user-facing strings live in copy.ts', () => {
     for (const f of readdirSync(join(app, 'src', 'renderer', 'src', dir)).filter((f) => f.endsWith('.tsx')))
       hits.push(...koreanStrings(join(app, 'src', 'renderer', 'src', dir, f)).map((h) => `${dir}/${f}:${h}`))
   expect(hits, `\n${hits.join('\n')}`).toHaveLength(KNOWN_USER_STRING_VIOLATIONS)
+})
+
+/**
+ * 앱 이름은 src/shared/name.ts 한 군데에서 온다. electron-builder.yml 은 TS 를 읽지
+ * 못해 같은 문자열을 손으로 적어 두므로, 어긋나면 여기서 잡는다 — 어긋나면 화면과
+ * Finder 가 서로 다른 이름을 보여 준다.
+ */
+test('the built app is named what the app calls itself', () => {
+  const yml = readFileSync(join(app, 'electron-builder.yml'), 'utf-8')
+  const value = (key: string): string | null => yml.match(new RegExp(`^\\s*${key}:\\s*(.+?)\\s*$`, 'm'))?.[1] ?? null
+  for (const key of ['executableName', 'CFBundleDisplayName', 'title']) {
+    expect(value(key), `electron-builder.yml 의 ${key} 가 APP_NAME 과 다르다`).toBe(APP_NAME)
+  }
+  // 헬퍼 번들 이름과 설치판 userData 폴더 이름이 여기서 온다 — 한글이 섞이면 앱이 죽는다.
+  expect(value('productName')).toBe(APP_NAME_ASCII)
+  expect(APP_NAME_ASCII, 'ASCII 가 아닌 글자가 섞였다').toMatch(/^[A-Za-z0-9._-]+$/)
+  expect(value('artifactName'), '내려받는 파일 이름에 공백·비ASCII 가 있으면 링크가 깨진다')
+    .toMatch(/^[A-Za-z0-9._${}-]+$/)
 })
 
 test('reduced motion collapses transitions but keeps the spinner', async () => {
@@ -59,15 +79,22 @@ test('credit shows on every launch', async () => {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const first = await launch({ userData, intro: true })
   // 크레딧은 이제 여는 화면 안에 있다 — 점선 상자로 조용히 얹혀 있던 것을 옮겼다.
-  await expect(first.page.locator('[data-intro]')).toHaveCount(1)
-  await expect(first.page.locator(`text=${CREDIT_1}`)).toHaveCount(1)
-  await expect(first.page.locator(`text=${CREDIT_2}`)).toHaveCount(1)
-  await expect(first.page.locator(`text=${CREDIT_GUI}`), '만든 사람 줄이 빠졌다').toHaveCount(1)
+  // 앱 이름은 사이드바에도 있으므로 여는 화면 안으로 좁혀서 본다. 그리고 2.6초 뒤
+  // 스스로 나가므로 한 번에 읽는다 — 한 줄씩 기다리면 읽는 도중에 사라진다.
+  const intro = first.page.locator('[data-intro]')
+  await expect(intro).toHaveCount(1)
+  // 제목은 글자마다 span 으로 흩어져 있고 공백은 줄이 무너지지 않게 U+00A0 으로
+  // 바뀌어 있다(Intro.tsx 의 Letters). 읽을 때 보통 공백으로 되돌린다.
+  const shown = (await intro.innerText()).replace(/\u00a0/g, ' ')
+  expect(shown).toContain(CREDIT_1)
+  expect(shown).toContain(CREDIT_2)
+  expect(shown, '만든 사람 줄이 빠졌다').toContain(CREDIT_GUI)
   await first.electronApp.close()
   // 같은 폴더로 다시 켜도 또 뜬다 — 한 번 보고 마는 화면이 아니다.
   const second = await launch({ userData, intro: true })
-  await expect(second.page.locator('[data-intro]'), '두 번째 실행에는 여는 화면이 안 떴다').toHaveCount(1)
-  await expect(second.page.locator(`text=${CREDIT_GUI}`)).toHaveCount(1)
+  const again = second.page.locator('[data-intro]')
+  await expect(again, '두 번째 실행에는 여는 화면이 안 떴다').toHaveCount(1)
+  expect((await again.innerText()).replace(/\u00a0/g, ' ')).toContain(CREDIT_GUI)
   await second.electronApp.close()
   // 끄는 길은 남겨 둔다(설정 show_intro=false — 시험이 쓰는 것과 같은 스위치).
   const off = await launch({ userData: mkdtempSync(join(tmpdir(), 'kd-ud-')) })

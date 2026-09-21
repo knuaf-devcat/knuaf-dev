@@ -9,6 +9,7 @@ import { agentApi, skillSource, type AgentCtx, type AgentKind } from './agent'
 import { ChatService } from './chat/service'
 import { openGuide } from './menu'
 import { loadSettings, rememberRecent, saveSettings } from './settings'
+import { APP_NAME } from '../shared/name'
 
 /** Chrome hints the renderer uses to lay out its title bar; also used by main when creating the window. */
 export function windowInfo(): WindowInfo {
@@ -115,7 +116,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       const w = win()
       if (w) {
         const name = root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root
-        w.setTitle(`${name} — 한농대 창업논문 헬퍼`)
+        w.setTitle(`${name} — ${APP_NAME}`)
         if (process.platform === 'darwin') w.setRepresentedFilename(root)
       }
       const hasProject = existsSync(join(root, 'project.json'))
