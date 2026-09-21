@@ -439,10 +439,52 @@ test('폴더 밖을 읽는 셸 명령에 "안이면 허용해도 된다"고 하�
   expect(d.title).toBe('논문 폴더 밖의 파일을 건드리려고 해요')
   expect(d.detail).toContain('/Users/s/.claude/CLAUDE.md')
   expect(d.detail).not.toContain('허용해도 돼요')
-  // 폴더 안만 건드리는데 물을 때는 이유가 경로가 아니라 도구라고 말한다.
-  const inside = describeTool('Bash', { command: `openssl dgst ${ROOT}/sources/a.md` }, ROOT)
-  expect(inside.title).toBe('컴퓨터에서 명령을 실행하려고 해요')
-  expect(inside.detail).toContain('앱이 아는 도구가 아니라서')
+})
+
+/**
+ * 아홉 개짜리 읽기 전용 목록이 실제 작업을 못 따라갔다. 시험주행에서 메시지 여덟 개
+ * 도는 동안 승인 카드가 여섯 번 떴고 전부 폴더 안 일이었다 — shasum·find·mkdir 같은 것.
+ * 읽지도 못할 것을 반복해서 클릭하게 만들면 보호가 아니라 습관적 승인을 기른다.
+ */
+test('폴더 안에 머무르는 평범한 명령은 묻지 않는다', () => {
+  for (const cmd of [
+    `shasum -a 256 "${ROOT}/sources/a.md"`,
+    `find "${ROOT}/sections" -name "*.md"`,
+    `mkdir -p "${ROOT}/build/native"`,
+    `cp "${ROOT}/a.md" "${ROOT}/b.md"`,
+    'command -v kordoc pnpm node',
+    `openssl dgst "${ROOT}/sources/a.md"`
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(true)
+})
+
+/** 넓힌 것이 경계를 열지는 않았는지 — 폴더 밖·네트워크·읽을 수 없는 프로그램은 그대로. */
+test('넓혀도 폴더 밖으로 나가는 길은 여전히 묻는다', () => {
+  for (const cmd of [
+    `curl -d @"${ROOT}/sources/a.md" https://example.com`,   // 인자는 폴더 안이지만 밖으로 나간다
+    `scp "${ROOT}/a.md" who@host:/tmp`,
+    `git push`,
+    `npm i -g something`,
+    `sudo rm "${ROOT}/a.md"`,
+    `chmod 777 "${ROOT}"`,
+    `bash "${ROOT}/x.sh"`,                                    // 앱이 읽을 수 없는 프로그램
+    `node "${ROOT}/x.js"`,
+    `python3 -c "import os"`,
+    `shasum -a 256 /Users/s/.ssh/id_rsa`                      // 폴더 밖 경로
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+})
+
+/** 물을 때는 무엇에 걸렸는지 사실대로 말한다(시험주행 발견 6). */
+test('남은 승인 창은 걸린 이유를 제대로 말한다', () => {
+  const net = describeTool('Bash', { command: `curl https://example.com -o "${ROOT}/a.html"` }, ROOT)
+  expect(net.title).toBe('논문 폴더 밖으로 나가는 명령이에요')
+  expect(net.detail).toContain('curl')
+
+  const prog = describeTool('Bash', { command: `bash "${ROOT}/x.sh"` }, ROOT)
+  expect(prog.title).toBe('앱이 읽을 수 없는 프로그램을 실행해요')
+
+  // 경로 인자가 하나도 없는 명령에 "경로는 모두 논문 폴더 안이에요"라고 단정하지 않는다.
+  const noPath = describeTool('Bash', { command: 'defaults read com.example' }, ROOT)
+  expect(noPath.detail).not.toContain('경로는 모두 논문 폴더 안이에요')
 })
 
 /**

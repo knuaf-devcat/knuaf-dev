@@ -50,8 +50,23 @@ const BENIGN_REDIR = /\s*(?:2>&1|&?>\s*\/dev\/null|2>\s*\/dev\/null)/g
  * 펼침은 셸이 하고 판정은 앱이 하니, 펼쳐지는 기호는 전부 판정 불가로 둔다.
  */
 const SHELL_UNJUDGEABLE = /[`<>(){}$~]/
-/** 읽기만 하는 도구. 경로 인자는 전부 작업폴더 안이어야 한다. */
-const READ_ONLY = new Set(['cd', 'ls', 'echo', 'head', 'tail', 'cat', 'pwd', 'wc', 'true'])
+/**
+ * 폴더 안에 머무르지 않는 도구들. 경로 인자가 전부 폴더 안이어도 **폴더 밖 효과**를 낸다 —
+ * 네트워크로 내보내거나, 다른 앱을 몰거나, 권한·설치를 건드린다.
+ *
+ * 앱의 경계는 "논문 폴더 안" 하나다. 네트워크는 그 경계 밖에서도 가장 바깥이라
+ * 여기 둔다. 목록에 없는 평범한 도구는 경로만 폴더 안이면 묻지 않는다.
+ */
+const OUTSIDE_REACH = new Set([
+  'curl', 'wget', 'nc', 'ncat', 'socat', 'ssh', 'scp', 'sftp', 'rsync', 'ftp', 'telnet',
+  'sudo', 'su', 'doas', 'chmod', 'chown', 'chgrp', 'launchctl', 'defaults', 'osascript',
+  'open', 'npm', 'npx', 'pnpm', 'yarn', 'pip', 'pip3', 'brew', 'git', 'crontab', 'killall'
+])
+/**
+ * 앱이 읽을 수 없는 프로그램을 돌리는 것들. 파일 하나만 넘겨도 그 안에 무엇이 있는지
+ * 앱은 모른다 — 스킬이 실제로 돌리는 스크립트만 통과시킨다.
+ */
+const INTERPRETERS = /^(python3?(\.\d+)?|sh|bash|zsh|node|perl|ruby)$/
 /** 스킬이 실제로 돌리는 스크립트들. */
 const SKILL_SCRIPT = /(^|\/)(gg|gg_[a-z_]+|build_docx|show_research|merge_sections|build_status|lint_[a-z_]+)\.py$/
 
@@ -69,18 +84,31 @@ function argsInRoot(root: string, args: string[]): boolean {
   return args.every((a) => a.startsWith('-') || !(a.includes('/') || a === '.' || a === '..') || outsideRoot(root, a) === null)
 }
 
+/**
+ * 이 조각을 묻지 않고 통과시켜도 되는가.
+ *
+ * 예전에는 아홉 개짜리 읽기 전용 목록이었다. 그래서 `shasum <폴더 안 파일>`,
+ * `find <폴더 안>`, `mkdir -p <폴더 안>` 같은 것이 전부 승인 창을 띄웠고,
+ * 시험주행에서는 메시지 여덟 개 도는 동안 카드가 여섯 번 떴다. 전부 폴더 안 일이었다.
+ *
+ * 읽지도 못할 것을 반복해서 클릭하게 만들면 그건 보호가 아니라 습관적 승인을 기르는
+ * 일이다. 그래서 파일 도구에 이미 적용하던 선을 셸에도 같게 적용한다 —
+ * **경로가 전부 논문 폴더 안이면 묻지 않는다.** 폴더 밖으로 나가는 도구와 앱이 읽을 수
+ * 없는 프로그램만 계속 묻는다.
+ */
 function safeSegment(root: string, seg: string): boolean {
   const t = tokens(seg)
   if (!t.length) return false
   const [exe, ...args] = t
   const base = exe.split('/').pop() ?? exe
-  if (/^python3?(\.\d+)?$/.test(base)) {
-    if (args.includes('-c') || args.includes('-m')) return false // 인라인 코드·모듈 실행
+  if (INTERPRETERS.test(base)) {
+    if (args.some((a) => a === '-c' || a === '-m' || a === '-e')) return false // 인라인 코드
     const script = args.find((a) => !a.startsWith('-'))
     if (!script) return argsInRoot(root, args)                   // python3 --version 같은 조회
     return SKILL_SCRIPT.test(script) && argsInRoot(root, args)
   }
-  return READ_ONLY.has(base) && argsInRoot(root, args)
+  if (OUTSIDE_REACH.has(base)) return false
+  return argsInRoot(root, args)
 }
 
 function isSkillCommand(root: string, input: unknown): boolean {
@@ -153,7 +181,15 @@ function describeTool(name: string, input: unknown, root: string): { title: stri
     const out = bashOutside(root, cmd)
     if (out === null) return { title: '앱이 읽을 수 없는 명령이에요', detail: `${cmd}\n\n변수나 기호가 섞여 있어 무엇을 건드릴지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
     if (out.length) return { title: '논문 폴더 밖의 파일을 건드리려고 해요', detail: `${cmd}\n\n폴더 밖: ${out.join(', ')}\n\n논문 폴더 안이 아니에요. 의도한 일이 아니면 거절해 주세요.` }
-    return { title: '컴퓨터에서 명령을 실행하려고 해요', detail: `${cmd}\n\n경로는 모두 논문 폴더 안이에요. 앱이 아는 도구가 아니라서 여쭤봐요.` }
+    // 여기까지 왔다는 것은 autoAllow 가 통과시키지 않았다는 뜻이다. 이유를 사실대로
+    // 나눠 말한다 — 예전에는 무엇에 걸렸든 "경로는 모두 논문 폴더 안이에요"라고 단정해서,
+    // 경로 인자가 하나도 없는 명령(`command -v …`)에도 그렇게 적혔다(시험주행 발견 6).
+    const segs = cmd.split(/\s*(?:\|\||&&|;|\|)\s*/).map((x) => x.trim()).filter(Boolean)
+    const reach = segs.map((x) => (tokens(x)[0] ?? '').split('/').pop() ?? '').find((b) => OUTSIDE_REACH.has(b))
+    if (reach) return { title: '논문 폴더 밖으로 나가는 명령이에요', detail: `${cmd}\n\n"${reach}" 는 네트워크·다른 앱·설치처럼 폴더 밖에 닿아요. 의도한 일이 아니면 거절해 주세요.` }
+    const interp = segs.find((x) => INTERPRETERS.test((tokens(x)[0] ?? '').split('/').pop() ?? ''))
+    if (interp) return { title: '앱이 읽을 수 없는 프로그램을 실행해요', detail: `${cmd}\n\n프로그램 안에 무엇이 있는지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    return { title: '컴퓨터에서 명령을 실행하려고 해요', detail: `${cmd}\n\n앱이 폴더 안 일이라고 확인하지 못한 명령이에요. 무슨 일인지 모르겠으면 거절해 주세요.` }
   }
   return { title: `도우미가 "${name}" 도구를 쓰려고 해요`, detail: JSON.stringify(input, null, 2) }
 }
