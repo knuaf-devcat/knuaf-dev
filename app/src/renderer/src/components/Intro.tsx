@@ -53,7 +53,7 @@ export function Intro({ onDone }: { onDone: () => void }): React.JSX.Element {
       <div className="intro-inner">
         <div className="intro-mark">
           <span className="intro-ring" aria-hidden="true" />
-          <CatMark size={120} animated label={CREDIT.markAlt} />
+          <CatMark size={160} animated label={CREDIT.markAlt} />
         </div>
         <div className="intro-title"><Letters text={CREDIT.line1} /></div>
         <div className="intro-rule" aria-hidden="true" />

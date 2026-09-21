@@ -149,9 +149,11 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 66%); }
 .intro-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8); }
 
-.intro-mark { position: relative; display: grid; place-items: center; width: 120px; height: 120px;
+.intro-mark { position: relative; display: grid; place-items: center; width: 160px; height: 160px;
   animation: intro-mark 520ms both; animation-timing-function: var(--spring-sheet);
-  filter: drop-shadow(0 10px 28px color-mix(in srgb, var(--accent) 60%, transparent)); }
+  /* 고양이는 흰 고양이다 — 초록을 너무 먹이면 탁해진다. 초록은 뒤 배경이 맡고,
+     마크에는 형태를 띄울 만큼만 얹는다. */
+  filter: drop-shadow(0 8px 22px rgb(0 0 0 / .28)) drop-shadow(0 0 26px color-mix(in srgb, var(--accent) 28%, transparent)); }
 .intro-mark::before { content: ''; position: absolute; inset: -46px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 66%);
   animation: backdrop-in 700ms ease-out both; animation-delay: 300ms; }
@@ -180,29 +182,34 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
   animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1340ms; }
 
 /* ---- 고양이 마크 ----
-   한 덩어리 사진과 달리 도형이 나뉘어 있어 부위별로 들어온다.
-   귀가 쫑긋 서고 머리가 앉은 뒤, 선글라스가 위에서 툭 떨어진다. */
-.cat { display: block; }
-.cat-bg, .cat-face, .cat-ear, .cat-head, .cat-glass, .cat-shine { transform-box: fill-box; transform-origin: center; }
-@keyframes cat-bg { from { opacity: 0; transform: scale(.3) rotate(-18deg); } to { opacity: 1; transform: none; } }
-@keyframes cat-ear { from { opacity: 0; transform: translateY(26%) scale(.2); } to { opacity: 1; transform: none; } }
-@keyframes cat-head { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: none; } }
-@keyframes cat-glass { from { opacity: 0; transform: translateY(-260%) rotate(-10deg); } to { opacity: 1; transform: none; } }
+   올려 받은 선화를 조각으로 나눠 들고 있어 부위별로 들어온다. 얼굴이 튀어 오르고,
+   선이 위에서 아래로 그어지고, 귀가 쫑긋 서고, 안경알이 툭 떨어진 뒤 빛이 지나간다.
+   잉크와 얼굴색은 고양이의 것이라 테마를 따르지 않는다 — 흰 고양이에 검은 선이다. */
+.cat { display: block; --cat-ink: #17171a; --cat-face: #fbf8f0; }
+.cat-body, .cat-fill, .cat-line, .cat-ear, .cat-glass, .cat-shine, .cat-nose, .cat-wipe {
+  transform-box: fill-box; transform-origin: center; }
+@keyframes cat-fill { from { opacity: 0; transform: scale(.34) rotate(-16deg); } to { opacity: 1; transform: none; } }
+@keyframes cat-wipe { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes cat-ear { from { opacity: 0; transform: translateY(40%) scale(.2); } to { opacity: 1; transform: none; } }
+@keyframes cat-glass { from { opacity: 0; transform: translateY(-420%) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes cat-nose { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
 @keyframes cat-nod { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(-3.5deg); } }
-@keyframes cat-shine { from { transform: translateX(-60%); } to { transform: translateX(520%); } }
-.cat-anim .cat-bg { animation: cat-bg 520ms both; animation-timing-function: var(--spring-sheet); }
-.cat-anim .cat-ear { animation: cat-ear 420ms both; animation-timing-function: var(--spring-sheet); }
-.cat-anim .cat-ear.l { animation-delay: 220ms; }
-.cat-anim .cat-ear.r { animation-delay: 290ms; }
-.cat-anim .cat-head { animation: cat-head 440ms both; animation-timing-function: var(--spring-sheet); animation-delay: 200ms; }
-.cat-anim .cat-glass { animation: cat-glass 560ms both; animation-timing-function: var(--spring-sheet); animation-delay: 520ms; }
-.cat-anim .cat-face { animation: cat-nod 620ms ease-in-out both; animation-delay: 1020ms; }
-.cat-anim .cat-shine { animation: cat-shine 620ms ease-in-out both; animation-delay: 1180ms; }
+@keyframes cat-shine { from { transform: translateX(0); } to { transform: translateX(1500px); } }
+.cat-anim .cat-fill { animation: cat-fill 540ms both; animation-timing-function: var(--spring-sheet); }
+.cat-anim .cat-wipe { animation: cat-wipe 620ms both; animation-timing-function: cubic-bezier(.22,.7,.3,1); animation-delay: 180ms; }
+.cat-anim .cat-ear { animation: cat-ear 440ms both; animation-timing-function: var(--spring-sheet); }
+.cat-anim .cat-ear.l { animation-delay: 320ms; }
+.cat-anim .cat-ear.r { animation-delay: 400ms; }
+.cat-anim .cat-glass { animation: cat-glass 580ms both; animation-timing-function: var(--spring-sheet); animation-delay: 620ms; }
+.cat-anim .cat-nose { animation: cat-nose 380ms both; animation-timing-function: var(--spring-sheet); animation-delay: 900ms; }
+.cat-anim .cat-body { animation: cat-nod 620ms ease-in-out both; animation-delay: 1060ms; }
+.cat-anim .cat-shine { animation: cat-shine 700ms ease-in-out both; animation-delay: 1180ms; }
 
 @media (prefers-reduced-motion: reduce) {
   /* 장식은 지우고, 글자는 제자리에서 한 번에 나타난다. */
   .intro-bloom, .intro-ring, .intro-title::after, .cat-shine { display: none; }
-  .cat-anim .cat-bg, .cat-anim .cat-ear, .cat-anim .cat-head, .cat-anim .cat-glass, .cat-anim .cat-face {
+  .cat-anim .cat-fill, .cat-anim .cat-wipe, .cat-anim .cat-ear, .cat-anim .cat-glass,
+  .cat-anim .cat-nose, .cat-anim .cat-body {
     animation: none !important; opacity: 1 !important; transform: none !important;
   }
   .intro-mark, .intro-ch, .intro-rule, .intro-line.one, .intro-line.two {
