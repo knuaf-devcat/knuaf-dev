@@ -613,7 +613,7 @@ def custom_body(spec):
         return None
     if not isinstance(body, str):
         raise TypeError("본문(body_markdown)은 문자열이어야 함")
-    body = body.replace("\\ufeff", "").strip()  # BOM
+    body = body.replace("\ufeff", "").strip()  # BOM
     if not body:
         raise ValueError("본문(body_markdown)이 비어 있음: 병합된 본문 파일을 지정")
     # 마크다운 제목 기호는 허용하되, 시작 장은 확인한다. 본문이 다른 데서

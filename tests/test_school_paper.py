@@ -172,7 +172,7 @@ def test_paper_with_its_own_body_still_refuses_to_invent_frontmatter_values():
     assert not re.search(r"20\d{2}\s*년\s*\d{1,2}\s*월", out), "제출일을 지어냄"
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "\n\n\\ufeff \n"])
+@pytest.mark.parametrize("bad", ["", "   ", "\n\n\ufeff \n"])
 def test_paper_refuses_an_empty_body_instead_of_emitting_a_frontmatter_only_file(bad):
     """빈 본문으로 DOCX 가 나오면 호출자는 그것을 완료로 읽는다."""
     with pytest.raises(ValueError, match="비어 있음"):
@@ -244,3 +244,10 @@ def test_school_paper_script_accepts_the_same_body_file(empty_folder):
     out = (empty_folder / "build" / "본문.md").read_text(encoding="utf-8")
     assert "겉표지" in out and "Ⅱ. 농장현황" in out
     assert "Ⅲ. 영농계획수립" not in out
+
+
+# BOM 이 붙은 본문 파일(윈도우 편집기에서 흔하다)이 "Ⅰ. 머리말로 시작하지 않는다"로
+# 거절되면 학생은 눈에 보이지 않는 한 글자 때문에 막힌다. BOM 은 지우고 받는다.
+def test_a_body_with_a_bom_is_accepted():
+    body = "\ufeffⅠ. 머리말\n\n본문입니다.\n"
+    assert sp.custom_body({"body_markdown": body}).startswith("Ⅰ. 머리말")
