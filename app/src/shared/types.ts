@@ -66,6 +66,14 @@ export interface Settings {
    * 정하고 설정에서 언제든 되돌린다. 다른 폴더로 옮겨가지 않는다.
    */
   trusted_roots?: string[]
+  /**
+   * 도구를 쓸 때마다 물을지 정하는 전역 기본값. **키가 없으면 'trust'**(묻지 않기)로 읽는다 —
+   * 기존 사용자도 기본이 바뀐다. 읽지도 못할 명령을 매번 클릭하게 만드는 것은 동의를 구하는
+   * 일이 아니라 습관을 만드는 일이고, 그러면 정작 폴더 밖을 건드리는 순간에도 허용을 누른다.
+   * 'ask' 를 고르면 예전처럼 매번 묻는다. 마이그레이션은 하지 않는다 — 없을 때 'trust' 로
+   * 읽는 것으로 충분하다. 폴더별 trusted_roots 는 이 값과 무관하게 그대로 살아 있다.
+   */
+  permission_mode?: 'trust' | 'ask'
 }
 /** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
 export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }

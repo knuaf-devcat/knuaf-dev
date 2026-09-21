@@ -74,6 +74,48 @@ test('chat helper pick names ChatGPT and persists claude-chat', async () => {
   expect(JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).helper_mode).toBe('claude-chat')
 })
 
+// 권한 묻기의 기본값은 '묻지 않기'다 — 설정 파일이 아예 없는 새 학생에게도, 이 키가 없던
+// 옛 설정을 그대로 쓰는 학생에게도 그렇게 보인다(마이그레이션 없이 읽는 쪽 기본값).
+test('a student with no permission_mode setting sees the default as not asking', async () => {
+  const fresh = await launch({ userData: freshUserData() })
+  await navTo(fresh.page, '설정')
+  await expect(fresh.page.locator('input[name="permission-mode"]').nth(0)).toBeChecked()
+  await expect(fresh.page.locator('input[name="permission-mode"]').nth(1)).not.toBeChecked()
+  await fresh.electronApp.close()
+
+  const userData = freshUserData()
+  writeFileSync(join(userData, 'settings.json'), JSON.stringify({ recent: [], helper_mode: 'codex-chat' }), 'utf-8')
+  const old = await launch({ userData })
+  await navTo(old.page, '설정')
+  await expect(old.page.locator('input[name="permission-mode"]').nth(0)).toBeChecked()
+  await old.electronApp.close()
+})
+
+// 끄면 예전처럼 묻는다 — 고른 값이 디스크에 남아야 다음 실행에도 이어진다.
+test('turning the permission toggle off records ask, and back on records trust', async () => {
+  const userData = freshUserData()
+  const { electronApp, page } = await launch({ userData })
+  await navTo(page, '설정')
+  await page.locator('input[name="permission-mode"]').nth(1).check()
+  await expect.poll(() => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).permission_mode).toBe('ask')
+  await page.locator('input[name="permission-mode"]').nth(0).check()
+  await expect.poll(() => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).permission_mode).toBe('trust')
+  await electronApp.close()
+})
+
+// 기본을 바꾸는 설정이면 무엇을 포기하는지도 같은 자리에서 말해야 한다 — 도우미가 논문 폴더
+// 밖의 자료(PDF·웹 문서)를 읽는다는 사실이 문구에 있어야 한다.
+test('the screen says what is given up, including reading outside material', async () => {
+  const { electronApp, page } = await launch()
+  await navTo(page, '설정')
+  const card = page.locator('section.card', { has: page.locator('input[name="permission-mode"]') })
+  await expect(card).toContainText('논문 폴더 밖')
+  await expect(card).toContainText('PDF')
+  await expect(card).toContainText('웹 문서')
+  await expect(card).toContainText('걸러 주지는 않아요')
+  await electronApp.close()
+})
+
 // 잘못 연 폴더가 첫 화면에 영원히 남으면 안 된다 — 폴더가 디스크에 있어도 목록에서 뺄 수 있다.
 test('an existing folder can be removed from the recent list', async () => {
   const userData = freshUserData()

@@ -219,7 +219,13 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     // 도우미에게도 프로젝트 .venv 와 번들 인터프리터를 건넨다 — Homebrew 없는 맥에서 막히지 않게.
     venvPython,
     bundledPython,
-    isTrusted: (root) => (loadSettings().trusted_roots ?? []).includes(trustKey(root))
+    // 전역 기본이 '묻지 않기'면 폴더를 가리지 않는다. 'ask' 로 되돌려도 학생이 권한 카드에서
+    // 직접 "이 폴더에서는 계속 허용"을 누른 폴더는 그대로 산다 — 받은 답을 무르지 않는다.
+    // loadSettings 를 호출할 때마다 새로 읽으므로 설정을 바꾸면 다음 도구 호출부터 반영된다.
+    isTrusted: (root) => {
+      const s = loadSettings()
+      return s.permission_mode === 'trust' || (s.trusted_roots ?? []).includes(trustKey(root))
+    }
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })

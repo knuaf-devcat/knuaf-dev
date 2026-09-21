@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RecentEntry, Settings } from '../shared/types'
 
-const DEFAULTS: Settings = { recent: [], credit_shown_at: null, python_override: null }
+const DEFAULTS: Settings = { recent: [], credit_shown_at: null, python_override: null, permission_mode: 'trust' }
 const RECENT_MAX = 8
 
 function file(): string { return join(app.getPath('userData'), 'settings.json') }
@@ -38,11 +38,19 @@ function migrateHelperMode(parsed: Partial<Settings>): Settings['helper_mode'] {
   return 'codex-chat'
 }
 
+/**
+ * 없는 키·알 수 없는 값은 'trust' — 기본은 묻지 않기다. 옛 설정을 고쳐 쓰는 마이그레이션이
+ * 아니라 읽는 쪽의 기본값이다(디스크 값은 다음 저장 때 자연히 적힌다).
+ */
+function normalisePermissionMode(raw: unknown): Settings['permission_mode'] {
+  return raw === 'ask' ? 'ask' : 'trust'
+}
+
 export function loadSettings(): Settings {
   try {
     if (existsSync(file())) {
       const parsed = JSON.parse(readFileSync(file(), 'utf-8')) as Partial<Settings> & { recent?: unknown }
-      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent), helper_mode: migrateHelperMode(parsed) }
+      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent), helper_mode: migrateHelperMode(parsed), permission_mode: normalisePermissionMode(parsed.permission_mode) }
     }
   } catch { /* corrupt settings fall back to defaults */ }
   return { ...DEFAULTS, helper_mode: 'codex-chat' }
