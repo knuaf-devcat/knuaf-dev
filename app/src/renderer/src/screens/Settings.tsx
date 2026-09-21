@@ -34,6 +34,9 @@ export function SettingsScreen() {
   const save = async () => { await window.knuaf.setSettings({ python_override: override || null }); await loadSettings(); await window.knuaf.sidecarRestart(); await refreshSidecar() }
   const mode: ChatMode = resolveChatMode(null, settings)
   const pickHelper = async (m: ChatMode) => { await window.knuaf.setSettings({ helper_mode: m }); await loadSettings(); setMode(null) }
+  // 설정이 아직 안 읽혔거나 키가 없으면 '묻지 않기' — 디스크 기본값과 같은 쪽으로 읽는다.
+  const permission: 'trust' | 'ask' = settings?.permission_mode === 'ask' ? 'ask' : 'trust'
+  const pickPermission = async (m: 'trust' | 'ask') => { await window.knuaf.setSettings({ permission_mode: m }); await loadSettings() }
   const pickFolder = async () => { const d = await window.knuaf.pickFolder(); if (d) void tryOpen(d) }
   const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
   return (
@@ -93,6 +96,17 @@ export function SettingsScreen() {
           <span>{SETTINGS.helperChatClaude}</span>
         </label>
         <p className="caption">{SETTINGS.helperChatNote}</p>
+        {/* 권한 묻기 기본값은 '묻지 않기'. 숨긴 기본값이 아니라 여기서 보이고 되돌릴 수 있어야 한다. */}
+        <div className="caption" style={{ marginTop: 'var(--sp-4)', marginBottom: 'var(--sp-1)' }}>{SETTINGS.permissionWhich}</div>
+        <label className="opt-card">
+          <input type="radio" name="permission-mode" checked={permission === 'trust'} onChange={() => void pickPermission('trust')} />
+          <span>{SETTINGS.permissionTrust}</span>
+        </label>
+        <label className="opt-card">
+          <input type="radio" name="permission-mode" checked={permission === 'ask'} onChange={() => void pickPermission('ask')} />
+          <span>{SETTINGS.permissionAsk}</span>
+        </label>
+        <p className="caption">{SETTINGS.permissionTradeoff}</p>
         <div className="row" style={{ marginTop: 'var(--sp-3)' }}><button onClick={() => void openHelper()}>{HELPER.button}</button></div>
       </section>
 

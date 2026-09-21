@@ -918,6 +918,16 @@ export const SETTINGS = {
   helperChatCodex: 'ChatGPT (Codex)',
   helperChatClaude: 'Claude Code — 실험 중',
   helperChatNote: 'Claude Code 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
+  /**
+   * 권한 묻기 기본값 — 기본은 '묻지 않기'다. 숨기지 않고 여기 보이는 설정으로 둔다.
+   * tradeoff 는 무엇을 포기하는지 사실만 적는다: 도우미는 논문 폴더 밖의 PDF·웹 문서도 읽고,
+   * 그렇게 읽은 글 안에 섞여 들어온 지시를 앱이 걸러 주지는 않는다. 겁주지 않고,
+   * 근거 없는 안심도 주지 않는다.
+   */
+  permissionWhich: '도우미가 도구를 쓸 때 물어볼까요?',
+  permissionTrust: '묻지 않기 — 기본값',
+  permissionAsk: '쓸 때마다 물어보기',
+  permissionTradeoff: '묻지 않기로 두면 도우미가 명령을 실행하거나 논문 폴더 밖의 파일을 열 때도 확인을 거치지 않아요. 도우미는 참고자료 PDF나 웹 문서도 읽는데, 그렇게 읽은 글 안에 섞여 들어온 지시를 앱이 걸러 주지는 않아요.',
   troubleTitle: '문제 해결',
   toolsTitle: '고급 도구',
   toolsNote: '직접 실행 — 평소엔 필요 없어요',
