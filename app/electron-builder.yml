@@ -53,6 +53,21 @@ mac:
   category: public.app-category.productivity
   extendInfo:
     CFBundleDisplayName: 한농대 창업논문 헬퍼
+    # 스킬이 osascript/AppleScript 로 Word·Excel 을 직접 몬다
+    # (skills/knuaf-doc/scripts/gg_office.py). entitlements 의
+    # com.apple.security.automation.apple-events 는 '보낼 수 있다'만 정할 뿐,
+    # 이 문자열이 없으면 macOS 가 자동화 동의 창 자체를 띄우지 못해 변환이
+    # 그 자리에서 실패한다. 학생이 무엇에 쓰는지 읽고 허용할 문장이라 한국어로 쓴다.
+    NSAppleEventsUsageDescription: "논문 DOCX와 재무 엑셀을 Word·Excel로 열어 PDF로 만들기 위해 사용합니다."
+    # 아래 넷은 Electron 기본 Info.plist 가 넣어 주는 영문 문구다. 이 앱은
+    # 카메라·마이크·블루투스를 쓰지 않으므로 키째로 지운다. null 은 빈 값이 아니라
+    # '삭제'로 동작한다 — macPackager 가 extendInfo 를 deepAssign 한 뒤 값이 null 인
+    # 키를 delete 한다(electron-builder 26 에서 산출물로 확인). 빈 문자열로 덮으면
+    # 키가 남아, 쓰지도 않는 권한을 요구하는 앱으로 보인다.
+    NSCameraUsageDescription: null
+    NSMicrophoneUsageDescription: null
+    NSBluetoothAlwaysUsageDescription: null
+    NSBluetoothPeripheralUsageDescription: null
     CFBundleDocumentTypes:
       - CFBundleTypeName: 논문 작업 폴더
         CFBundleTypeRole: Viewer
