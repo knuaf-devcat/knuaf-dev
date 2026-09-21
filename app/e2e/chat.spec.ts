@@ -25,7 +25,7 @@ function fake(over: Partial<AgentConnection> = {}): AgentConnection {
   }
 }
 
-function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => boolean } = {}) {
+function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => boolean; isTrusted?: (root: string) => boolean } = {}) {
   return new ChatService({
     skillSource: source,
     userData: mkdtempSync(join(tmpdir(), 'kd-ud-')),
@@ -99,6 +99,73 @@ test('a student stop is not reported as the app dying', async () => {
   const s = await settled(svc, root)
   expect(s.state, '중단은 죽은 것과 구별돼야 한다').toBe('stopped')
   expect(s.error, '학생이 멈춘 것은 실패가 아니다').toBeUndefined()
+  await svc.close()
+})
+
+// 시험주행 발견 8 — 권한 요청이 동시에 오면 뒤엣것이 앞엣것을 덮었다. 덮인 요청은
+// 아무에게도 닿지 않아 SDK 가 끊을 때까지 매달렸고, 도우미에게는 "Tool permission
+// request failed: AbortError: Stream closed"로 돌아갔다. 학생 화면에는 그 사이
+// 승인 창이 아예 뜨지 않아 "이유 없이 실패"로 보였다. 도우미가 서브에이전트를 띄우면
+// 늘 일어나는 일이라 실제 주행에서 발췌본 저장이 통째로 깨졌다.
+test('동시에 온 권한 요청은 덮이지 않고 차례로 뜬다 (발견 8)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
+  const answered: { id: string; allow: boolean }[] = []
+  let done: () => void = () => {}
+  const turn = new Promise<void>((r) => { done = r })
+  const svc = service(fake({
+    // 서브에이전트 둘이 같은 순간에 도구를 쓰는 모양 — 요청 사이에 답을 기다리지 않는다.
+    run: async (_t, _sid, events) => {
+      events.permission({ id: 'p1', title: '명령 실행 확인', detail: 'first' })
+      events.permission({ id: 'p2', title: '명령 실행 확인', detail: 'second' })
+      await turn
+    },
+    respond: (id, allow) => { answered.push({ id, allow }) }
+  }))
+  void svc.send(root, 'codex', '자료를 읽어 주세요', 'req-perm')
+  await expect.poll(() => svc.snapshot(root, 'codex').permission?.id, { timeout: 5_000 }).toBe('p1')
+
+  svc.respond(root, 'codex', 'p1', true)
+  const after = svc.snapshot(root, 'codex')
+  expect(after.permission?.id, '둘째 요청이 덮여 사라졌다').toBe('p2')
+  expect(after.state, '아직 학생이 답할 차례다').toBe('permission')
+
+  svc.respond(root, 'codex', 'p2', false)
+  const last = svc.snapshot(root, 'codex')
+  expect(last.permission, '줄이 비면 카드도 없어야 한다').toBeUndefined()
+  expect(last.state).toBe('running')
+  expect(answered, '두 요청 모두 답이 도우미에게 닿아야 한다').toEqual([{ id: 'p1', allow: true }, { id: 'p2', allow: false }])
+  done()
+  await settled(svc, root)
+  await svc.close()
+})
+
+// "이 폴더에서는 계속 허용"은 이 폴더에서 다시 묻지 않겠다는 약속이다. 줄에 남아 있던
+// 요청을 그 뒤에 카드로 올리면 방금 받은 답을 무르는 셈이 된다.
+test('계속 허용을 고르면 줄에 남은 요청도 묻지 않는다', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kd-chat-'))
+  const answered: { id: string; allow: boolean }[] = []
+  let trusted = false
+  let done: () => void = () => {}
+  const turn = new Promise<void>((r) => { done = r })
+  const svc = service(fake({
+    run: async (_t, _sid, events) => {
+      events.permission({ id: 'p1', title: '명령 실행 확인', detail: 'first' })
+      events.permission({ id: 'p2', title: '명령 실행 확인', detail: 'second' })
+      await turn
+    },
+    respond: (id, allow) => { answered.push({ id, allow }) }
+  }), { isTrusted: () => trusted })
+  void svc.send(root, 'codex', '자료를 읽어 주세요', 'req-trust')
+  await expect.poll(() => svc.snapshot(root, 'codex').permission?.id, { timeout: 5_000 }).toBe('p1')
+
+  trusted = true                      // 화면의 "이 폴더에서는 계속 허용"이 하는 일
+  svc.respond(root, 'codex', 'p1', true)
+  const after = svc.snapshot(root, 'codex')
+  expect(after.permission, '계속 허용을 고른 뒤에도 카드가 또 떴다').toBeUndefined()
+  expect(after.state).toBe('running')
+  expect(answered, '줄에 남은 요청도 허용으로 닫혀야 한다').toEqual([{ id: 'p1', allow: true }, { id: 'p2', allow: true }])
+  done()
+  await settled(svc, root)
   await svc.close()
 })
 

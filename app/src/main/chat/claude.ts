@@ -249,7 +249,13 @@ export class ClaudeConnection implements AgentConnection {
         }
         if (message.type === 'result' && message.is_error) throw new Error('Claude 작업이 완료되지 않았어요. 연결·사용 한도와 마지막 대화를 확인해 주세요.')
       }
-    } finally { q.close(); this.active = undefined; this.approvals.clear() }
+    } finally {
+      q.close(); this.active = undefined
+      // 답을 기다리던 요청은 거절로 닫고 지운다. 그냥 지우면 canUseTool 의 promise 가
+      // 영영 안 풀려 그 도구 호출이 매달린 채 남는다.
+      for (const answer of [...this.approvals.values()]) answer(false)
+      this.approvals.clear()
+    }
   }
   respond(id: string, allow: boolean) {
     const answer = this.approvals.get(id)

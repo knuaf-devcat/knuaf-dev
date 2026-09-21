@@ -5,13 +5,26 @@ import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } 
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
-import type { ChatSnapshot, Provider, ConnectionStatus } from '../../shared/chat'
+import type { ChatSnapshot, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
 
 export class ChatService {
   private snapshots = new Map<string, ChatSnapshot>()
   private connections = new Map<string, AgentConnection>()
   private owners = new Set<string>()
   private runs = new Map<string, Promise<void>>()
+  /**
+   * 아직 카드로 올리지 못한 권한 요청 줄. 카드는 한 번에 하나만 뜨지만 요청은 동시에
+   * 온다 — 도우미가 서브에이전트를 띄우면 그쪽 도구 호출도 같은 통로로 들어온다.
+   *
+   * 슬롯 하나에 덮어쓰던 때에는 덮인 요청이 아무에게도 닿지 않았다. 학생 화면에는
+   * 승인 창이 아예 뜨지 않은 채 "도우미가 작업 중"만 남았고, 기다리던 도구 호출은
+   * SDK 가 끊을 때까지 매달렸다가 도우미에게 "Tool permission request failed:
+   * AbortError: Stream closed"로 돌아갔다. 도우미는 그것을 "쓰기 권한 차단"으로 읽고
+   * 학생에게 앱에 없는 설정을 켜라고 안내했다.
+   *
+   * 디스크에 남기지 않는다 — 앱이 다시 뜨면 기다리던 쪽은 이미 죽어 있다.
+   */
+  private waiting = new Map<string, PermissionRequest[]>()
   constructor(private opts: {
     skillSource: string; userData: string; env?: NodeJS.ProcessEnv
     emit: (s: ChatSnapshot) => void; openExternal: (url: string) => Promise<void>
@@ -159,6 +172,7 @@ export class ChatService {
     } catch (e) { release(); throw e }
   }
   private async execute(s: ChatSnapshot, connection: AgentConnection, text: string, requestId: string) {
+    const key = this.key(s.root, s.provider)
     // 서버 재생(과거 턴)은 스냅샷에 assistant 기록이 하나도 없을 때만 — 이미 있으면
     // item-N/msg_* id가 달라 중복으로 들어온다.
     const replayHistory = !s.messages.some(m => m.role === 'assistant')
@@ -182,7 +196,12 @@ export class ChatService {
           delivered()
           this.publish(s)
         },
-        permission: permission => { s.permission = permission; s.state = 'permission'; delivered(); this.publish(s) }
+        permission: permission => {
+          const q = this.waiting.get(key) ?? []
+          q.push(permission); this.waiting.set(key, q)
+          this.showNextPermission(s, key)
+          delivered(); this.publish(s)
+        }
       }, replayHistory)
       delivered(); s.state = 'idle'
     } catch (e) {
@@ -195,12 +214,32 @@ export class ChatService {
         if (s.state !== 'interrupted') s.state = 'error'
         s.error = e instanceof Error ? e.message : '작업이 완료되지 않았어요.'
       }
-    } finally { s.permission = undefined; this.publish(s) }
+    } finally { s.permission = undefined; this.waiting.delete(key); this.publish(s) }
+  }
+  /** 줄 맨 앞의 요청을 카드로 올린다. 이미 하나 떠 있으면 그대로 둔다. */
+  private showNextPermission(s: ChatSnapshot, key: string): void {
+    if (s.permission) return
+    const q = this.waiting.get(key)
+    if (!q?.length) return
+    // 학생이 그 사이 "이 폴더에서는 계속 허용"을 골랐으면 줄에 남은 것도 묻지 않는다.
+    // 같은 폴더를 두고 다시 묻는 것은 방금 받은 답을 무르는 일이다.
+    if (this.opts.isTrusted?.(s.root)) {
+      const c = this.connections.get(key)
+      for (const p of q.splice(0)) { try { c?.respond(p.id, true) } catch { /* 이미 닫힌 요청 */ } }
+      return
+    }
+    s.permission = q.shift()!; s.state = 'permission'
   }
   respond(root: string, provider: Provider, id: string, allow: boolean) {
-    const s = this.snapshots.get(this.key(root, provider))
+    const key = this.key(root, provider)
+    const s = this.snapshots.get(key)
     if (!s || s.permission?.id !== id) throw new Error('이미 종료된 권한 요청이에요.')
-    this.connection(root, provider).respond(id, allow); s.permission = undefined; s.state = 'running'; this.publish(s)
+    this.connection(root, provider).respond(id, allow)
+    s.permission = undefined
+    this.showNextPermission(s, key)
+    // 줄에 남은 것이 있으면 아직 학생 차례다 — 화면을 '작업 중'으로 되돌리지 않는다.
+    if (!s.permission) s.state = 'running'
+    this.publish(s)
   }
   async stop(root: string, provider: Provider) {
     const key = this.key(root, provider), s = this.snapshots.get(key)
