@@ -170,7 +170,9 @@ export function Artifacts() {
       if (!hasMdInput && hasPaperInput) {
         setFailTool('tools:paper')
         md = versioned(PAPER_MD, taken)
-        const env = await runner.run('paper.generate', { root, input: PAPER_IN, out: md })
+        // 검토본이 있으면 그것을 본문으로 넣는다 — 생성기의 2020년 판 골격 대신
+        // 학생이 실제로 쓴 장을 싣고, 겉표지·인준서·목차는 생성기가 붙인다.
+        const env = await runner.run('paper.generate', { root, input: PAPER_IN, out: md, ...(reviewMd ? { body: reviewMd } : {}) })
         if (!env?.ok) { fail(env, 'tools:paper'); return }
       } else if (!hasMdInput) {
         if (!reviewMd) return   // 버튼이 잠겨 있어 여기까지 오지 않는다
@@ -196,7 +198,7 @@ export function Artifacts() {
         <div className="card-head"><h2>{ARTIFACTS.make.title}</h2></div>
         <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.review}</div><div className="caption">{ARTIFACTS.make.reviewBody}</div></div>
           <button onClick={() => void doExport('review')} disabled={making === 'review'}>{ARTIFACTS.make.review}</button></div>
-        <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.docx}</div><div className="caption">{(hasMdInput || reviewMd || hasPaperInput) ? ARTIFACTS.make.docxBody : ARTIFACTS.make.docxNoInput}</div></div>
+        <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.docx}</div><div className="caption">{(hasMdInput || hasPaperInput) ? ARTIFACTS.make.docxBody : reviewMd ? ARTIFACTS.make.docxBodyOnly : ARTIFACTS.make.docxNoInput}</div></div>
           <button onClick={() => void doDocx()} disabled={making === 'docx' || !(hasMdInput || reviewMd || hasPaperInput)}>{ARTIFACTS.make.docx}</button></div>
         <div className="make-row"><div className="grow"><div>{ARTIFACTS.make.submit}</div><div className="caption">{ARTIFACTS.make.submitBody}</div></div>
           <button onClick={() => void doExport('submission_candidate')} disabled={making === 'submission_candidate'}>{ARTIFACTS.make.submit}</button></div>

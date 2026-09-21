@@ -36,9 +36,12 @@ test('검토본이 나오면 논문 DOCX 버튼이 열린다 (발견 17)', async
     await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 60_000 })
 
     await expect(docx, '검토본이 나왔는데도 DOCX 버튼이 잠긴 채였다').toBeEnabled({ timeout: 20_000 })
+    // 표지 정보(paper-input.json)가 없으면 앞머리를 못 붙인다. 본문만 묶인다는 것을
+    // 말해야 학생이 그것을 제출본으로 오해하지 않는다.
+    await expect(docxRow, '겉표지 없이 나온다는 사실을 말하지 않는다').toContainText('겉표지·목차 없이')
     // 실제 변환까지는 여기서 돌리지 않는다 — docx.build 는 프로젝트 .venv 를 요구하고
-    // e2e 의 임시 폴더에는 없다(deps_not_ready). 검토본 md 로 DOCX 가 나오는 것은
-    // build_docx.py 를 직접 돌려 확인했다.
+    // e2e 의 임시 폴더에는 없다(deps_not_ready). 앞머리를 갖춘 본문이 실제로 나오는
+    // 것은 tests/test_sidecar.py 와 tests/test_school_paper.py 가 지킨다.
   } finally {
     await electronApp.close()
   }

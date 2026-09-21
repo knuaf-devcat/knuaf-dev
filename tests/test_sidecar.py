@@ -291,3 +291,46 @@ def test_cancel_terminates_running_script(sidecar, project, tmp_path):
     r = sidecar.wait(rid, timeout=5)
     assert r["error"]["code"] == "cancelled", r
     assert time.monotonic() - started < 5
+
+
+# 시험주행 발견 15 — 앱의 "논문 DOCX 만들기" 가 겉표지·인준서 없는 문서를 내놓던 길.
+# 사이드카가 `body` 를 CLI 로 넘겨야 생성기가 앞머리를 붙이고 학생 본문을 싣는다.
+def test_paper_generate_passes_body_through(sidecar, tmp_path):
+    import json as _json
+    from conftest import SCRIPTS as _S
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    r = subprocess.run(
+        [sys.executable, str(_S / "gg.py"), "init", str(root)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    (root / "build").mkdir(exist_ok=True)
+    (root / "build" / "body.md").write_text(
+        "Ⅰ. 머리말\n\n학생이 직접 쓴 본문.\n\nⅦ. 참고문헌\n\n없음.\n", encoding="utf-8"
+    )
+    (root / "spec.json").write_text(_json.dumps({
+        "writing_year": 2026,
+        "school_profile": {"mode": "school", "layout": "forms_1_to_4",
+                           "title": "시험 논문", "author": "김한농",
+                           "department": "채소학과", "school": "한국농수산대학교"},
+    }, ensure_ascii=False), encoding="utf-8")
+
+    env = sidecar.ok("paper.generate", root=str(root), input="spec.json",
+                     out="build/본문.md", body="build/body.md")["result"]
+    assert env["ok"] is True, env
+    text = (root / "build" / "본문.md").read_text(encoding="utf-8")
+    assert "겉표지" in text, "앞머리가 빠졌다 — 제출본이 아니다"
+    assert "학생이 직접 쓴 본문." in text, "학생 본문이 실리지 않았다"
+    assert "Ⅶ. 참고문헌" in text, "학생 목차가 잘렸다"
+
+
+def test_paper_generate_refuses_a_body_outside_the_folder(sidecar, tmp_path):
+    """폴더 밖 경로는 CLI 에 닿기 전에 막는다."""
+    root = tmp_path / "proj2"
+    root.mkdir()
+    res = sidecar.call("paper.generate", root=str(root), input="spec.json",
+                       out="build/본문.md", body="../../../남의논문.md")
+    assert "error" in res, res
+    assert res["error"]["code"] == "invalid_params", res

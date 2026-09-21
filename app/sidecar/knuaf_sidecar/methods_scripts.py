@@ -27,7 +27,7 @@ def _root(params) -> Path:
 # the working folder. Params naming a user-supplied original (a native file-picker
 # result, the school's XLSX template) may legitimately be absolute and are not here.
 CONFINED = frozenset({
-    "in", "out", "out_dir", "out_map", "map", "values",
+    "in", "input", "body", "out", "out_dir", "out_map", "map", "values",
     "report", "receipt", "receipts", "legacy_map",
 })
 
@@ -96,7 +96,10 @@ def _run(ctx, params, script, argv, needs_deps=False, timeout_key="default", pyt
 
 
 def paper_generate(ctx, params):
-    argv = ["paper", str(_root(params))] + _flags(params, ("input", "out"))
+    # `body` 는 정본 절을 합친 본문. 주면 생성기의 2020년 판 Ⅰ–Ⅵ 골격 대신 그것을
+    # 싣고 앞머리(겉표지·인준서·목차)만 만든다 — 앱이 겉표지 없는 DOCX 를 내놓던
+    # 길을 막는다(시험주행 발견 15).
+    argv = ["paper", str(_root(params))] + _flags(params, ("input", "out", "body"))
     return _run(ctx, params, "gg.py", argv)
 
 
