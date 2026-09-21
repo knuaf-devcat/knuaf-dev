@@ -35,9 +35,9 @@ function koreanStrings(file: string): string[] {
   return hits
 }
 
-// 기존 위반이 272건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
+// 기존 위반이 271건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
 // 건다. 하나라도 줄이면 이 숫자도 같이 줄일 것(0이면 toEqual([])로 바꾼다).
-const KNOWN_USER_STRING_VIOLATIONS = 272
+const KNOWN_USER_STRING_VIOLATIONS = 271
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []

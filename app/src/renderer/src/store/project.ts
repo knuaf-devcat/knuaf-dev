@@ -36,9 +36,10 @@ interface ProjectState {
    * 둘 다 세면 같은 오류가 두 화면에 뜬다.
    */
   open: (root: string, opts?: { local?: boolean }) => Promise<DescribedError | null>
-  refresh: () => Promise<void>
-  /** 도우미가 멈춘 뒤 정본이 새로 생겼는지만 가볍게 확인한다. */
-  recheckCanon: () => Promise<void>
+  /** `quiet: true` — 감시 타이머가 스스로 부르는 갱신. 스피너를 켜지 않고 한 번의 실패로 화면을 덮지 않는다. */
+  refresh: (opts?: { quiet?: boolean }) => Promise<void>
+  /** 정본이 생겼는지, 그리고 읽어 둔 것보다 기록이 올랐는지 — project.json 만 읽는다. */
+  watchCanon: () => Promise<void>
   refreshSidecar: () => Promise<void>
   refreshDeps: () => Promise<void>
   prepareDeps: (root: string) => Promise<void>
@@ -52,12 +53,20 @@ interface ProjectState {
 }
 
 /**
- * 정본이 아직 없는 폴더에서만 도는 확인 타이머. 생기는 순간 스스로 멈추므로
- * 평상시에는 아무것도 하지 않는다. (loginPoll 이 정리되지 않는 문제가 있었으니
- * 여기서는 폴더를 바꿀 때·찾았을 때 반드시 끈다.)
+ * 폴더가 열려 있는 동안 도는 정본 감시 타이머. project.json 만 읽고 사이드카는
+ * 띄우지 않는다.
+ *
+ * 정본이 "생겼는지"만 보던 때에는 점검 화면이 폴더를 연 순간의 상태를 그대로 붙들고
+ * 있었다. 도우미가 스무 번을 저장해도 "고칠 곳 0"이 남아, 자동 점검 실패 60건짜리
+ * 원고를 학생이 다 된 것으로 읽었다. 그래서 기록이 오른 것도 같이 본다.
+ * (loginPoll 이 정리되지 않는 문제가 있었으니 폴더를 바꿀 때 반드시 끈다.)
  */
 let canonPoll: ReturnType<typeof setInterval> | null = null
 function stopCanonPoll(): void { if (canonPoll) { clearInterval(canonPoll); canonPoll = null } }
+/** 읽는 중에 또 읽지 않는다 — 감시 타이머가 사이드카를 겹쳐 띄우지 않게. */
+let statusInFlight = false
+/** 조용한 갱신이 잇따라 실패하면 그때는 말한다 — 한 번은 도우미가 쓰는 중일 수 있다. */
+let quietFailures = 0
 
 export const useProject = create<ProjectState>((set, get) => ({
   root: null,
@@ -91,7 +100,8 @@ export const useProject = create<ProjectState>((set, get) => ({
     // 걸리는데, 그 사이 학생이 다른 메뉴를 누르면 늦게 온 setScreen 이 되돌려 버렸다.
     get().setScreen('chat')
     stopCanonPoll()
-    if (!r.result.hasProject) canonPoll = setInterval(() => { void get().recheckCanon() }, 2000)
+    quietFailures = 0
+    canonPoll = setInterval(() => { void get().watchCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
     const nested = (r.result as { nestedProject?: string | null }).nestedProject
     if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
@@ -119,37 +129,50 @@ export const useProject = create<ProjectState>((set, get) => ({
     set({ error: { kind: 'warning', title: CHAT.prepFailedTitle, action: '"설정 > 문제 해결"의 "준비 상태"를 확인해 주세요.', code: 'deps_ensure', raw: detail } })
   },
   /**
-   * hasProject 는 폴더를 열 때 한 번 정해진다. 도우미가 그 뒤에 정본을 만들면 앱은
-   * 모른 채 왼쪽 메뉴를 잠가 두고, 학생은 같은 폴더를 다시 열어야 했다(GUI 감사 GUI-02).
+   * hasProject 와 status 는 폴더를 열 때 한 번 정해진다. 도우미가 그 뒤에 정본을
+   * 만들면 앱은 모른 채 왼쪽 메뉴를 잠가 두었고(GUI 감사 GUI-02), 정본을 고쳐도
+   * 점검 화면은 옛 숫자를 계속 내보였다.
    *
-   * 채팅 스냅샷에 매달지 않는 이유: 정본을 만드는 길이 앱 안 채팅만은 아니다. 학생이
-   * 외부 터미널에서 스킬을 돌려도 정본은 생기고, 그때는 스냅샷이 오지 않는다.
-   * 그래서 "누가 만들었는지"를 묻지 않고 파일이 생겼는지만 본다.
+   * 채팅 스냅샷에 매달지 않는 이유: 정본을 바꾸는 길이 앱 안 채팅만은 아니다. 학생이
+   * 외부 터미널에서 스킬을 돌려도 정본은 바뀌고, 그때는 스냅샷이 오지 않는다.
+   * 그래서 "누가 바꿨는지"를 묻지 않고 파일만 본다.
    *
    * refresh() 를 바로 부르지 않는 이유: 정본이 없는 폴더에서는 status 가 실패해
-   * 일어나지도 않은 오류를 띄운다. 존재를 먼저 보고, 생겼을 때만 제대로 읽는다.
+   * 일어나지도 않은 오류를 띄운다. 존재를 먼저 보고, 바뀌었을 때만 제대로 읽는다.
    */
-  recheckCanon: async () => {
+  watchCanon: async () => {
     const root = get().root
-    if (!root || get().hasProject) { stopCanonPoll(); return }
+    if (!root) { stopCanonPoll(); return }
     const peek = await window.knuaf.peekProject(root)
     if (get().root !== root) return
     set({ peek })
-    if (!peek.hasProject) return
-    stopCanonPoll()
-    await get().refresh()
+    // 두 번 잇따라 실패해 화면에 오류가 떠 있으면 되풀이하지 않는다. 학생이 새로고침을
+    // 누르면 다시 센다 — 읽히지 않는 정본으로 2초마다 사이드카를 띄우지 않기 위함이다.
+    if (!peek.hasProject || statusInFlight || quietFailures >= 2) return
+    // 정본이 처음 보이면 한 번 읽는다. 그 뒤로는 개정 번호가 달라졌을 때만 읽는다 —
+    // 번호를 못 읽으면(깨진 파일) 바뀐 줄 알 길이 없으니 되풀이하지 않는다.
+    const moved = peek.revision != null && peek.revision !== get().status?.revision
+    if (get().hasProject && !moved) return
+    await get().refresh({ quiet: true })
   },
-  refresh: async () => {
+  refresh: async (opts) => {
     const root = get().root
     if (!root) return
-    set({ loading: true, error: null })
+    // 학생이 직접 누른 새로고침은 감시 타이머의 실패 횟수도 다시 센다(위 물러섬 해제).
+    if (!opts?.quiet) { quietFailures = 0; set({ loading: true, error: null }) }
+    statusInFlight = true
     try {
       const status = await rpc.status(root)
       const peek = await window.knuaf.peekProject(root)
+      if (get().root !== root) return
+      quietFailures = 0
       set({ status, peek, hasProject: true, loading: false })
     } catch (e) {
+      // 조용한 갱신의 첫 실패는 삼킨다 — 도우미가 쓰는 중이면 곧 풀린다. 두 번째부터는
+      // 말한다: 화면의 숫자가 디스크의 정본보다 뒤처진 채 조용히 남는 것이 가장 나쁘다.
+      if (opts?.quiet && ++quietFailures < 2) return
       set({ error: describeError(e), loading: false })
-    }
+    } finally { statusInFlight = false }
   },
   refreshSidecar: async () => set({ sidecar: await window.knuaf.sidecarInfo() }),
   refreshDeps: async () => {

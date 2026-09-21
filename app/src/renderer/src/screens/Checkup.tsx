@@ -75,9 +75,13 @@ function TaskCard({ t, onAct }: { t: TaskRow; onAct: (t: TaskRow) => void }) {
 
 /** SKILL.md:34 — the four lanes stay four; this screen groups work, never verdicts. */
 export function Checkup() {
-  const { status, refresh, loading, error, setScreen } = useProject(useShallow((s) => ({ status: s.status, refresh: s.refresh, loading: s.loading, error: s.error, setScreen: s.setScreen })))
+  const { status, peek, refresh, loading, error, setScreen } = useProject(useShallow((s) => ({ status: s.status, peek: s.peek, refresh: s.refresh, loading: s.loading, error: s.error, setScreen: s.setScreen })))
   const { appendDraft } = useChat(useShallow((s) => ({ appendDraft: s.appendDraft })))
   const [how, setHow] = useState<UserFinishItem | null>(null)
+  // 디스크의 정본이 읽어 둔 것보다 앞서 있으면 그 번호를 보여 준다. 감시 타이머가 곧
+  // 읽어 오고, 두 번 잇따라 못 읽으면 오류가 뜬다 — 어느 쪽이든 옛 숫자를 현재라고
+  // 말하지 않는다.
+  const ahead = status && peek?.revision != null && peek.revision !== status.revision ? peek.revision : null
   /** Queue the request in the chat draft; never sends — the send button stays under the student's finger. */
   const toChat = (text: string) => {
     appendDraft(text)
@@ -92,7 +96,7 @@ export function Checkup() {
 
   return (
     <div>
-      <Toolbar title={CHECKUP.title} sub={status && <Badge label={`${status.revision}번째 기록`} />} actions={<button onClick={refresh} disabled={loading}><Icon name="refresh" size={16} /> {loading ? '읽는 중…' : '새로고침'}</button>} />
+      <Toolbar title={CHECKUP.title} sub={status && <Badge changed={ahead != null || undefined} label={ahead != null ? CHECKUP.recordAhead(ahead) : CHECKUP.record(status.revision)} />} actions={<button onClick={() => void refresh()} disabled={loading}><Icon name="refresh" size={16} /> {loading ? '읽는 중…' : '새로고침'}</button>} />
       {error && <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>} />}
       {status && (() => {
         const fixRows = status.checks.filter((r) => r.status === 'fail')

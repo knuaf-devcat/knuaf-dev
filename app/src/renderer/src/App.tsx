@@ -22,7 +22,7 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export function App() {
-  const { screen, setScreen, root, hasProject, status, loadSettings, pushLog, open, refresh } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open, refresh: s.refresh })))
+  const { screen, setScreen, root, hasProject, status, loadSettings, pushLog, open } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open })))
   const [dragging, setDragging] = React.useState(false)
   useEffect(() => {
     void loadSettings()
@@ -51,7 +51,6 @@ export function App() {
     const p = window.knuaf.pathForFile(f)
     if (await window.knuaf.isDir(p)) await open(p)
   }
-  void refresh
   const screens: Record<Screen, React.JSX.Element> = {
     chat: <Chat />, materials: <Materials />, artifacts: <Artifacts />, checkup: <Checkup />, settings: <SettingsScreen />
   }

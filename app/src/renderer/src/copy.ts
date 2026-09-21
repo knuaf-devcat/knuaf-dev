@@ -527,6 +527,10 @@ export const CHECKUP = {
   emptyPending: '미뤄 둔 것이 없어요',
   emptyAll: '지금 고칠 곳이나 기다리는 답변이 없어요',
   goto: '점검에서 확인',
+  /** 툴바 배지 — 정본의 개정 번호. "저장"이 아니라 "기록"인 까닭은 Sidebar 주석 참고. */
+  record: (n: number) => `${n}번째 기록`,
+  /** 디스크의 정본이 화면보다 앞설 때 — 뒤처진 숫자를 현재인 양 내보이지 않는다. */
+  recordAhead: (n: number) => `${n}번째 기록 읽는 중…`,
   /** needs_user task card — the question text lives in the chat, not in the task row. */
   needsUserLine: '도우미가 답변을 기다리고 있어요',
   needsEvidenceLine: '근거가 아직 없는 항목이에요',
