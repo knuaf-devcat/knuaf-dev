@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Icon } from './Icon'
+import { CatMark } from './CatMark'
 import { CREDIT } from '../copy'
 
-/** 들어오는 연출이 끝나고 잠깐 머문 뒤 스스로 나간다. 누르면 그 자리에서 건너뛴다. */
-const HOLD_MS = 4200
-const LEAVE_MS = 420
+/**
+ * 들어오는 연출이 끝나고 잠깐 머문 뒤 스스로 나간다. 누르면 그 자리에서 건너뛴다.
+ *
+ * 스플래시는 2초 안팎이 상한이라는 것이 통설이고(Netflix 의 "N" 은 1초 미만),
+ * 인위적으로 늘린 대기는 그대로 체감 지연이 된다. 그래서 화려함을 길이가 아니라
+ * 밀도로 만든다 — 내용은 1.6초에 다 앉고, 읽을 틈 1초를 두고 나간다.
+ */
+const HOLD_MS = 2600
+const LEAVE_MS = 360
 
 /** 제목을 글자 단위로 흩어 놓는다 — 공백도 자리를 지켜야 줄이 흔들리지 않는다. */
 function Letters({ text }: { text: string }): React.JSX.Element {
@@ -47,7 +53,7 @@ export function Intro({ onDone }: { onDone: () => void }): React.JSX.Element {
       <div className="intro-inner">
         <div className="intro-mark">
           <span className="intro-ring" aria-hidden="true" />
-          <Icon name="mark" size={88} />
+          <CatMark size={120} animated label={CREDIT.markAlt} />
         </div>
         <div className="intro-title"><Letters text={CREDIT.line1} /></div>
         <div className="intro-rule" aria-hidden="true" />

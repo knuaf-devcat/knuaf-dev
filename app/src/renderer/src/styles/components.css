@@ -141,44 +141,70 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 @keyframes intro-out { to { opacity: 0; transform: scale(1.05); filter: blur(4px); } }
 
 .intro { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden; background: var(--bg); animation: backdrop-in var(--fade); }
-.intro[data-leaving] { animation: intro-out 420ms ease-in forwards; }
+.intro[data-leaving] { animation: intro-out 360ms ease-in forwards; }
 .intro-bloom { position: absolute; width: min(86vw, 760px); aspect-ratio: 1; border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent) 0%, color-mix(in srgb, var(--accent) 16%, transparent) 42%, transparent 70%);
-  animation: intro-bloom 2400ms ease-out both; }
-.intro-bloom.two { width: min(52vw, 460px); animation-delay: 420ms; animation-duration: 2100ms;
+  animation: intro-bloom 1800ms ease-out both; }
+.intro-bloom.two { width: min(52vw, 460px); animation-delay: 260ms; animation-duration: 1600ms;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 66%); }
 .intro-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8); }
 
-.intro-mark { position: relative; display: grid; place-items: center; width: 92px; height: 92px;
-  animation: intro-mark var(--spring-slow-dur) both; animation-timing-function: var(--spring-sheet);
+.intro-mark { position: relative; display: grid; place-items: center; width: 120px; height: 120px;
+  animation: intro-mark 520ms both; animation-timing-function: var(--spring-sheet);
   filter: drop-shadow(0 10px 28px color-mix(in srgb, var(--accent) 60%, transparent)); }
-.intro-ring { position: absolute; inset: -24px; border-radius: 50%; pointer-events: none;
+.intro-mark::before { content: ''; position: absolute; inset: -46px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 66%);
+  animation: backdrop-in 700ms ease-out both; animation-delay: 300ms; }
+.intro-ring { position: absolute; inset: -28px; border-radius: 50%; pointer-events: none;
   background: conic-gradient(from 0deg, transparent 0turn, color-mix(in srgb, var(--accent) 85%, white) .16turn, var(--accent) .24turn, transparent .46turn);
   mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 6px));
-  animation: intro-ring 1500ms ease-out both; animation-delay: 120ms; }
+  animation: intro-ring 1100ms ease-out both; animation-delay: 80ms; }
 
 .intro-title { font-size: calc(var(--fs-heading) * 1.9); font-weight: 700; letter-spacing: -.015em; color: var(--ink);
   position: relative; overflow: hidden; margin-top: var(--sp-3); }
 .intro-ch { display: inline-block; animation: intro-ch 620ms both; animation-timing-function: var(--spring);
-  animation-delay: calc(360ms + var(--c, 0) * 26ms); }
+  animation-delay: calc(640ms + var(--c, 0) * 22ms); }
 /* 제목이 다 앉은 뒤 빛이 한 번 지나간다. 글자를 덮으면 형광펜 자국처럼 보이므로
    blend 로 밝히기만 한다 — 흰 띠가 지나가며 글자가 잠깐 빛난다. */
 .intro-title::after { content: ''; position: absolute; inset: -20% -10%; pointer-events: none;
   mix-blend-mode: overlay; opacity: .9;
   background: linear-gradient(104deg, transparent 40%, rgba(255, 255, 255, .95) 50%, transparent 60%);
-  animation: intro-sweep 1000ms ease-in-out both; animation-delay: 1200ms; }
+  animation: intro-sweep 780ms ease-in-out both; animation-delay: 1000ms; }
 
 .intro-rule { width: 72px; height: 3px; border-radius: 2px; opacity: .9;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: intro-rule 520ms both; animation-timing-function: var(--spring); animation-delay: 1250ms; }
+  animation: intro-rule 460ms both; animation-timing-function: var(--spring); animation-delay: 1060ms; }
 .intro-line { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--muted); }
-.intro-line.one { animation: intro-reveal 560ms both; animation-timing-function: var(--spring); animation-delay: 1400ms; }
+.intro-line.one { animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1180ms; }
 .intro-line.two { color: var(--ink-2); font-weight: 600;
-  animation: intro-reveal 560ms both; animation-timing-function: var(--spring); animation-delay: 1620ms; }
+  animation: intro-reveal 480ms both; animation-timing-function: var(--spring); animation-delay: 1340ms; }
+
+/* ---- 고양이 마크 ----
+   한 덩어리 사진과 달리 도형이 나뉘어 있어 부위별로 들어온다.
+   귀가 쫑긋 서고 머리가 앉은 뒤, 선글라스가 위에서 툭 떨어진다. */
+.cat { display: block; }
+.cat-bg, .cat-face, .cat-ear, .cat-head, .cat-glass, .cat-shine { transform-box: fill-box; transform-origin: center; }
+@keyframes cat-bg { from { opacity: 0; transform: scale(.3) rotate(-18deg); } to { opacity: 1; transform: none; } }
+@keyframes cat-ear { from { opacity: 0; transform: translateY(26%) scale(.2); } to { opacity: 1; transform: none; } }
+@keyframes cat-head { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: none; } }
+@keyframes cat-glass { from { opacity: 0; transform: translateY(-260%) rotate(-10deg); } to { opacity: 1; transform: none; } }
+@keyframes cat-nod { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(-3.5deg); } }
+@keyframes cat-shine { from { transform: translateX(-60%); } to { transform: translateX(520%); } }
+.cat-anim .cat-bg { animation: cat-bg 520ms both; animation-timing-function: var(--spring-sheet); }
+.cat-anim .cat-ear { animation: cat-ear 420ms both; animation-timing-function: var(--spring-sheet); }
+.cat-anim .cat-ear.l { animation-delay: 220ms; }
+.cat-anim .cat-ear.r { animation-delay: 290ms; }
+.cat-anim .cat-head { animation: cat-head 440ms both; animation-timing-function: var(--spring-sheet); animation-delay: 200ms; }
+.cat-anim .cat-glass { animation: cat-glass 560ms both; animation-timing-function: var(--spring-sheet); animation-delay: 520ms; }
+.cat-anim .cat-face { animation: cat-nod 620ms ease-in-out both; animation-delay: 1020ms; }
+.cat-anim .cat-shine { animation: cat-shine 620ms ease-in-out both; animation-delay: 1180ms; }
 
 @media (prefers-reduced-motion: reduce) {
   /* 장식은 지우고, 글자는 제자리에서 한 번에 나타난다. */
-  .intro-bloom, .intro-ring, .intro-title::after { display: none; }
+  .intro-bloom, .intro-ring, .intro-title::after, .cat-shine { display: none; }
+  .cat-anim .cat-bg, .cat-anim .cat-ear, .cat-anim .cat-head, .cat-anim .cat-glass, .cat-anim .cat-face {
+    animation: none !important; opacity: 1 !important; transform: none !important;
+  }
   .intro-mark, .intro-ch, .intro-rule, .intro-line.one, .intro-line.two {
     animation: backdrop-in 120ms both !important; animation-delay: 0ms !important;
   }

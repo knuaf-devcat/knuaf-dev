@@ -588,7 +588,9 @@ export const CREDIT = {
   line1: 'knuaf-doc · 창업논문 작성 도우미',
   line2: 'prod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재',
   /** 앱(GUI)을 만든 사람. 학번은 넣지 않는다 — 공개 저장소와 배포본에 같이 실린다. */
-  gui: 'GUI: made by 산업곤충전공 이준재'
+  gui: 'GUI: made by 산업곤충전공 이준재',
+  /** 여는 화면의 앱 마크를 화면 낭독기가 읽는 이름. */
+  markAlt: '한농대 창업논문 헬퍼'
 } as const
 
 /** parser-setup.md:12 — the only sentence said when Kordoc is actually installed. */
