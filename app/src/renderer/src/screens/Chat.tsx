@@ -132,7 +132,7 @@ function ComposerModelChip() {
       <button type="button" className="model" title={CHAT.modelChipTitle} aria-expanded={open} onClick={() => setOpen(!open)}>
         {PROVIDER_NAME[provider]} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} align="left" width={400} label={CHAT.modelChipTitle}>
+      <Popover open={open} onClose={() => setOpen(false)} align="left" placement="up" width={400} label={CHAT.modelChipTitle}>
         <AccountChooser onPicked={() => setOpen(false)} />
         <PopSep />
         <PopHead>{CHAT.depthTitle}</PopHead>

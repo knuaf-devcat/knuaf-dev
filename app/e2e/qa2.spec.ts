@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { launch, openProject, python, scripts, synthProject } from './helpers'
-import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat, userDataWith } from './fixtures/fake-codex'
+import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat, userDataWith, writeFakeClaude } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
 const box = async (page: Page, sel: string) => page.locator(sel).first().boundingBox()
@@ -125,6 +125,40 @@ test('허락 카드가 쉬운 말 이유와 작은 명령을 함께 보여 준�
     await expect(ask.getByRole('button', { name: CHAT.allow, exact: true })).toBeVisible()
   } finally {
     await electronApp.close()
+  }
+})
+
+test('칩 팝오버는 위로 열려 Claude 행·깊이 줄이 화면 안에 있다 (QA2A-R1-01)', async () => {
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
+  writeFakeClaude(bin)
+  const root = synthProject()
+  for (const [w, h] of [[1180, 800], [900, 600]] as const) {
+    const { electronApp, page } = await launch({ env })
+    try {
+      await openProject(page, root)
+      const chip = page.locator('.chat-composer .crow .model')
+      await expect(chip).toBeVisible({ timeout: 30_000 })
+      await electronApp.evaluate(({ BrowserWindow }, b) => { BrowserWindow.getAllWindows()[0].setBounds(b) }, { width: w, height: h })
+      await chip.click()
+      const pop = page.locator('.chat-composer .popover')
+      await expect(pop).toBeVisible()
+      // 팝오버·Claude 행·깊이 줄이 모두 화면 안(y ≥ 0, 바닥 ≤ 창 높이)에 있다.
+      for (const sel of ['.chat-composer .popover', '[data-provider="claude"]', '.chat-composer .pop-row.off']) {
+        const b = await box(page, sel)
+        expect(b, `${sel} 이 없다`).not.toBeNull()
+        expect(b!.y, `${w}×${h}: ${sel} 이 화면 위로 나갔다`).toBeGreaterThanOrEqual(0)
+        expect(b!.y + b!.height, `${w}×${h}: ${sel} 이 화면 아래로 잘렸다`).toBeLessThanOrEqual(h + 0.5)
+      }
+      // Claude 변경 버튼도 화면 안.
+      const btn = page.locator('[data-provider="claude"]').getByRole('button')
+      await expect(btn).toBeVisible()
+      const bb = await btn.boundingBox()
+      expect(bb!.y + bb!.height).toBeLessThanOrEqual(h + 0.5)
+    } finally {
+      await electronApp.close()
+    }
   }
 })
 
