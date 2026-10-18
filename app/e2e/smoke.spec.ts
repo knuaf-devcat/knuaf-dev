@@ -32,6 +32,9 @@ test('open a project, see four lanes, export a draft, unlock a stale lock', asyn
   await page.click('button:has-text("잠금 해제")')
   // 확인 창은 설정 시트 **안에** 겹쳐 뜬다 — 가장 위(마지막) dialog 의 단추를 누른다.
   await page.locator('dialog[open]').last().getByRole('button', { name: '해제', exact: true }).click()
-  await expect(page.locator('text=잠금을 해제했어요')).toBeVisible({ timeout: 30_000 })
+  // 잠금 해제는 사이드카를 새로 띄우는 일이라 **전수 실행 후반부**에는 30초를 넘긴 적이 있다
+  // (단독 실행에서는 늘 통과 — 2026-10-18 전수 2회 중 2회 실패·단독 2/2 통과). 제품이 아니라
+  // 그 자리의 대기 시간 문제라 여유를 준다.
+  await expect(page.locator('text=잠금을 해제했어요')).toBeVisible({ timeout: 120_000 })
   await electronApp.close()
 })
