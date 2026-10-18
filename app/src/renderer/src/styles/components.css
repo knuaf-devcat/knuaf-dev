@@ -357,10 +357,15 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .zone-status .spin { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }
 
 /* ---- 첫 실행 화면 (DESIGN §6) — AI 연결 → 논문 폴더. 사이드바·칸 없이 가운데 한 줄기.
-   내용이 짧으면 세로 가운데, 길어지면(폴더 목록) margin:auto 가 그대로 스크롤을 만든다. */
-.onb { height: 100%; overflow: auto; display: flex; flex-direction: column; }
+   내용이 짧으면 세로 가운데, 길어지면(폴더 목록) margin:auto 가 그대로 스크롤을 만든다.
+   배경은 불투명하게 깐다 — macOS vibrancy 로 body 가 투명하면 시안(아이스 그레이) 대신
+   창 뒤가 비쳐 따뜻한 회색으로 보인다(설계자 대조 지적). */
+.onb { height: 100%; overflow: auto; display: flex; flex-direction: column; background: var(--bg); }
 .onb-inner { width: 100%; max-width: 620px; margin: auto; padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-5) var(--sp-10); }
 /* 위쪽 길잡이 한 줄 — 번호 원 없이. 지금 단계만 진하다. */
 .onb-way { margin-bottom: var(--sp-5); }
 .onb-way strong { font-weight: 500; }
 .onb-way strong.on { color: var(--ink); font-weight: 600; }
+/* 개인정보 줄 바로 아래 도움 링크 — 글자만 링크색이다(단추 테두리·안쪽 여백 없음). */
+.onb-help { color: var(--accent); background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
+.onb-help:hover { text-decoration: underline; }

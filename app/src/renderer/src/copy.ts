@@ -618,7 +618,9 @@ export const ONBOARD = {
   startWith: '이걸로 시작',
   connectNext: '다음 — 논문 폴더 고르기',
   connectWaiting: '연결이 확인되면 다음으로 갈 수 있어요.',
-  howToChoose: '둘 다 있나요? 어느 쪽이 좋은지 보기',
+  /** 개인정보 줄 바로 아래 한 줄 — 앞은 보통 글자, 뒤만 링크다(시안 A). */
+  howToChooseLead: '둘 다 있나요?',
+  howToChooseLink: '어느 쪽이 좋은지 보기',
   toolHint: '연결 도구를 설치한 뒤 이 화면으로 돌아와 "다시 확인"을 눌러 주세요.',
   folderTitle: '논문을 담을 폴더를 골라요',
   folderIntro: '논문 글과 자료가 이 폴더에 모여요. 이미 가진 원고나 엑셀이 있는 폴더도 괜찮아요 — 원래 파일은 건드리지 않아요.',

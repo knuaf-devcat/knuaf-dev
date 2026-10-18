@@ -6,7 +6,7 @@
 // (helpers.ts 의 openProject 도 같은 이유로 설정의 경로 입력칸을 쓴다).
 // 2단계의 "새 폴더 만들기"도 같은 코드 경로(open)를 타므로, 사람 손이 필요한 것은
 // 대화상자를 여는 동작 하나뿐이다.
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -29,6 +29,19 @@ const noTool = () => {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
   return { userData, env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '', HOME: home } }
+}
+/**
+ * 등장 애니메이션이 **끝난 뒤** 찍는다. 폴더 목록(`.projects.stagger`)은 카드마다 조금씩
+ * 늦게 나타나므로, 화면이 보이자마자 찍으면 카드가 흐린 채로 남는다(설계자 대조 지적 —
+ * 실제로 어둡게 캡처의 '최근' 카드가 거의 안 보였다). 무한 반복 애니메이션(스피너)은
+ * 끝나지 않으므로 기다리지 않는다.
+ */
+async function settled(page: Page): Promise<void> {
+  await page.evaluate(() => Promise.all(
+    document.getAnimations()
+      .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+      .map((a) => a.finished.catch(() => undefined))
+  ))
 }
 /** 설정에 최근 폴더 하나를 심은 userData — 2단계에서 그 카드를 눌러 폴더를 연다. */
 function userDataWithRecent(dir: string, root: string, patch: Record<string, unknown> = {}): string {
@@ -100,6 +113,7 @@ for (const scheme of ['light', 'dark'] as const) {
     const { userData, env } = noTool()
     const { electronApp, page } = await launch({ userData, onboarded: false, colorScheme: scheme, waitFor: INTRO, env })
     await page.setViewportSize({ width: 1180, height: 800 })
+    await settled(page)
     mkdirSync(SHOTS, { recursive: true })
     const file = join(SHOTS, `step1-no-tool-${scheme}.png`)
     await page.screenshot({ path: file })
@@ -228,12 +242,15 @@ for (const scheme of ['light', 'dark'] as const) {
     const { electronApp, page } = await launch({ userData, onboarded: false, colorScheme: scheme, waitFor: INTRO, env })
     await page.setViewportSize({ width: 1180, height: 800 })
     await expect(page.locator('text=연결됐어요')).toHaveCount(2, { timeout: 30_000 })
+    await settled(page)
     mkdirSync(SHOTS, { recursive: true })
     const one = join(SHOTS, `step1-connected-${scheme}.png`)
     await page.screenshot({ path: one })
     console.log('captured', one, statSync(one).size, 'bytes')
     await page.getByRole('button', { name: ONBOARD.startWith }).first().click()
     await expect(page.locator(FOLDER_STEP)).toBeVisible()
+    await expect(page.locator('.project').first()).toBeVisible()   // 목록이 다 그려진 뒤에
+    await settled(page)
     const two = join(SHOTS, `step2-folder-${scheme}.png`)
     await page.screenshot({ path: two })
     console.log('captured', two, statSync(two).size, 'bytes')

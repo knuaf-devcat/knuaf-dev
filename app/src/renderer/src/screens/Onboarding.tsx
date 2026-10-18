@@ -154,7 +154,11 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
               {!selected && <span className="caption">{ONBOARD.connectWaiting}</span>}
             </div>
             <p className="caption" style={{ marginTop: 'var(--sp-5)' }}>{PRIVACY_NOTE}</p>
-            <button className="quiet" onClick={() => void window.knuaf.openGuide()}>{ONBOARD.howToChoose}</button>
+            {/* 개인정보 줄 바로 아래 한 줄 — "둘 다 있나요?"는 보통 글자, 뒤만 링크다(시안 A). */}
+            <p className="caption" style={{ marginTop: 'var(--sp-2)' }}>
+              {ONBOARD.howToChooseLead}{' '}
+              <button className="onb-help" onClick={() => void window.knuaf.openGuide()}>{ONBOARD.howToChooseLink}</button>
+            </p>
           </>
         ) : (
           <>
