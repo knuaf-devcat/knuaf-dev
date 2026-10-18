@@ -52,19 +52,17 @@ test('build-installers.yml 은 설치본에 영향 주는 feat/** push 와 수�
   const push = triggerBlock(raw, 'push')
   expect(push).toMatch(/branches:\s*\[\s*"feat\/\*\*"\s*\]/)
   for (const glob of [
-    '.github/workflows/build-installers.yml',
-    '.github/workflows/release.yml',
-    'app/electron-builder.yml',
-    'app/package.json',
-    'app/pnpm-lock.yaml',
-    'app/scripts/**',
-    // 설치본에 실제로 들어가는 입력 — 이게 빠지면 요구 파일·스킬·안내만 바뀐 push 에서
-    // 설치본 확인이 조용히 돌지 않는다.
+    // 설치본에 들어가는 입력 전체를 덮는 단순한 목록(W2-ENC-R1-02). 쪼개면 빠뜨리는 구멍이
+    // 생긴다 — `app/**` 가 app/src·app/sidecar·electron.vite.config.ts 를 모두 포함한다.
+    'app/**',
     'skills/knuaf-dev/**',
     'docs/학생용-사용안내.*',
+    '.github/workflows/build-installers.yml',
+    '.github/workflows/release.yml',
   ]) {
     expect(push, `paths 에 ${glob} 가 없다`).toContain(glob)
   }
+  expect(push.split('\n').filter((l) => /^\s{6}- "/.test(l)), 'paths 항목 수가 바뀌었다').toHaveLength(5)
   // 비밀값: 참조 자체가 없어야 한다(`secrets: inherit` 포함).
   expect(yaml, '비밀값을 참조한다').not.toMatch(/secrets/)
   // 서명·공증: 자동 탐색을 끄고 공증을 명시적으로 끈다.

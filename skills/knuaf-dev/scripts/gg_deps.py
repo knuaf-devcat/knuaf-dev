@@ -43,6 +43,15 @@ _PROBE = (
     "except m.PackageNotFoundError:\n    print('')\n"
 )
 
+# 자식(pip·probe)에게 주는 환경. -r 파일 해독과 표준 출력·오류를 모두 UTF-8 로 고정한다.
+# 부모는 이 바이트를 반드시 같은 UTF-8 로 읽어야 한다 — 한쪽만 맞추면 한글 경로가 출력에
+# 섞이는 순간 부모 로케일(cp1252·cp949)에서 UnicodeDecodeError 가 나 준비가 blocked 로 끝난다.
+_CHILD_ENV = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+
+
+def _child_env():
+    return {**os.environ, **_CHILD_ENV}
+
 
 def load_manifest(path=DEPS_JSON):
     path = Path(path)
@@ -190,8 +199,11 @@ def _import_and_version(python, module, dist):
     proc = subprocess.run(
         [str(python), "-c", _PROBE, module, dist],
         capture_output=True,
-        text=True,
+        # 자식이 UTF-8 로 말하고(_child_env) 부모도 UTF-8 로 읽는다(W2-ENC-R1-01).
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
+        env=_child_env(),
     )
     if proc.returncode != 0:
         return False, None
@@ -302,13 +314,17 @@ def ensure(project, find_links=None, no_index=False):
     # pip 은 -r 파일을 **로케일 인코딩**으로 읽는다. requirements-runtime.txt 는 ASCII 로
     # 두는 것이 원칙이지만(Windows 설치본 빌드가 그렇게 깨졌다), 앞으로 비ASCII 바이트가
     # 들어와도 한국어 Windows(cp949)·서구 Windows(cp1252)에서 UnicodeDecodeError 로 죽지
-    # 않도록 자식에 UTF-8 을 강제한다. 로케일과 무관하게 같은 파일을 읽는다.
+    # 않도록 자식에 UTF-8 을 강제한다(PYTHONUTF8). 부모의 파이프 해독도 같은 UTF-8 로 맞춘다 —
+    # 자식만 UTF-8 로 내보내고 부모가 로케일로 읽으면 `Looking in links: <한글 경로>` 같은
+    # 정상 출력에서 부모가 UnicodeDecodeError 로 죽는다(W2-ENC-R1-01). errors="replace" 로
+    # 해독 실패가 pip 의 **실제 종료 결과**를 뒤집지 않게 한다.
     proc = subprocess.run(
         cmd,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=600,
-        env={**os.environ, "PYTHONUTF8": "1"},
+        env=_child_env(),
     )
     verified = {}
     versions = {}

@@ -1,7 +1,13 @@
 """gg_deps.ensure: project-local venv that actually runs (symlinked interpreter), offline wheelhouse path."""
+import io
+import json
 import os
 import subprocess
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -95,5 +101,40 @@ def test_ensure_hands_pip_utf8_env(empty_folder, monkeypatch):
     assert pip_cmd[:3] == [str(vpy), "-m", "pip"]
     assert "--requirement" in pip_cmd and str(gg_deps.REQUIREMENTS) in pip_cmd
     assert pip_kw["env"]["PYTHONUTF8"] == "1"
+    assert pip_kw["env"]["PYTHONIOENCODING"] == "utf-8"  # 자식은 UTF-8 로 말한다
+    assert pip_kw["encoding"] == "utf-8"  # 부모도 같은 인코딩으로 읽어야 한다(W2-ENC-R1-01)
+    assert pip_kw["errors"] == "replace"  # 해독 실패가 pip 결과를 뒤집지 않게
     assert pip_kw["env"].get("PATH") == os.environ.get("PATH")  # 나머지 환경은 그대로 물려준다
     assert result["pip_exit"] == 0
+
+
+def test_ensure_survives_non_utf8_parent_decoding(tmp_path, monkeypatch):
+    """검토 W2-ENC-R1-01: 부모가 로케일(cp1252·cp949)로 읽어도 준비가 깨지면 안 된다.
+
+    실제 pip 자식을 돌린다 — 빈 ASCII 요구 파일 + 빈 한글 wheelhouse + `--no-index` 라
+    설치·다운로드가 없다(`Looking in links: <한글 경로>` 가 나온다). 부모 해독기만 바꿔 끼운다:
+    macOS 에서는 cp1252·cp949 로케일을 만들 수 없어 `text=True` 가 쓰는
+    `subprocess._text_encoding` 을 대신한다(검토 재현 코드와 같은 방식).
+    대역으로 kwargs 만 보는 시험은 이 바이트 해독 문제를 잡지 못하므로 실제 자식을 돌린다.
+    """
+    import gg_deps
+
+    root = tmp_path / "홍길동 논문"
+    wheels = root / "휠 모음"
+    wheels.mkdir(parents=True)
+    req = root / "requirements-empty.txt"
+    req.write_text("# empty offline probe\n", encoding="ascii")
+
+    monkeypatch.setattr(gg_deps, "REQUIREMENTS", req)
+    monkeypatch.setattr(gg_deps, "load_manifest", lambda *a, **k: [])
+    monkeypatch.setattr(gg_deps, "venv_python", lambda *a, **k: Path(sys.executable))
+
+    for codec in ("utf-8", "cp1252", "cp949"):
+        out = io.StringIO()
+        with patch.object(subprocess, "_text_encoding", return_value=codec), redirect_stdout(out):
+            code = gg_deps.main(["ensure", str(root), "--no-index", "--find-links", str(wheels)])
+        data = json.loads(out.getvalue())
+        assert code == 0, (codec, data)
+        assert data["pip_exit"] == 0, (codec, data)
+        # pip 의 실제 진단(한글 경로)이 깨지지 않고 남는다.
+        assert "휠 모음" in data["pip_stdout_tail"] + data["pip_stderr_tail"], (codec, data)
