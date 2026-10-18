@@ -1,6 +1,6 @@
 import type { ReactElement, SVGProps } from 'react'
 
-export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'chevronDown' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'files' | 'tool'
+export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'chevronDown' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'files' | 'tool' | 'plus' | 'up' | 'stop'
 
 const PATHS: Record<IconName, ReactElement> = {
   folder: <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />,
@@ -23,7 +23,10 @@ const PATHS: Record<IconName, ReactElement> = {
   circle: <circle cx="12" cy="12" r="8.5" />,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></>,
   files: <><rect x="8" y="3.5" width="11" height="14" rx="1.5" /><path d="M5 6.5v12A1.5 1.5 0 0 0 6.5 20H16" /></>,
-  tool: <><path d="M14.5 4.5a4.5 4.5 0 0 0-5.8 5.4L4 14.6V19h4.4l4.7-4.7a4.5 4.5 0 0 0 5.4-5.8l-3.2 3.2-2.1-.5-.5-2.1 1.8-4.6z" /></>
+  tool: <><path d="M14.5 4.5a4.5 4.5 0 0 0-5.8 5.4L4 14.6V19h4.4l4.7-4.7a4.5 4.5 0 0 0 5.4-5.8l-3.2 3.2-2.1-.5-.5-2.1 1.8-4.6z" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  up: <path d="M12 19V5M6 11l6-6 6 6" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none" />
 }
 
 export function Icon({ name, size = 18, ...rest }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {

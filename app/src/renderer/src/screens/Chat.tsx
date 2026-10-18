@@ -2,12 +2,12 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
-import { FolderPicker } from '../components/FolderPicker'
+import { FirstRun } from '../components/FirstRun'
 import { QuestionCard } from '../components/QuestionCard'
 import { Feedback } from '../components/Feedback'
 import { Icon } from '../components/Icon'
 import { Badge } from '../components/Badge'
-import { CHAT, CHAT_EVENT, CLOSE_LABEL, FOLDER, describeChatError, relativeTime } from '../copy'
+import { CHAT, CHAT_EVENT, CLOSE_LABEL, describeChatError, relativeTime } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -100,14 +100,24 @@ function EventLine({ title, onGo }: { title: string; onGo: () => void }) {
 }
 
 /**
- * 폴더 없음 — "홈"이 아니라 내 논문의 한 상태(03-화면/01). 첫 실행은 온보딩 2단계가
- * **같은 부품**(`FolderPicker`)으로 폴더를 고르고, 여기는 재방문의 자리다(App.tsx 의 분기).
+ * 폴더 없음 — 재실행 첫 화면이다(발주 QA 재실행 결정). 첫 실행과 **같은 두 단계 부품**
+ * (`FirstRun`)을 제목줄이 있는 대화 칸 안에 얹는다. 연결이 확인돼 있으면 길잡이가
+ * "AI 연결 ✓ → 논문 폴더 → 시작"으로 서고 폴더 단계부터, 끊겨 있으면 1단계(AI 연결)부터다.
+ * 최근 논문을 자동으로 열지 않는다 — 학생이 고른다. 폴더를 고른 순간의 시작 의사는 남기지
+ * 않는다(첫 실행과 달리, 여기서는 이미 지난 학생의 이어 쓰기를 앱이 대신 시작하지 않는다).
  */
 function NoFolder() {
   return (
-    <FolderPicker copy={{ title: CHAT.noFolderTitle, intro: CHAT.noFolderIntro, ...FOLDER, recents: CHAT.recentTitle, foot: CHAT.noFolderBody }} />
+    <div className="onb">
+      <div className="onb-inner"><FirstRun /></div>
+    </div>
   )
 }
+
+/**
+ * 입력칸 `+` 오른쪽의 **모델·깊이 입구**(발주 I-02)는 형님 승인 대기다 — 지금은 만들지 않는다.
+ * 연결 기제를 건드려야 하는 단계 4 분리 기능이라, 승인이 나면 그때 되살린다(REPORT-QA 참고).
+ */
 
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
@@ -135,6 +145,8 @@ export function Chat() {
   const seg: ChatMode = resolveChatMode(mode, settings)
   const provider: Provider = chosenProvider(connectSelected, settings) ?? chatProvider(seg)
   const endRef = useRef<HTMLDivElement>(null)
+  /** 입력칸 — 한 줄에서 시작해 글이 늘면 자란다(시안 P/L). 최대 높이 뒤에는 스크롤. */
+  const taRef = useRef<HTMLTextAreaElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [dragging, setDragging] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -161,6 +173,17 @@ export function Chat() {
   useEffect(() => { toBottom() }, [root, snapshot?.provider])
   useEffect(() => { if (atBottom) toBottom() }, [snapshot?.messages.length, snapshot?.state, events.length])
   useEffect(() => { if (snapshot?.permission) toBottom() }, [snapshot?.permission?.id])
+
+  /**
+   * 입력칸 높이를 내용에 맞춘다 — `height:auto` 로 되돌린 뒤 `scrollHeight` 를 준다(그래야
+   * 글이 줄어도 줄어든다). 최대 높이는 CSS(`max-height`)가 막고 그 위로는 스크롤이다.
+   */
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   const running = snapshot?.state === 'running' || snapshot?.state === 'permission'
   const lastUncertain = snapshot?.messages.filter((m) => m.role === 'user' && m.delivery === 'uncertain').at(-1)
@@ -303,7 +326,8 @@ export function Chat() {
                 const f = e.dataTransfer.files[0]
                 if (f) insertPath(window.knuaf.pathForFile(f))
               }}>
-              <textarea value={draft} rows={3} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
+              {/* 한 줄에서 시작해 글이 늘면 자란다 — 최대 높이 뒤에는 스크롤(시안 P/L). */}
+              <textarea ref={taRef} value={draft} rows={1} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
@@ -313,17 +337,18 @@ export function Chat() {
                   if (zone.kind === 'running' || busy || !draft.trim()) return
                   void send()
                 }} />
-              <div className="row between">
-                <div className="row">
-                  <button onClick={() => void attach()}>{CHAT.attach}</button>
-                  <span className="caption">{CHAT.attachHint}</span>
-                </div>
-                {/* 보내기 자리가 작업 중에는 멈추기가 된다. */}
+              <div className="crow">
+                {/* 왼쪽 아래 32×32 원형 `+` — 파일 첨부(기존 동작 그대로). */}
+                <button type="button" className="circ" title={CHAT.attach} aria-label={CHAT.attach} onClick={() => void attach()}><Icon name="plus" size={16} /></button>
+                {/* I-02 모델·깊이 입구는 승인 대기 — 여기 들어올 자리다(REPORT-QA). */}
+                <span className="sp" />
+                {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
-                  ? <button className="send" onClick={() => void stop()}>{CHAT.stop}</button>
-                  : <button className="send" onClick={() => void send()} disabled={busy || !draft.trim()}>{CHAT.send}</button>}
+                  ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={13} /></button>
+                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void send()} disabled={busy || !draft.trim()}><Icon name="up" size={17} /></button>}
               </div>
             </div>
+            <p className="disc">{CHAT.disclaimer}</p>
           </>
         )}
 

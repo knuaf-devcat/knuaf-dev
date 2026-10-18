@@ -1,24 +1,12 @@
 import { useState } from 'react'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
-import { ConnectRow } from './ConnectRow'
+import { AccountChooser, useAccountProvider } from './AccountChooser'
 import { StageMenu } from './StageMenu'
 import { useProject } from '../store/project'
-import { chosenProvider, displayState, useConnect } from '../store/connect'
-import { chatProvider, resolveChatMode } from '../store/chat'
 import { FOLDER, PROVIDER_NAME, TITLEBAR, relativeTime } from '../copy'
 import { showsToggle, useLayout } from './useLayout'
-import type { Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
-
-/** 공급자 이름·상태 목록은 대화 화면과 같은 판정(`chosenProvider`)을 쓴다. */
-function useAccount() {
-  const { selected, codex, claude } = useConnect(useShallow((s) => ({ selected: s.selected, codex: s.codex, claude: s.claude })))
-  const settings = useProject((s) => s.settings)
-  const provider: Provider = chosenProvider(selected, settings) ?? chatProvider(resolveChatMode(null, settings))
-  const stateOf = (p: Provider): ReturnType<typeof displayState> => displayState(p === 'codex' ? codex : claude, false)
-  return { provider, stateOf }
-}
 
 /**
  * 제목줄 (DESIGN §1-3, 시안 ③④⑯).
@@ -35,13 +23,12 @@ function useAccount() {
  * 가운데 "지금 · ○○ ▾"은 `StageMenu` 다 — 3-A 의 `derive()` 가 정한 "지금" 하나를 말한다.
  */
 export function TitleBar() {
-  const { root, settings, open, setPaperClosed, paperClosed, paneView, setPaneView, openSheet, loadSettings } = useProject(useShallow((s) => ({
+  const { root, settings, open, setPaperClosed, paperClosed, paneView, setPaneView, openSheet } = useProject(useShallow((s) => ({
     root: s.root, settings: s.settings, open: s.open, setPaperClosed: s.setPaperClosed, paperClosed: s.paperClosed,
-    paneView: s.paneView, setPaneView: s.setPaneView, openSheet: s.openSheet, loadSettings: s.loadSettings
+    paneView: s.paneView, setPaneView: s.setPaneView, openSheet: s.openSheet
   })))
-  const select = useConnect((s) => s.select)
   const layout = useLayout()
-  const { provider, stateOf } = useAccount()
+  const { provider, stateOf } = useAccountProvider()
   const [menu, setMenu] = useState<'paper' | 'account' | null>(null)
 
   const base = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
@@ -49,12 +36,6 @@ export function TitleBar() {
   const state = stateOf(provider)
   /** 넓은데 닫아 둔 종이를 다시 여는 것도 학생의 선택이다 — 설정에 남긴다. */
   const showPaper = (): void => { setPaneView('paper'); if (paperClosed) setPaperClosed(false) }
-  const pickProvider = async (p: Provider): Promise<void> => {
-    await window.knuaf.setSettings({ helper_mode: p === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider: p, at: new Date().toISOString() } })
-    select(p)
-    await loadSettings()
-    setMenu(null)
-  }
 
   return (
     <header className="titlebar">
@@ -107,17 +88,10 @@ export function TitleBar() {
           {state === 'connected' ? TITLEBAR.accountConnected(PROVIDER_NAME[provider]) : TITLEBAR.accountNone}
         </button>
         <Popover open={menu === 'account'} onClose={() => setMenu(null)} align="right" label={TITLEBAR.accountTitle} width={400}>
-          <div className="list">
-            {(['codex', 'claude'] as Provider[]).map((p) => (
-              /* 첫 실행 1단계와 **같은 부품**이다 — 상태 문구도 행동 단추도 같다(설계자 답 Q2).
-                 여기서만 "○○로 바꾸기"가 붙고, 그 선택은 설정 라디오와 같은 자격으로 기록된다.
-                 "설정" 줄은 두지 않는다 — 바로 옆에 ⚙ 단추가 있어 같은 일을 두 번 두게 된다. */
-              <ConnectRow key={p} provider={p} current={p === provider}
-                extra={stateOf(p) === 'connected' && p !== provider
-                  ? { label: TITLEBAR.switchTo(PROVIDER_NAME[p]), run: () => void pickProvider(p) }
-                  : undefined} />
-            ))}
-          </div>
+          {/* 첫 실행 1단계와 **같은 부품**이다 — 상태 문구도 행동 단추도 같다(설계자 답 Q2).
+              입력칸의 모델 칩도 같은 것을 연다(발주 I-02) — 목록은 AccountChooser 한 곳에 있다.
+              "설정" 줄은 두지 않는다 — 바로 옆에 ⚙ 단추가 있어 같은 일을 두 번 두게 된다. */}
+          <AccountChooser onPicked={() => setMenu(null)} />
         </Popover>
       </div>
 

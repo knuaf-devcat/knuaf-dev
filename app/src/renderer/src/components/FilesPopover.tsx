@@ -11,7 +11,7 @@ import { useShallow } from 'zustand/react/shallow'
 export function MakeFeedbackLine({ fb, compact }: { fb: MakeFeedback; compact?: boolean }) {
   return (
     <div className={`make-fb ${fb.kind}${compact ? ' compact' : ''}`} role={fb.kind === 'error' ? 'alert' : 'status'}>
-      <div className="t">{fb.title}</div>
+      <div className="t">{fb.kind === 'warning' && <span className="dot attn" aria-hidden="true" />}{fb.title}</div>
       {fb.body && <div className="b">{fb.body}</div>}
       {fb.details}
       {fb.actions && <div className="row">{fb.actions}</div>}
