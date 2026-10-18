@@ -26,6 +26,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 
 export interface WinSpawn {
   command: string
@@ -82,14 +83,25 @@ export function winSpawn(command: string, args: string[], platform: NodeJS.Platf
 }
 
 /**
+ * `taskkill.exe` 의 **절대 경로**. PATH 로 이름을 찾으면 안 된다 — 앱이 좁은 PATH 로 떠 있으면
+ * (윈도우 CI 5차: busy 시험이 PATH 를 좁혔다) 못 찾아 cmd.exe 만 죽고 손자가 고아로 남는다.
+ * `SystemRoot` → `windir` → `C:\Windows` 순. 순수 함수라 어느 플랫폼에서도 시험할 수 있다.
+ */
+export function taskkillPath(env: Record<string, string | undefined> = process.env): string {
+  const root = env.SystemRoot ?? env.windir ?? 'C:\\Windows'
+  return `${root.replace(/[\\/]+$/, '')}\\System32\\taskkill.exe`
+}
+
+/**
  * 자식 프로세스를 끝낸다. 윈도우에서 `winSpawn` 이 감싼 자식은 **cmd.exe** 라서
  * `child.kill()` 은 cmd.exe 만 죽이고 손자(실제 codex·claude/node)는 **고아로 남는다**
  * (윈도우 CI 4차: 잡 정리에서 `Terminate orphan process: node`, busy 시험이 90초 타임아웃).
  * 그래서 윈도우에서는 프로세스 **트리째** 끝낸다 — `taskkill /pid <pid> /T /F`.
  *
  * 인자는 **숫자 pid 뿐**이라 학생 입력이 명령줄로 가지 않는다. 결과를 기다린 뒤 돌아온다
- * (taskkill 은 수십 ms 다). 0/128(없는 프로세스)이 아니면 직접 kill 로 넘어간다.
- * 맥·리눅스는 종전 그대로 `child.kill(signal)` — 동작 불변.
+ * (taskkill 은 수십 ms 다). 실행 파일은 **절대 경로**(`taskkillPath`)로 부르고 존재를 확인한
+ * 뒤 쓴다 — PATH 가 망가진 기계에서도 멈추기가 확실히 되게. 0/128(없는 프로세스)이 아니면
+ * 직접 kill 로 넘어간다. 맥·리눅스는 종전 그대로 `child.kill(signal)` — 동작 불변.
  */
 export function killTree(
   child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean },
@@ -97,10 +109,13 @@ export function killTree(
 ): void {
   if (process.platform === 'win32' && typeof child.pid === 'number' && child.pid > 0) {
     try {
-      const r = spawnSync('taskkill', ['/pid', String(Math.trunc(child.pid)), '/T', '/F'], {
-        windowsHide: true, stdio: 'ignore', timeout: 10_000
-      })
-      if (r.status === 0 || r.status === 128) return
+      const exe = taskkillPath(process.env)
+      if (existsSync(exe)) {
+        const r = spawnSync(exe, ['/pid', String(Math.trunc(child.pid)), '/T', '/F'], {
+          windowsHide: true, stdio: 'ignore', timeout: 10_000
+        })
+        if (r.status === 0 || r.status === 128) return
+      }
     } catch { /* taskkill 이 없거나 실패 — 아래 직접 kill */ }
   }
   try { child.kill(signal) } catch { /* already gone */ }
