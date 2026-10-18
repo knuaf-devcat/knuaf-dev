@@ -5,7 +5,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { query, type Query, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
-import { winSpawn } from '../win'
+import { winSpawn, killTree } from '../win'
 import type { ConnectionStatus } from '../../shared/chat'
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
@@ -298,14 +298,15 @@ export class ClaudeConnection implements AgentConnection {
     const release = () => { if (this.loginProcess === child) this.loginProcess = undefined }
     child.on('error', release)
     child.on('close', release)
-    const timer = setTimeout(() => child.kill(), 180_000)
+    const timer = setTimeout(() => killTree(child), 180_000)
     timer.unref(); child.once('close', () => clearTimeout(timer))
   }
   /** 취소 = 이 창에서 기다리기를 그만둔다. CLI 가 소유한 로그인 프로세스를 끝낸다. */
   async cancelLogin() {
     const child = this.loginProcess
     this.loginProcess = undefined
-    child?.kill()
+    // 윈도우에서 `.cmd` 로 감싼 로그인 자식도 트리째 끝낸다 — 손자가 남으면 로그인이 계속 산다.
+    if (child) killTree(child)
   }
   /**
    * 다시 열기 = 지금 프로세스를 끝내고 처음부터 다시 시작한다. Claude CLI 가 브라우저를
@@ -403,6 +404,6 @@ export class ClaudeConnection implements AgentConnection {
   }
   async stop() {
     for (const answer of this.approvals.values()) answer(false)
-    this.controller?.abort(); this.active?.close(); this.loginProcess?.kill()
+    this.controller?.abort(); this.active?.close(); if (this.loginProcess) killTree(this.loginProcess)
   }
 }

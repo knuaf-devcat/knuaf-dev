@@ -25,6 +25,8 @@
  * (배치 파일은 확장 단계가 달라 `%%` 로 막을 수 있다 — `agent.ts` 의 `batArg` 가 따로 처리한다.)
  */
 
+import { spawnSync } from 'node:child_process'
+
 export interface WinSpawn {
   command: string
   args: string[]
@@ -77,4 +79,29 @@ export function winSpawn(command: string, args: string[], platform: NodeJS.Platf
     // `windowsHide` — GUI 앱에서 cmd.exe 를 띄울 때 콘솔 창이 깜빡이지 않게(execFile 기본값은 false).
     options: { windowsVerbatimArguments: true, windowsHide: true }
   }
+}
+
+/**
+ * 자식 프로세스를 끝낸다. 윈도우에서 `winSpawn` 이 감싼 자식은 **cmd.exe** 라서
+ * `child.kill()` 은 cmd.exe 만 죽이고 손자(실제 codex·claude/node)는 **고아로 남는다**
+ * (윈도우 CI 4차: 잡 정리에서 `Terminate orphan process: node`, busy 시험이 90초 타임아웃).
+ * 그래서 윈도우에서는 프로세스 **트리째** 끝낸다 — `taskkill /pid <pid> /T /F`.
+ *
+ * 인자는 **숫자 pid 뿐**이라 학생 입력이 명령줄로 가지 않는다. 결과를 기다린 뒤 돌아온다
+ * (taskkill 은 수십 ms 다). 0/128(없는 프로세스)이 아니면 직접 kill 로 넘어간다.
+ * 맥·리눅스는 종전 그대로 `child.kill(signal)` — 동작 불변.
+ */
+export function killTree(
+  child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean },
+  signal: NodeJS.Signals = 'SIGTERM'
+): void {
+  if (process.platform === 'win32' && typeof child.pid === 'number' && child.pid > 0) {
+    try {
+      const r = spawnSync('taskkill', ['/pid', String(Math.trunc(child.pid)), '/T', '/F'], {
+        windowsHide: true, stdio: 'ignore', timeout: 10_000
+      })
+      if (r.status === 0 || r.status === 128) return
+    } catch { /* taskkill 이 없거나 실패 — 아래 직접 kill */ }
+  }
+  try { child.kill(signal) } catch { /* already gone */ }
 }

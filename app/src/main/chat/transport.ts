@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { winSpawn } from '../win'
+import { winSpawn, killTree } from '../win'
 
 /** stdio JSON-RPC. stderr stays out of the student transcript and credentials never enter logs. */
 export class JsonRpcProcess {
@@ -62,10 +62,12 @@ export class JsonRpcProcess {
     await new Promise<void>(resolve => {
       // 죽는 것('exit')만 기다린다. 'close'는 파이프 점유자 때문에 안 올 수 있다.
       const done = () => { clearTimeout(t1); clearTimeout(t2); resolve() }
-      const t1 = setTimeout(() => { try { this.child.kill('SIGKILL') } catch { /* already gone */ } }, 3000)
+      const t1 = setTimeout(() => killTree(this.child, 'SIGKILL'), 3000)
       const t2 = setTimeout(done, 3500)
       this.child.once('exit', done)
-      this.child.kill('SIGTERM')
+      // 윈도우에서 `cmd.exe` 로 감싼 자식은 **트리째** 끝낸다 — cmd.exe 만 죽이면 손자
+      // (실제 codex·claude/node)가 고아로 남는다(윈도우 CI 4차). 맥은 종전 그대로다.
+      killTree(this.child, 'SIGTERM')
     })
   }
 }
