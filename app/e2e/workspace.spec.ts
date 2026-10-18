@@ -156,3 +156,61 @@ test('차례 팝오버 — 등록된 절만, 상태 말과 함께', async () => 
   await expect(pop).not.toContainText('Ⅶ')
   await electronApp.close()
 })
+
+test('제목줄 논문 팝오버 — 최근 논문과 새 폴더·다른 폴더 두 줄 (설계자 답 Q1)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.locator('.titlebar .tbtn.title').click()
+  const pop = page.locator('.titlebar .popover')
+  await expect(pop).toBeVisible()
+  await expect(pop).toContainText('최근 논문')
+  // 지금 연 논문은 목록에서 빠지므로 이 장면에는 최근 줄이 없다 — 없다고 말한다.
+  await expect(pop).toContainText('최근에 연 논문이 없어요')
+  // 아래 두 줄. 기록 번호는 어디에도 없다(DESIGN §5).
+  await expect(pop.getByRole('button', { name: '새 폴더 만들기' })).toBeVisible()
+  await expect(pop.getByRole('button', { name: '다른 폴더 열기…' })).toBeVisible()
+  await expect(pop).not.toContainText('번째 기록')
+  await electronApp.close()
+})
+
+test('제목줄 계정 팝오버 — 두 AI 줄이 첫 실행과 같은 상태 문구를 쓴다 (설계자 답 Q2)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.locator('.titlebar .tbtn.acct').click()
+  const pop = page.locator('.titlebar .popover')
+  await expect(pop).toBeVisible()
+  // 첫 실행 1단계와 같은 부품(ConnectRow) — 공급자마다 한 줄.
+  await expect(pop.locator('[data-provider]')).toHaveCount(2)
+  await expect(pop.locator('[data-provider="codex"]')).toContainText('ChatGPT')
+  await expect(pop.locator('[data-provider="claude"]')).toContainText('Claude')
+  // 상태 문구가 반드시 한 줄 있다(관찰한 것만 말한다 — connectStateLine).
+  for (const p of ['codex', 'claude']) {
+    const line = await pop.locator(`[data-provider="${p}"] .reason`).first().innerText()
+    expect(line.trim().length, `${p} 상태 문구가 비었다`).toBeGreaterThan(0)
+  }
+  await electronApp.close()
+})
+
+test('자료 팝오버 — 보기 전용: 현재 작성물 + 자료 전체 보기 (설계자 답 Q3)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.locator('.paper-head').getByRole('button', { name: /자료/ }).click()
+  const pop = page.locator('.paper-head .popover')
+  await expect(pop).toBeVisible()
+  await expect(pop).toContainText('현재 작성물')
+  await expect(pop).toContainText('현재 원고')
+  await expect(pop).toContainText('재무 파일')
+  await expect(pop.getByRole('button', { name: '자료 전체 보기' })).toBeVisible()
+  // 자료 넣기(파일 고르기)는 여기 없다 — 입력칸과 자료 시트가 맡는다.
+  await expect(pop.getByRole('button', { name: '파일 고르기…' })).toHaveCount(0)
+  await electronApp.close()
+})

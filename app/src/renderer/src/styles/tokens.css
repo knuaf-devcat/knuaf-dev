@@ -38,8 +38,9 @@
   --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-pill: 999px;
   --hairline: 1px;
   --sidebar-w: 224px; --titlebar-h: 52px; --toolbar-h: 52px;
-  /* macOS 신호등 자리 확보 — main/index.ts 의 trafficLightPosition 과 함께 본다. */
-  --titlebar-inset: 78px;
+  /* 제목줄 왼쪽 여백 — macOS 신호등 자리다. **다른 OS 는 0** 이고, 윈도우는 컨트롤이
+     오른쪽 위를 덮으므로 오른쪽 여백을 비운다(components.css 의 win32 규칙). */
+  --titlebar-inset: 0px;
   --serif: "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
   /* 종이 칸(3단계) — 종이와 책상. */
   --desk: #eef2f7; --paper: #fffffe; --paper-ink: #161b26;
@@ -67,6 +68,7 @@
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .35);
   }
 }
+[data-platform="darwin"] { --titlebar-inset: 78px; }
 [data-platform="darwin"][data-vibrancy="on"] { --material-sidebar: transparent; }
 @media (prefers-reduced-transparency: reduce) { :root { --material-sidebar: var(--bg-2); --material-toolbar: var(--bg); --blur: 0px; } }
 @media (prefers-contrast: more) { :root { --line: currentColor; --line-strong: currentColor; --material-toolbar: var(--bg); --blur: 0px; } }

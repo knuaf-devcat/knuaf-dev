@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
+import { ConnectRow } from './ConnectRow'
 import { useProject } from '../store/project'
 import { chosenProvider, displayState, useConnect } from '../store/connect'
 import { chatProvider, resolveChatMode } from '../store/chat'
-import { PROVIDER_NAME, TITLEBAR, connectStateLine } from '../copy'
+import { FOLDER, PROVIDER_NAME, TITLEBAR, relativeTime } from '../copy'
 import { showsToggle, useLayout } from './useLayout'
 import type { Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -68,9 +69,16 @@ export function TitleBar({ stageSlot }: { stageSlot?: ReactNode }) {
           {recent.length === 0
             ? <div className="pop-empty caption">{TITLEBAR.noRecent}</div>
             : recent.map((r) => (
-              <PopRow key={r.root} icon={<Icon name="doc" size={16} />} onClick={() => { setMenu(null); void open(r.root) }}>{base(r.root)}</PopRow>
+              /* 기록 번호는 붙이지 않는다(DESIGN §5) — 마지막으로 연 때만 말한다(설계자 답 Q1). */
+              <PopRow key={r.root} icon={<Icon name="doc" size={16} />} meta={relativeTime(r.opened_at)}
+                onClick={() => { setMenu(null); void open(r.root) }}>{base(r.root)}</PopRow>
             ))}
           <PopSep />
+          <PopRow icon={<Icon name="folder" size={16} />} onClick={async () => {
+            setMenu(null)
+            const dir = await window.knuaf.pickFolder()
+            if (dir) void open(dir)
+          }}>{FOLDER.newAction}</PopRow>
           <PopRow icon={<Icon name="folder" size={16} />} onClick={async () => {
             setMenu(null)
             const dir = await window.knuaf.pickFolder()
@@ -99,18 +107,18 @@ export function TitleBar({ stageSlot }: { stageSlot?: ReactNode }) {
           <span className={`dot${state === 'connected' ? '' : ' off'}`} />
           {state === 'connected' ? TITLEBAR.accountConnected(PROVIDER_NAME[provider]) : TITLEBAR.accountNone}
         </button>
-        <Popover open={menu === 'account'} onClose={() => setMenu(null)} align="right" label={TITLEBAR.accountTitle} width={340}>
-          {(['codex', 'claude'] as Provider[]).map((p) => (
-            <PopRow key={p} current={p === provider}
-              icon={<span className={`dot${stateOf(p) === 'connected' ? '' : ' off'}`} />}
-              meta={stateOf(p) === 'connected' && p !== provider
-                ? <button className="quiet" onClick={() => void pickProvider(p)}>{TITLEBAR.switchTo(PROVIDER_NAME[p])}</button>
-                : undefined}>
-              <span className="c"><b>{PROVIDER_NAME[p]}</b><small>{connectStateLine(p, stateOf(p))}</small></span>
-            </PopRow>
-          ))}
-          <PopSep />
-          <PopRow icon={<Icon name="gear" size={16} />} onClick={() => { setMenu(null); openSheet('settings') }}>{TITLEBAR.settingsTitle}</PopRow>
+        <Popover open={menu === 'account'} onClose={() => setMenu(null)} align="right" label={TITLEBAR.accountTitle} width={400}>
+          <div className="list">
+            {(['codex', 'claude'] as Provider[]).map((p) => (
+              /* 첫 실행 1단계와 **같은 부품**이다 — 상태 문구도 행동 단추도 같다(설계자 답 Q2).
+                 여기서만 "○○로 바꾸기"가 붙고, 그 선택은 설정 라디오와 같은 자격으로 기록된다.
+                 "설정" 줄은 두지 않는다 — 바로 옆에 ⚙ 단추가 있어 같은 일을 두 번 두게 된다. */
+              <ConnectRow key={p} provider={p} current={p === provider}
+                extra={stateOf(p) === 'connected' && p !== provider
+                  ? { label: TITLEBAR.switchTo(PROVIDER_NAME[p]), run: () => void pickProvider(p) }
+                  : undefined} />
+            ))}
+          </div>
         </Popover>
       </div>
 

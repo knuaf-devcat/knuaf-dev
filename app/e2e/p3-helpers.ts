@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import type { Page } from '@playwright/test'
+import { expect } from '@playwright/test'
 import { python, scripts } from './helpers'
 
 /**
@@ -20,8 +21,12 @@ import { python, scripts } from './helpers'
  */
 export async function openProjectP3(page: Page, root: string): Promise<void> {
   await page.getByRole('button', { name: '설정' }).first().click()
+  // 시트가 그려진 뒤에 경로 입력칸을 찾는다 — 앱이 켜지자마자 연결 상태를 확인하러
+  // 나가면(제목줄 계정 자리) 첫 렌더가 몇 박 늦어질 수 있다.
+  await page.waitForSelector('dialog[open]', { timeout: 30_000 })
   const disclosure = page.locator('details:has(input[aria-label="폴더 경로"])')
-  if (await disclosure.count()) await disclosure.first().evaluate((d) => { (d as HTMLDetailsElement).open = true })
+  await expect(disclosure).toHaveCount(1)
+  await disclosure.first().evaluate((d) => { (d as HTMLDetailsElement).open = true })
   await page.fill('input[aria-label="폴더 경로"]', root)
   await page.click('button:has-text("경로로 열기")')
   // 열리면 설정 시트가 닫히고 작업 공간이 남는다(store/project.ts open → closeSheet).

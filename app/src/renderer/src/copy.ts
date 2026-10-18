@@ -912,6 +912,8 @@ export const CHAT = {
 export const MATERIALS = {
   title: '자료',
   loading: '불러오는 중…',
+  /** 참고자료가 목록보다 많을 때의 꼬리(팝오버는 최대 5개만 보여 준다 — 설계자 답 Q3). */
+  moreFiles: (n: number) => `외 ${n}개`,
   currentTitle: '현재 작성물',
   manuscriptLabel: '현재 원고',
   financeLabel: '재무 파일',

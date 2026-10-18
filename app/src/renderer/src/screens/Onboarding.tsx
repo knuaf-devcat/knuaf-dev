@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
 import { displayState, useConnect, canAdvance, type ConnInfo, type ConnState } from '../store/connect'
 import { useChat, type ChatMode } from '../store/chat'
-import { Badge } from '../components/Badge'
 import { FolderPicker } from '../components/FolderPicker'
-import { CHAT, FOLDER, ONBOARD, PRIVACY_NOTE, PROVIDER_NAME, connectStateLine } from '../copy'
+import { ConnectBadges, ConnectRow } from '../components/ConnectRow'
+import { CHAT, FOLDER, ONBOARD, PRIVACY_NOTE } from '../copy'
 import type { Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -26,12 +26,11 @@ const ROWS: Provider[] = ['codex', 'claude']
 
 export function Onboarding({ onDone }: { onDone?: () => void }) {
   const { settings, loadSettings } = useProject(useShallow((s) => ({ settings: s.settings, loadSettings: s.loadSettings })))
-  const { codex, claude, selected, loggingIn, select, refreshAll, refresh, login, cancel, reopen, stopPolling } = useConnect(useShallow((s) => ({
+  const { codex, claude, selected, loggingIn, select, refreshAll, stopPolling } = useConnect(useShallow((s) => ({
     codex: s.codex, claude: s.claude, selected: s.selected, loggingIn: s.loggingIn, select: s.select,
-    refreshAll: s.refreshAll, refresh: s.refresh, login: s.login, cancel: s.cancel, reopen: s.reopen, stopPolling: s.stopPolling
+    refreshAll: s.refreshAll, stopPolling: s.stopPolling
   })))
   const [step, setStep] = useState<'connect' | 'folder'>('connect')
-  const [rechecking, setRechecking] = useState<Provider | null>(null)
   /** 로그인을 시킨 공급자 — 그 로그인이 성공하면 그 선택을 기록한다(로그인 자체가 선택이다). */
   const loginTarget = useRef<Provider | null>(null)
   /** 건너뛰기 판정은 한 번만 한다 — 상태가 오갈 때마다 화면이 튀지 않게. */
@@ -89,8 +88,6 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
     onDone?.()
   }
 
-  const recheck = async (p: Provider) => { setRechecking(p); await refresh(p); setRechecking(null) }
-  const startLogin = async (p: Provider) => { loginTarget.current = p; await login(p) }
   /**
    * 전진 조건은 하나다 — **고른 것이 지금 연결돼 있다**(P2-R1-03). 저장된 선택만 보고 넘어가면
    * 연결을 못 마친 첫 실행이 "AI 연결 완료"로 폴더 단계에 서게 된다.
@@ -120,39 +117,16 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
             <p className="caption" style={{ margin: 'var(--sp-2) 0 var(--sp-5)' }}>{ONBOARD.connectIntro}</p>
 
             <div className="list">
-              {ROWS.map((p) => {
-                const st = stateOf(p)
-                const bad = st === 'failed' || st === 'unknown'
-                return (
-                  <div className="item" key={p}>
-                    <div className="head">
-                      <div>
-                        <span style={{ fontWeight: 600 }}>{PROVIDER_NAME[p]}</span>
-                        {p === 'codex' && <span style={{ marginLeft: 'var(--sp-2)' }}><Badge tone="accent" label={ONBOARD.recommended} /></span>}
-                        {p === 'claude' && <span className="caption" style={{ marginLeft: 'var(--sp-2)' }}>{ONBOARD.claudeExperimental}</span>}
-                        <div className="reason caption">{connectStateLine(p, st)}{st === 'connected' && p === selected ? ONBOARD.chosenSuffix : ''}</div>
-                      </div>
-                      <div className="row">
-                        {st === 'no-tool' && <button onClick={() => void window.knuaf.openGuide()}>{ONBOARD.installGuide}</button>}
-                        {/* 소프트 코발트 = 주 행동(DESIGN §7). 로그인과 "이걸로 시작"이 그 자리다. */}
-                        {st === 'need-login' && <button className="primary" onClick={() => void startLogin(p)}>{ONBOARD.loginAs(PROVIDER_NAME[p])}</button>}
-                        {st === 'logging-in' && <>
-                          <button onClick={() => void reopen(p)}>{ONBOARD.reopenBrowser}</button>
-                          <button className="quiet" onClick={() => void cancel(p)}>{ONBOARD.cancel}</button>
-                        </>}
-                        {st === 'connected' && selected !== p &&
-                          <button className="primary" onClick={() => void remember(p).then(() => setStep('folder'))}>{ONBOARD.startWith}</button>}
-                        {/* 다시 확인은 실제로 다시 볼 것이 있을 때만 — 확인 중·로그인 중·연결됨에는
-                            아무 일도 하지 않는 회색 단추만 남는다(시안 A 에도 없다). */}
-                        {(st === 'no-tool' || st === 'failed' || st === 'unknown' || st === 'need-login') &&
-                          <button className="quiet" onClick={() => void recheck(p)} disabled={rechecking === p}>{CHAT.recheck}</button>}
-                      </div>
-                    </div>
-                    {st === 'no-tool' && <div className="reason caption">{ONBOARD.toolHint}</div>}
-                    {bad && info(p).detail && <div className="reason caption">{info(p).detail}</div>}
-                  </div>
-                )
-              })}
+              {ROWS.map((p) => (
+                /* 상태 문구·행동 단추는 계정 팝오버와 **같은 부품**이다(ConnectRow). 여기서만
+                   "권장/실험 중" 표시와 "이걸로 시작"이 붙는다. */
+                <ConnectRow key={p} provider={p} badges={<ConnectBadges provider={p} />}
+                  onLogin={(who) => { loginTarget.current = who }}
+                  suffix={stateOf(p) === 'connected' && p === selected ? ONBOARD.chosenSuffix : undefined}
+                  extra={stateOf(p) === 'connected' && selected !== p
+                    ? { label: ONBOARD.startWith, run: () => void remember(p).then(() => setStep('folder')) }
+                    : undefined} />
+              ))}
             </div>
 
             <div className="row" style={{ marginTop: 'var(--sp-5)' }}>

@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
 import { useProject } from '../store/project'
 import { ARTIFACTS, FILES_POPOVER, PAPER } from '../copy'
+import { joinPath } from '../paths'
 import { useMake } from './useMake'
-import { useShallow } from 'zustand/react/shallow'
 
 /**
  * 파일 팝오버 (시안 ⑩⑮) — 종이 머리의 "파일 N".
@@ -18,7 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
  * 기록 번호를 비교해 점을 만들면 "현재성은 stale 만 본다"는 규칙을 어긴다(DESIGN §2).
  */
 export function FilesPopover() {
-  const { artifacts, openSheet } = useProject(useShallow((s) => ({ artifacts: s.artifacts, openSheet: s.openSheet })))
+  const { root, artifacts, openSheet } = useProject(useShallow((s) => ({ root: s.root, artifacts: s.artifacts, openSheet: s.openSheet })))
   const [open, setOpen] = useState(false)
   const make = useMake()
   const files = artifacts ?? []
@@ -41,13 +42,14 @@ export function FilesPopover() {
         {files.length === 0
           ? <div className="pop-empty caption">{FILES_POPOVER.madeNone}</div>
           : files.map((f) => (
-            <PopRow key={f.path} icon={<Icon name="doc" size={16} />} onClick={() => void window.knuaf.openPath(f.path)} meta={FILES_POPOVER.unknown}>
+            /* 경로는 정본 안 상대경로다 — 플랫폼 구분자 규칙(joinPath)을 거쳐야 윈도우에서도 열린다. */
+            <PopRow key={f.path} icon={<Icon name="doc" size={16} />} onClick={() => void window.knuaf.openPath(joinPath(root, f.path))} meta={FILES_POPOVER.unknown}>
               {f.name}
             </PopRow>
           ))}
         <PopSep />
         <PopRow icon={<Icon name="box" size={16} />} onClick={() => { setOpen(false); openSheet('artifacts') }}>{FILES_POPOVER.openAll}</PopRow>
-        <PopRow icon={<Icon name="folder" size={16} />} onClick={() => { setOpen(false); openSheet('artifacts') }}>{ARTIFACTS.reveal}</PopRow>
+        {files.length > 0 && <PopRow icon={<Icon name="folder" size={16} />} onClick={() => window.knuaf.reveal(joinPath(root, files[0].path))}>{ARTIFACTS.reveal}</PopRow>}
       </Popover>
     </div>
   )

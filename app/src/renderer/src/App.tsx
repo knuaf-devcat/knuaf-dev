@@ -81,6 +81,18 @@ export function App() {
   // 학생이 고른 공급자는 설정에 남는다 — 세션 상태(store/connect)를 그 값과 맞춰 둔다.
   const choice = settings?.provider_choice?.provider ?? null
   useEffect(() => { useConnect.getState().select(choice) }, [choice])
+  /**
+   * 제목줄의 계정 자리가 "● ChatGPT 연결됨"을 말하려면 앱이 연결 상태를 **봐야** 한다 —
+   * 보지 않고 두면 그 자리는 영원히 "확인 중"이거나 "연결 안 됨"이 된다(관찰한 것만 말한다).
+   * 첫 실행 화면이 떠 있으면 그 화면이 스스로 확인하므로 여기서는 겹치지 않게 건너뛴다.
+   */
+  const looked = React.useRef(false)
+  useEffect(() => {
+    if (!settings || looked.current) return
+    if (!root && !settings.onboarded_at) return
+    looked.current = true
+    void useConnect.getState().refreshAll()
+  }, [settings, root])
 
   const paperOnScreen = showsPaper(layout, paneView)
   const checkup = sheet === 'checkup' && paperOnScreen

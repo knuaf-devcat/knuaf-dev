@@ -16,6 +16,10 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 .titlebar { position: relative; z-index: 6; flex: none; display: flex; align-items: center; gap: 4px;
   min-height: var(--titlebar-h); padding: calc(var(--sp-1) + 8px) var(--sp-3) var(--sp-1) var(--titlebar-inset);
   background: var(--bg); border-bottom: var(--hairline) solid var(--line); -webkit-app-region: drag; }
+/* 윈도우: 창 단추가 **오른쪽 위를 덮는다**(main/index.ts 의 titleBarOverlay, 높이 40).
+   왼쪽 여백은 없고 오른쪽을 비운다 — 비우지 않으면 ⚙ 가 단추 밑에 깔린다. */
+[data-platform="win32"] .titlebar { min-height: 40px; padding-left: var(--sp-3); padding-right: 138px; }
+[data-platform="linux"] .titlebar { padding-left: var(--sp-3); }
 .titlebar button { -webkit-app-region: no-drag; }
 .tbtn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 8px; padding: 6px 9px; font-size: 13.5px; color: var(--ink); }
 .tbtn:hover { background: var(--hover); }
