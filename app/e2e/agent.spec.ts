@@ -166,7 +166,7 @@ test.describe('buildLaunchScript', () => {
     const s = buildLaunchScript({
       root: '/tmp/논문 폴더', agent: 'claude', agentPath: '/opt/homebrew/bin/claude',
       venvBin: '/tmp/논문 폴더/.venv/bin', bundledBin: '/App/Resources/python/bin', firstPrompt: '시작하기'
-    })
+    }, 'darwin')   // 맥 기대 시험은 플랫폼을 명시한다 — 윈도우 기대는 별도 시험이 맡는다
     expect(s.startsWith('#!/bin/bash\n')).toBe(true)
     expect(s).toContain(`cd '/tmp/논문 폴더' || exit 1`)
     expect(s).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':'/App/Resources/python/bin':'/opt/homebrew/bin':'/usr/local/bin':"$HOME/.local/bin":"$PATH"`)
@@ -294,7 +294,7 @@ test.describe('buildLaunchScript', () => {
   })
 
   test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {
-    const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/homebrew/bin/codex', venvBin: null, bundledBin: null, firstPrompt: '시작하기' })
+    const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/homebrew/bin/codex', venvBin: null, bundledBin: null, firstPrompt: '시작하기' }, 'darwin')
     expect(s.trimEnd().split('\n').pop()).toBe(`exec '/opt/homebrew/bin/codex'`)
     expect(s).not.toContain('skills.config')
     expect(s).not.toContain("'시작하기'")
@@ -316,7 +316,7 @@ test.describe('buildLaunchScript', () => {
     // 기대값에도 같은 이스케이프를 적용한다(맥에서는 역슬래시가 없어 종전과 같은 문자열).
     const esc = (p: string): string => p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     expect(cfg).toBe(`skills.config=[{path="${esc(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'))}",enabled=false}]`)
-    const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/codex', venvBin: null, bundledBin: null, firstPrompt: '', home })
+    const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/codex', venvBin: null, bundledBin: null, firstPrompt: '', home }, 'darwin')
     expect(s).toContain(`-c '${cfg}'`)
 
     // app-server 스폰에도 같은 오버라이드 — -c 는 subcommand 앞의 루트 인자다.
