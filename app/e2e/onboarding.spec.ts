@@ -10,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
-import { launch, synthProject } from './helpers'
+import { launch, openProject, synthProject } from './helpers'
 import { ONBOARD } from '../src/renderer/src/copy'
 import { fakeCodexEnv, replyFile, scratch, writeCliShim, writeFakeClaude } from './fixtures/fake-codex'
 
@@ -224,7 +224,7 @@ test('저장된 선택만으로는 다음 단계로 가지 못한다 (P2-R1-03)'
   }
 })
 
-test('확인 실패는 첫 화면에서도 로그인 필요가 아니다 (P2-R1-01)', async () => {
+test('확인 실패는 첫 화면과 폴더 화면 모두에서 로그인 필요가 아니다 (P2-R1-01)', async () => {
   // 검토 재현: `claude auth status` 가 JSON 이 아닌 것을 뱉는 가짜 CLI. 도구는 있는데
   // 대답을 못 들은 상태다 — 로그인을 요구하면 엉뚱한 재인증을 시킨다.
   const dir = scratch()
@@ -237,9 +237,16 @@ test('확인 실패는 첫 화면에서도 로그인 필요가 아니다 (P2-R1-
   })
   const { electronApp, page } = await launch({ userData, env })
   try {
-    // 저장된 선택이 확인 실패(probe failed)라 1단계(AI 연결)부터 — 그 자리에도 로그인은 없다.
+    // ① 첫 화면(1단계, FirstRun→ConnectRow) — 확인 실패를 로그인으로 접지 않는다.
     await expect(page.locator('[data-provider="claude"] .reason').first()).toContainText('연결 상태를 확인하지 못했어요', { timeout: 30_000 })
-    // 로그인부터 요구하지 않는다 — 다시 확인만 권한다.
+    await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
+
+    // ② 같은 시험에서 논문을 **실제로 연다** — 폴더 안 Chat 의 상태 소비 경로도 검사한다
+    //    (검토 QA-R1-01: 두 화면은 `useConnect` 와 `useChat.statusInfo` 라는 별도 경로다).
+    await openProject(page, root)
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
+    await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
   } finally {

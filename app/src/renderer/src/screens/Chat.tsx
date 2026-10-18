@@ -174,17 +174,6 @@ export function Chat() {
   useEffect(() => { if (atBottom) toBottom() }, [snapshot?.messages.length, snapshot?.state, events.length])
   useEffect(() => { if (snapshot?.permission) toBottom() }, [snapshot?.permission?.id])
 
-  /**
-   * 입력칸 높이를 내용에 맞춘다 — `height:auto` 로 되돌린 뒤 `scrollHeight` 를 준다(그래야
-   * 글이 줄어도 줄어든다). 최대 높이는 CSS(`max-height`)가 막고 그 위로는 스크롤이다.
-   */
-  useEffect(() => {
-    const el = taRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [draft])
-
   const running = snapshot?.state === 'running' || snapshot?.state === 'permission'
   const lastUncertain = snapshot?.messages.filter((m) => m.role === 'user' && m.delivery === 'uncertain').at(-1)
   const attach = async (): Promise<void> => { const p = await window.knuaf.pickFile({ title: CHAT.attach }); if (p) insertPath(p) }
@@ -222,6 +211,21 @@ export function Chat() {
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
+  /**
+   * 입력칸 높이를 내용에 맞춘다 — `height:auto` 로 되돌린 뒤 `scrollHeight` 를 준다(그래야
+   * 글이 줄어도 줄어든다). 최대 높이는 CSS(`max-height`)가 막고 그 위로는 스크롤이다.
+   *
+   * 의존성에 `zone.kind` 를 넣는 이유(검토 QA-R1-02): 허락·질문 카드가 입력칸 자리를
+   * 차지하면 textarea 가 사라졌다가 다시 나타나는데, Chat 자신은 계속 마운트돼 있고 초안도
+   * 그대로라 `[draft]` 만으로는 다시 실행되지 않았다 — 5줄 초안이 한 줄 높이로 줄어 보였다.
+   * 구역이 입력칸으로 돌아올 때도 높이를 다시 잰다.
+   */
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft, zone.kind])
   /**
    * 대화 이벤트 줄의 "종이에서 보기" — 학생이 **명시적으로** 누른 이동이다. 그래서 닫아 둔
    * 종이도 다시 열고(자동으로 열리지 않는 규칙은 저장·감시에만 적용된다), 좁은 창이면 종이로

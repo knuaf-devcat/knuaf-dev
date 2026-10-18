@@ -145,6 +145,8 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .chk li .m { margin-left: auto; font-size: 13px; color: var(--muted); }
 .chk .file { display: flex; align-items: center; gap: 10px; padding: 8px 0 2px; font-size: 14.5px; }
 .chk .file .m { margin-left: auto; color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+/* 제출용 후보 버튼 옆 설명도 14px — 결과물 만들기 줄과 같은 위계(발주 I-03, 검토 QA-R1-03). */
+.chk .row .caption { font-size: 14px; }
 .lanes { border-top: var(--hairline) solid var(--line); margin: 10px 0 8px; }
 .lanes .ln { display: grid; grid-template-columns: 116px 1fr auto; gap: 16px; align-items: start; padding: 12px 0;
   border-bottom: var(--hairline) solid var(--line); font-size: 14px; }
@@ -194,7 +196,9 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .badge.pass, .badge.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
 .badge.fail, .badge.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
 .badge.blocked { color: var(--blocked); background: var(--blocked-soft); border-color: transparent; }
-.badge.warning, .badge.warn { color: var(--warn); background: var(--alert-bg); border-color: var(--alert-border); }
+/* 경고 배지도 글자는 기본 글자색, 호박은 앞의 점으로만(검토 QA-R1-04 — 점·아이콘 전용 원칙). */
+.badge.warning, .badge.warn { color: var(--ink-2); background: var(--alert-bg); border-color: var(--alert-border); }
+.badge.warning::before, .badge.warn::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--attn); flex: none; }
 .badge.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
