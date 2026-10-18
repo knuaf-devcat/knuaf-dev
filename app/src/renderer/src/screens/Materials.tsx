@@ -42,8 +42,8 @@ function FactRow({ label, fact }: { label: string; fact: MaterialFact }) {
  * (종이 머리의 "자료 N" 팝오버와 같은 것을 본다).
  */
 export function Materials() {
-  const { root, materials, loadLists, openSheet, closeSheet } = useProject(useShallow((s) => ({
-    root: s.root, materials: s.materials, loadLists: s.loadLists, openSheet: s.openSheet, closeSheet: s.closeSheet
+  const { root, materials, loadLists, closeSheet } = useProject(useShallow((s) => ({
+    root: s.root, materials: s.materials, loadLists: s.loadLists, closeSheet: s.closeSheet
   })))
   const insertPath = useChat((s) => s.insertPath)
   const [dragging, setDragging] = useState(false)
@@ -102,8 +102,6 @@ export function Materials() {
         {MATERIALS.dropLine} <button onClick={() => void pick()}>{MATERIALS.attach}</button>
         <div className="caption" style={{ marginTop: 'var(--sp-2)' }}>{MATERIALS.addCaption}</div>
       </div>
-
-      <p className="caption" style={{ marginTop: 'var(--sp-4)' }}>{MATERIALS.checkLinePre} <button className="lk" onClick={() => openSheet('checkup')}>{MATERIALS.checkLink}</button>{MATERIALS.checkLinePost}</p>
     </div>
   )
 }

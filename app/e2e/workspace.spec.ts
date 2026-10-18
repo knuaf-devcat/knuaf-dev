@@ -10,8 +10,10 @@
  * 그 파일들은 3-A 워커의 것이다.
  */
 import { expect, test } from '@playwright/test'
+import { join } from 'node:path'
 import { launch, synthProject } from './helpers'
-import { addSectionBody, openProjectP3, setWindowWidth } from './p3-helpers'
+import { addSectionBody, markSectionReady, openProjectP3, setWindowWidth } from './p3-helpers'
+import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 
 test('본문이 없으면 한 칸, 첫 장이 저장되면 두 칸이 된다', async () => {
   const root = synthProject({ withContent: false })
@@ -98,10 +100,9 @@ test('제출 전 점검 한 장이 논문 칸을 덮고, 확인 행이 네 개�
   await openProjectP3(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
-  // 여는 길: 종이 머리 자료 팝오버 → 자료 전체 보기 → 점검(전체 화면이 시트로 남아 있다).
-  await page.locator('.paper-head').getByRole('button', { name: /자료/ }).click()
-  await page.getByRole('button', { name: '자료 전체 보기' }).click()
-  await page.locator('dialog[open]').getByRole('button', { name: '점검' }).click()
+  // 정식 진입점: 제목줄 "지금 ▾" → 전체 과정 → 제출 점검·마무리 줄(설계자 답 Q6).
+  await page.locator('.titlebar .tbtn.now').click()
+  await page.locator('.titlebar .popover').getByRole('button', { name: /제출 점검·마무리/ }).click()
 
   const over = page.locator('.paperpane .sheetover')
   await expect(over).toBeVisible()
@@ -117,6 +118,48 @@ test('제출 전 점검 한 장이 논문 칸을 덮고, 확인 행이 네 개�
   // 퍼센트·진행 막대·완료 배지는 쓰지 않는다.
   expect(await over.locator('[role=progressbar], progress').count()).toBe(0)
   expect(await over.locator('button:has-text("완료")').count()).toBe(0)
+  await electronApp.close()
+})
+
+test('"지금"은 닫혀 있을 때도 열려 있을 때도 한 곳뿐이다 (3-A 완료 기준)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  const now = page.locator('.titlebar .tbtn.now')
+  // 닫힘: 단추가 "지금 · ○○" 한 줄로 말한다.
+  await expect(now).toContainText('지금')
+  await expect(page.locator('.titlebar .popover')).toHaveCount(0)
+  await now.click()
+  // 열림: 단추 글자는 "전체 과정"으로 바뀌고(검토 R1-02), "지금" 표시는 목록 한 줄에만 있다.
+  await expect(now).toContainText('전체 과정')
+  await expect(now).not.toContainText('지금')
+  const pop = page.locator('.titlebar .popover')
+  await expect(pop).toBeVisible()
+  await expect(pop.locator('.pop-row')).toHaveCount(5)
+  await expect(pop.locator('.now-w')).toHaveCount(1)
+  await electronApp.close()
+})
+
+test('종이 머리 권하는 단추 — 3단계에서 "검토본 만들기" 하나 (3-A 합류)', async () => {
+  // "지금"이 1단계(준비)로 떨어지지 않으려면 연결이 확인돼야 한다 — 가짜 codex(logged-in)로
+  // 고정한다. 개발 기계에 진짜 CLI 가 있든 없든 같은 장면이 되게 하려는 것이다(fixtures).
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  // 처음에는 인터뷰 단계(2)라 권하는 단추가 없다 — 대화가 이끈다(DESIGN §2).
+  await expect(page.locator('.titlebar .tbtn.now')).toContainText('인터뷰')
+  await expect(page.locator('.paper-head button.primary')).toHaveCount(0)
+
+  // 장을 다 쓴 상태로 올린다(기록 +1) → 2초 감시가 다시 읽고 3단계가 된다.
+  markSectionReady(root)
+  await expect(page.locator('.paper-head button.primary')).toHaveText('검토본 만들기', { timeout: 20_000 })
+  await expect(page.locator('.titlebar .tbtn.now')).toContainText('검토본')
   await electronApp.close()
 })
 

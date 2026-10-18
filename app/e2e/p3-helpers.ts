@@ -61,6 +61,20 @@ export function rewriteSection(root: string, opts: { id?: string; body?: string;
   if (r.status !== 0) throw new Error(r.stdout + r.stderr)
 }
 
+/**
+ * 장 하나를 `review_ready` 로 올린다 — "지금"이 3단계(검토본)가 되는 장면을 만든다.
+ * 절 상태는 정본이 들고 있으므로 apply 로 올리고, 앱은 2초 감시로 따라온다.
+ */
+export function markSectionReady(root: string, opts: { id?: string; expected?: number } = {}): void {
+  const id = opts.id ?? 'sec-01'
+  const change = join(root, `change-${id}-ready.json`)
+  writeFileSync(change, JSON.stringify({ request_id: `e2e:p3:${id}:ready`, ops: [
+    { collection: 'sections', value: { id, title: 'Ⅰ. 머리말', order: 1, path: `sections/01.md`, status: 'review_ready' } }
+  ] }), 'utf-8')
+  const r = spawnSync(python, [join(scripts, 'gg.py'), 'apply', root, '--change', change, '--expected-revision', String(opts.expected ?? 1)], { encoding: 'utf-8' })
+  if (r.status !== 0) throw new Error(r.stdout + r.stderr)
+}
+
 /** 창 크기를 실제로 바꾼다 — 폭 경계는 창 폭이라 `page.setViewportSize` 로는 안 바뀐다. */
 export async function setWindowWidth(app: { evaluate: (fn: (args: { BrowserWindow: typeof import('electron').BrowserWindow }, w: number) => void, arg: number) => Promise<unknown> }, width: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, w) => { BrowserWindow.getAllWindows()[0].setBounds({ width: w }) }, width)

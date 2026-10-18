@@ -1097,6 +1097,31 @@ export const PAPER = {
   staleTitle: '다시 만들어야 할 파일이 있어요'
 } as const
 
+/**
+ * 다섯 단계 (DESIGN §2, 시안 ⑬) — "지금"은 하나다. 번호 원 스테퍼·퍼센트·등간격 게이지는
+ * 쓰지 않는다: 제목줄 한 줄 + 열면 목록.
+ *
+ * 사실 한 줄은 **이미 아는 것만** 말한다(단계 판정 입력과 같은 것들이다) — 모르는 개수를
+ * 지어내지 않는다. 그래서 2단계는 질문 수/장 상태로, 5단계는 한글 마무리 개수로 말한다.
+ */
+export const STAGES = {
+  names: ['준비', '인터뷰·장 쓰기', '검토본', '결과물', '제출 점검·마무리'],
+  head: '전체 과정 — 꼭 한 칸씩만 가지는 않아요',
+  fact: {
+    ready: (connected: boolean, hasProject: boolean) =>
+      `${connected ? 'AI 연결됨' : 'AI 연결 안 됨'} · ${hasProject ? '논문 폴더 있음' : '논문 폴더 없음'}`,
+    write: (questions: number, allReady: boolean) =>
+      questions > 0 ? `도우미 질문 ${questions}개가 답을 기다려요`
+        : allReady ? '장 초안을 다 썼어요'
+          : '도우미와 장을 쓰는 중',
+    review: (reviewExport: number | null) =>
+      reviewExport !== null ? `${reviewExport}번째 기록 기준으로 만들었어요` : '아직 안 만들었어요',
+    output: (stale: boolean, hasDocx: boolean) =>
+      stale ? '고친 내용이 파일에 빠져 있어요' : hasDocx ? '논문 파일을 만들었어요' : '아직 안 만들었어요',
+    finish: (n: number) => `한글에서 직접 할 것 ${n}개 · 확인 네 가지`
+  }
+} as const
+
 /** 파일 팝오버(⑩⑮) — 만들기 4줄 + 만든 파일. */
 export const FILES_POPOVER = {
   makeTitle: '만들기',

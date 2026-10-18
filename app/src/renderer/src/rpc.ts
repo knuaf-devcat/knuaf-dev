@@ -1,4 +1,5 @@
 import type { ArtifactItem, ArtifactPreview, Envelope, HistoryRow, LockInfo, MaterialsData, RpcError, RpcResult, SectionRow, Status } from '../../shared/types'
+import type { StageBuildTree } from '../../shared/stage'
 
 export type EventHandler = (event: string, data: unknown) => void
 
@@ -45,7 +46,12 @@ export const rpc = {
   lockInfo: (root: string) => call<LockInfo>('lock.info', { root }),
   unlock: (root: string) => call<{ released: boolean; owner: unknown; leftover: string | null; notice?: string }>('lock.unlock', { root }),
   doctor: (root: string) => call<Record<string, any>>('doctor.all', { root }),
-  buildTree: (root: string) => call<any>('fs.build_tree', { root }),
+  /**
+   * `build/` 아래 개정별 폴더. 검토본 기준 N 은 여기서 읽는다(진행 규칙 §4-4) —
+   * `artifact.list` 의 `revision` 은 미등록 검토본에서 null 이라 쓰지 않는다.
+   * 3-A 가 `StageBuildTree` 를 주고, 그 모양과 실제 응답이 같음은 3-A 의 변환 시험이 잠갔다.
+   */
+  buildTree: (root: string) => call<StageBuildTree>('fs.build_tree', { root }),
   materials: (root: string) => call<MaterialsData>('materials.list', { root }),
   artifacts: (root: string) => call<{ items: ArtifactItem[] }>('artifact.list', { root }),
   artifactPreview: (root: string, path: string) => call<ArtifactPreview>('artifact.preview', { root, path }),

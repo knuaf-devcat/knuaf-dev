@@ -9,6 +9,7 @@
 import { expect, test } from '@playwright/test'
 import { CHAT_MAX, CHAT_MIN, WIDE_MIN, chatWidthOf, layoutOf, showsToggle } from '../src/shared/layout'
 import { newBlockIndexes, splitBlocks } from '../src/shared/paper'
+import { fileStateOf, isReviewExport } from '../src/shared/files'
 import { renderMarkdown } from '../src/renderer/src/markdown'
 
 // ------------------------------------------------------------------ 배치·폭
@@ -110,6 +111,34 @@ test('마크다운 — 이미지는 그리지 않는다. 앱이 원격 주소를
   expect(html).not.toContain('<img')
   expect(html).not.toContain('src=')
   expect(html).toContain('생산량 그래프')
+})
+
+// ------------------------------------------------------------------ 파일 현재성
+
+test('파일 현재성 — 등록된 것만 말하고, 판정은 stale 하나로 한다', () => {
+  const load = { project: { outputs: {
+    'out-docx': { path: 'build/검토전_논문.docx', revision: 3, stale: false },
+    'build/재무.xlsx': { stale: true }
+  } } }
+  // 값 안의 path 로도, 키 그대로도 찾는다(outputs 의 키는 출력 id 다).
+  expect(fileStateOf('build/검토전_논문.docx', load)).toBe('same')
+  expect(fileStateOf('build/재무.xlsx', load)).toBe('stale')
+  // 등록되지 않은 파일은 "앱이 몰라요"다 — 기록 번호를 비교해 짐작하지 않는다.
+  expect(fileStateOf('build/모르는.md', load)).toBe('unknown')
+  expect(fileStateOf('build/모르는.md', null)).toBe('unknown')
+  // stale 이 없는 항목은 오래되지 않은 것으로 읽는다(등록은 됐다).
+  expect(fileStateOf('a', { project: { outputs: { a: { path: 'a' } } } })).toBe('same')
+  // outputs 가 비어 있어도 던지지 않는다.
+  expect(fileStateOf('a', { project: {} })).toBe('unknown')
+})
+
+test('검토본 파일은 개정 번호로만 말한다 — outputs 에 등록되지 않는다', () => {
+  expect(isReviewExport('build/14/review/검토용.md')).toBe(true)
+  expect(isReviewExport('build/검토전_본문.md')).toBe(false)
+  expect(isReviewExport('build/14/docx/검토용.md')).toBe(false)
+  // 사이드카는 `build/<개정>/review/<파일>.md` 한 겹으로만 만든다 — 그 아래 더 들어간
+  // 파일은 검토본으로 보지 않는다(결과물 화면이 쓰던 규칙 그대로다).
+  expect(isReviewExport('build/14/review/하위/검토용.md')).toBe(false)
 })
 
 test('마크다운 — 빈 원문은 빈 문자열', () => {

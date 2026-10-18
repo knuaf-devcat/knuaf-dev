@@ -40,9 +40,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await shoot(page, `files-popover-1280-${scheme}`)
     await page.keyboard.press('Escape')
 
-    await page.locator('.paper-head').getByRole('button', { name: /자료/ }).click()
-    await page.getByRole('button', { name: '자료 전체 보기' }).click()
-    await page.locator('dialog[open]').getByRole('button', { name: '점검' }).click()
+    // 점검은 정식 진입점(제목줄 "지금 ▾" → 전체 과정 → 제출 점검·마무리)으로 연다.
+    await page.locator('.titlebar .tbtn.now').click()
+    await page.locator('.titlebar .popover').getByRole('button', { name: /제출 점검·마무리/ }).click()
     await shoot(page, `checkup-sheet-1280-${scheme}`)
     await electronApp.close()
   })

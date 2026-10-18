@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { ArtifactItem, MaterialsData, ProjectPeek, SectionRow, Settings, SidecarInfo, Status } from '../../../shared/types'
+import type { StageBuildTree } from '../../../shared/stage'
+import type { ProjectLoad } from '../rpc'
 import { CHAT, describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
 import { useChat } from './chat'
@@ -50,6 +52,10 @@ interface ProjectState {
    */
   materials: MaterialsData | null
   artifacts: ArtifactItem[] | null
+  /** `build/` 개정 트리 — 검토본 기준 N(진행 규칙 §4-4)을 여기서 읽는다. */
+  buildTree: StageBuildTree | null
+  /** 정본 전체(`project.load`) — 파일 현재성은 여기 `outputs[*].stale` 뿐이다(v2 §4-1). */
+  projectLoad: ProjectLoad | null
   loadLists: () => Promise<void>
   /** 창 **내부** 폭 — 배치 판정(`layoutOf`)의 입력. ResizeObserver가 채운다. */
   windowWidth: number
@@ -135,6 +141,8 @@ export const useProject = create<ProjectState>((set, get) => ({
   sections: null,
   materials: null,
   artifacts: null,
+  buildTree: null,
+  projectLoad: null,
   windowWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
   paperClosed: false,
   paneView: 'chat',
@@ -171,13 +179,15 @@ export const useProject = create<ProjectState>((set, get) => ({
   setWindowWidth: (windowWidth) => set({ windowWidth }),
   loadLists: async () => {
     const root = get().root
-    if (!root) { set({ materials: null, artifacts: null }); return }
-    const [m, a] = await Promise.all([
+    if (!root) { set({ materials: null, artifacts: null, buildTree: null, projectLoad: null }); return }
+    const [m, a, tree, load] = await Promise.all([
       rpc.materials(root).catch(() => null),
-      rpc.artifacts(root).catch(() => null)
+      rpc.artifacts(root).catch(() => null),
+      rpc.buildTree(root).catch(() => null),
+      rpc.load(root).catch(() => null)
     ])
     if (get().root !== root) return
-    set({ materials: m, artifacts: a ? a.items : null })
+    set({ materials: m, artifacts: a ? a.items : null, buildTree: tree, projectLoad: load })
   },
   setPaneView: (paneView) => set({ paneView }),
   focusSection: (focusedSection) => set({ focusedSection }),
@@ -214,7 +224,7 @@ export const useProject = create<ProjectState>((set, get) => ({
     quietFailures = 0
     // 다른 논문의 이벤트 줄·직전 지문을 들고 가지 않는다.
     sectionHashes = null
-    set({ events: [], sections: null, materials: null, artifacts: null, focusedSection: null, paneView: 'chat' })
+    set({ events: [], sections: null, materials: null, artifacts: null, buildTree: null, projectLoad: null, focusedSection: null, paneView: 'chat' })
     canonPoll = setInterval(() => { void get().watchCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
     const nested = (r.result as { nestedProject?: string | null }).nestedProject

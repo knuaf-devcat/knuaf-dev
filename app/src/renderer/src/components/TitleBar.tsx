@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
 import { ConnectRow } from './ConnectRow'
+import { StageMenu } from './StageMenu'
 import { useProject } from '../store/project'
 import { chosenProvider, displayState, useConnect } from '../store/connect'
 import { chatProvider, resolveChatMode } from '../store/chat'
@@ -31,11 +32,9 @@ function useAccount() {
  * macOS 신호등 자리(왼쪽 여백)는 `main/index.ts`의 창 설정과 함께 봐야 해서 별도 작업
  * (feat/gui-v5-hidden) 합류 뒤에 맞춘다 — 그 전에는 CSS 토큰 `--titlebar-inset`만 비워 둔다.
  *
- * "지금 ▾"은 **3-A 합류 뒤**에 채운다(`stageSlot`) — 그 자리의 내용(지금 단계·사실 한 줄)은
- * `shared/stage.ts`의 순수 함수가 정하고 그 함수는 3-A 워커가 만든다. 그 전에는 자리를
- * 비워 둔다(발주 ③: 커밋에 가짜 규칙을 남기지 않는다).
+ * 가운데 "지금 · ○○ ▾"은 `StageMenu` 다 — 3-A 의 `derive()` 가 정한 "지금" 하나를 말한다.
  */
-export function TitleBar({ stageSlot }: { stageSlot?: ReactNode }) {
+export function TitleBar() {
   const { root, settings, open, setPaperClosed, paperClosed, paneView, setPaneView, openSheet, loadSettings } = useProject(useShallow((s) => ({
     root: s.root, settings: s.settings, open: s.open, setPaperClosed: s.setPaperClosed, paperClosed: s.paperClosed,
     paneView: s.paneView, setPaneView: s.setPaneView, openSheet: s.openSheet, loadSettings: s.loadSettings
@@ -95,7 +94,7 @@ export function TitleBar({ stageSlot }: { stageSlot?: ReactNode }) {
       )}
 
       <span className="sp" />
-      {stageSlot}
+      <StageMenu />
       <span className="sp" />
 
       {/* 첫 대화는 한 칸 — 옆 칸이 왜 비어 있는지 한 줄로 말한다(시안 ③). */}

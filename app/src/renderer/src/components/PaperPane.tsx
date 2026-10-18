@@ -7,7 +7,10 @@ import { useProject } from '../store/project'
 import { useChat } from '../store/chat'
 import { rpc } from '../rpc'
 import { renderMarkdown } from '../markdown'
+import { useMake } from './useMake'
+import { useStage } from './useStage'
 import { newBlockIndexes, splitBlocks } from '../../../shared/paper'
+import { fileStateOf, isReviewExport } from '../../../shared/files'
 import { zoneOf } from '../../../shared/zone'
 import { PAPER, TITLEBAR } from '../copy'
 import type { SectionRow } from '../../../shared/types'
@@ -54,6 +57,10 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   })))
   const { snapshot, status } = useChat(useShallow((s) => ({ snapshot: s.snapshot, status: s.status })))
   const pStatus = useProject((s) => s.status)
+  const projectLoad = useProject((s) => s.projectLoad)
+  const openSheet = useProject((s) => s.openSheet)
+  const make = useMake()
+  const { derived, action } = useStage()
   const [docs, setDocs] = useState<Record<string, Doc>>({})
   const [fresh, setFresh] = useState<Record<string, number[]>>({})
   const [toc, setToc] = useState(false)
@@ -70,21 +77,28 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
 
   const load = useCallback(async () => {
     if (!root || !sections) { setDocs({}); return }
+    // 3-A 의 `section.read_all` — 등록 순서대로 **한 번에** 읽는다(IMPL-PLAN §4-2 권장).
+    // 절마다 `section.read` 를 부르던 자리이고, 읽는 곳은 여기 하나뿐이다.
+    let rows: { id: string; title: string; draft: string }[]
+    try {
+      rows = await rpc.readAllSections(root)
+    } catch {
+      return   // 못 읽은 절은 이전 모습 그대로 둔다
+    }
     const freshNow: Record<string, number[]> = {}
-    await Promise.all(sections.map(async (s) => {
-      const before = prevDocs.current[s.id]
-      // 지문이 같으면 다시 읽지 않는다 — 읽어도 같은 글이고 칠할 것도 없다.
-      if (before && before.hash === s.draft_hash) return
-      try {
-        const r = await rpc.readSection(root, s.id)
-        prevDocs.current[s.id] = { title: r.title, draft: r.draft, hash: s.draft_hash }
-        // 처음 보는 절이면 칠하지 않는다(앱을 켠 직후·폴더를 연 직후).
-        if (before) {
-          const idx = newBlockIndexes(splitBlocks(before.draft), splitBlocks(r.draft))
-          if (idx.length) freshNow[s.id] = idx
-        }
-      } catch { /* 못 읽은 절은 이전 모습 그대로 둔다 */ }
-    }))
+    for (const r of rows) {
+      const sec = sections.find((s) => s.id === r.id)
+      if (!sec) continue
+      const before = prevDocs.current[r.id]
+      // 지문이 같으면 다시 그리지 않는다 — 같은 글이고 칠할 것도 없다.
+      if (before && before.hash === sec.draft_hash) continue
+      prevDocs.current[r.id] = { title: r.title, draft: r.draft, hash: sec.draft_hash }
+      // 처음 보는 절이면 칠하지 않는다(앱을 켠 직후·폴더를 연 직후).
+      if (before) {
+        const idx = newBlockIndexes(splitBlocks(before.draft), splitBlocks(r.draft))
+        if (idx.length) freshNow[r.id] = idx
+      }
+    }
     if (sects.current !== sections) return
     const next: Record<string, Doc> = {}
     for (const s of sections) { const d = prevDocs.current[s.id]; if (d) next[s.id] = d }
@@ -137,7 +151,17 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         </div>
         <span className="sp" />
         <MaterialsPopover />
-        <FilesPopover />
+        <FilesPopover make={make} />
+        {/* 권하는 단추 **하나** — "지금"이 고른 행동이다(1·2단계는 없다: 대화가 이끈다).
+            만들기 자체는 "파일" 팝오버에서 언제든 되지만, 화면에 권하는 것은 이 하나뿐이다. */}
+        {action && (
+          <button className="primary" title={action.hint}
+            onClick={() => {
+              if (action.stage === 3) void make.run('review')
+              else if (action.stage === 4) void make.run('docx')
+              else openSheet('checkup')
+            }}>{action.label}</button>
+        )}
         <button className="lnk" onClick={() => setPaperClosed(true)} title={TITLEBAR.paperClose} aria-label={TITLEBAR.paperClose}><Icon name="x" size={12} /></button>
       </div>
 

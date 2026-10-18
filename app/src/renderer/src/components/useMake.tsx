@@ -5,6 +5,7 @@ import { useChat } from '../store/chat'
 import { rpc } from '../rpc'
 import { useRunner, type Runner } from './useRunner'
 import { versioned } from '../screens/Outputs'
+import { useStage } from './useStage'
 import { ARTIFACTS, CHECKUP, COMPLETION, INDEPENDENT_REVIEW_MISSING, NOT_APPROVAL_NOTE, checkLabel, describeError } from '../copy'
 import type { FeedbackKind } from './Feedback'
 
@@ -51,6 +52,9 @@ export function useMake(): Make {
   const appendDraft = useChat((s) => s.appendDraft)
   const closeSheet = useProject((s) => s.closeSheet)
   const runner = useRunner()
+  // 검토본이 있는지는 `fs.build_tree` 의 review 개정으로 판정한다(3-A) — `artifact.list` 의
+  // revision 은 미등록 검토본에서 null 이라 조건으로 쓸 수 없다.
+  const { derived } = useStage()
   const [making, setMaking] = useState<MakeKind | null>(null)
   const [feedback, setFeedback] = useState<MakeFeedback | null>(null)
   const [failedTool, setFailedTool] = useState<string | null>(null)
@@ -82,7 +86,7 @@ export function useMake(): Make {
       kind: 'docx',
       label: ARTIFACTS.make.docx,
       body: (hasMdInput || hasPaperInput) ? ARTIFACTS.make.docxBody : reviewMd ? ARTIFACTS.make.docxBodyOnly : ARTIFACTS.make.docxNoInput,
-      enabled: !!status && (hasMdInput || hasPaperInput || !!reviewMd)
+      enabled: !!status && (hasMdInput || hasPaperInput || derived.hasReview)
     },
     // 제출용은 관문이 막혀도 활성 — 누르는 순간이 고지의 자리다(Q1·#4 기각).
     { kind: 'submission_candidate', label: ARTIFACTS.make.submit, body: ARTIFACTS.make.submitBody, enabled: !!status },
