@@ -54,6 +54,84 @@ async function selectParagraph(page: Page, needle: string): Promise<void> {
   }, needle)
 }
 
+/**
+ * 종이 배치가 **멈출 때까지** 기다린다(맥 CI 실패 처방, FIX-CI-MAC-DRAG).
+ *
+ * 빠른 기계(CI 러너)에서는 문단이 화면에 나타난 직후에 좌표를 재면, 그 뒤 절이 더 그려지거나
+ * 장 이름 줄이 자리를 잡으면서 **문단이 아래로 밀린다** — 그러면 재어 둔 좌표가 글자 밖(장 이름이나
+ * 여백)을 가리켜 포인터 드래그가 선택을 만들지 못한다. 유한한 애니메이션이 끝나고 문단 사각형이
+ * 두 폴링 연속 같아질 때까지 기다린 뒤 좌표를 잰다.
+ */
+async function settleSheet(page: Page): Promise<void> {
+  await page.evaluate(() => Promise.all(
+    document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))
+  ))
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.paperpane .sheet p')
+    if (!el) return false
+    const r = el.getBoundingClientRect()
+    const key = `${r.x},${r.y},${r.width},${r.height}`
+    const w = window as unknown as { __sheetKey?: string; __sheetSame?: number }
+    if (w.__sheetKey === key) w.__sheetSame = (w.__sheetSame ?? 0) + 1
+    else { w.__sheetKey = key; w.__sheetSame = 0 }
+    return (w.__sheetSame ?? 0) >= 2
+  }, undefined, { polling: 'raf', timeout: 15_000 })
+}
+
+/**
+ * 문단의 **첫 글자**와 그 뒤 글자의 화면 좌표 — 드래그 시작·끝점을 글자 위에 정확히 잡는다.
+ * 여기서 만드는 것은 좌표뿐이다 — **선택은 아래 포인터 드래그가 만든다**(프로그램적 Range 로
+ * 선택을 바꿔치기하지 않는다). 글꼴 대체·배율 차이로 "왼쪽에서 4px, 위에서 12px"이 글자 밖이
+ * 되는 환경 차이를 없앤다.
+ */
+async function glyphPoints(page: Page): Promise<{ ax: number; ay: number; bx: number; by: number }> {
+  return page.evaluate(() => {
+    const p = document.querySelector('.paperpane .sheet p') as HTMLElement | null
+    if (!p) throw new Error('문단을 찾지 못했다')
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+    const node = walker.nextNode() as Text | null
+    if (node && node.length > 8) {
+      const r = document.createRange()
+      r.setStart(node, 0); r.setEnd(node, Math.min(4, node.length))
+      const a = r.getBoundingClientRect()
+      r.setStart(node, Math.min(6, node.length)); r.setEnd(node, Math.min(16, node.length))
+      const b = r.getBoundingClientRect()
+      if (a.width > 0 && b.width > 0)
+        return { ax: a.x + 1, ay: a.y + a.height / 2, bx: b.x + b.width - 1, by: b.y + b.height / 2 }
+    }
+    // 텍스트 노드를 못 집으면 문단 사각형의 **첫 줄 안쪽**으로 물러선다(줄 높이의 절반).
+    const pr = p.getBoundingClientRect()
+    const lh = parseFloat(getComputedStyle(p).lineHeight) || 24
+    return { ax: pr.x + 4, ay: pr.y + lh / 2, bx: Math.min(pr.x + 140, pr.x + pr.width - 4), by: pr.y + lh / 2 }
+  })
+}
+
+/**
+ * 드래그 시작·끝 좌표를 잡되, **그 점이 정말 그 문단 위인지**를 `elementFromPoint` 로 확인한다.
+ *
+ * 좌표를 잰 뒤 마우스를 누르기까지 사이에 배치가 밀리면(맥 CI 처럼 빠른 기계에서 첫 레이아웃이
+ * 아직 정착하지 않았을 때) 누름이 글자 밖에서 일어나 선택이 만들어지지 않는다. 그래서 재고 →
+ * 확인 → 아니면 다시 재기를 반복한다. 20번 안에 못 맞추면 마지막 좌표로 진행하고, 아래
+ * 선택 단언이 실패로 남는다(조용히 넘어가지 않는다).
+ */
+async function dragAnchors(page: Page): Promise<{ ax: number; ay: number; bx: number; by: number }> {
+  let last: { ax: number; ay: number; bx: number; by: number } | null = null
+  for (let i = 0; i < 20; i++) {
+    const g = await glyphPoints(page)
+    last = g
+    const onText = await page.evaluate((pts) => {
+      const p = document.querySelector('.paperpane .sheet p')
+      if (!p) return false
+      const a = document.elementFromPoint(pts.ax, pts.ay)
+      const b = document.elementFromPoint(pts.bx, pts.by)
+      return !!a && !!b && p.contains(a) && p.contains(b)
+    }, g)
+    if (onText) return g
+    await page.waitForTimeout(50)
+  }
+  return last!
+}
+
 test('인용은 그 논문의 것 — 폴더를 바꾸면 지워지고 다른 논문으로 나가지 않는다 (QA2B-R1-01)', async () => {
   const dir = scratch()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
@@ -204,21 +282,23 @@ test('실제 드래그 뒤 고쳐 달라기를 누르면 입력칸이 초점을 
     const p = page.locator('.paperpane .sheet p').first()
     await expect(p).toContainText('600평', { timeout: 30_000 })
 
-    // 실제 마우스 드래그(프로그램적 Range 가 아니라 포인터 이동으로 만든 선택).
-    // 첫 줄 안쪽(y+12)에서 끌고, 각 단계 사이에 잠깐 쉰다 — 합성 이동만으로는 선택이 만들어지지 않는다.
-    const b = await p.boundingBox()
-    const y = b!.y + 12
-    await page.mouse.move(b!.x + 4, y)
+    // 배치가 멈춘 뒤에 좌표를 재고, 그 좌표로 **실제 마우스 드래그**를 한다(맥 CI 처방).
+    // 글자 사각형은 좌표를 잡는 데만 쓴다 — 선택은 아래 포인터 이동이 만든다.
+    await settleSheet(page)
+    const g = await dragAnchors(page)
+    await page.mouse.move(g.ax, g.ay)
     await page.mouse.down()
-    await page.waitForTimeout(80)
-    await page.mouse.move(b!.x + 60, y, { steps: 8 })
-    await page.waitForTimeout(80)
-    await page.mouse.move(b!.x + 160, y, { steps: 10 })
-    await page.waitForTimeout(80)
+    await page.waitForTimeout(60)
+    await page.mouse.move((g.ax + g.bx) / 2, g.ay, { steps: 6 })
+    await page.waitForTimeout(60)
+    await page.mouse.move(g.bx, g.by, { steps: 8 })
+    await page.waitForTimeout(60)
     await page.mouse.up()
+
     // 정말 드래그로 골라졌는지부터 확인한다 — 안 골라졌으면 이 시험이 다른 것을 재게 된다.
     const picked = await page.evaluate(() => window.getSelection()?.toString() ?? '')
     expect(picked.length, '드래그로 선택이 만들어지지 않았다').toBeGreaterThan(3)
+    expect(picked, '드래그가 종이의 그 문장을 고르지 않았다').toContain('농장')
 
     const bar = page.locator('.selbar')
     await expect(bar).toBeVisible({ timeout: 15_000 })
