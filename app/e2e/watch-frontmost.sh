@@ -59,14 +59,21 @@ function run(){
   ps -ax -o pid=,command= >"$tmp/ps" 2>/dev/null &
   psp=$!
   sleep 0.5
-  wait "$front" || true
-  wait "$win" || true
-  wait "$psp" || true
+  wait "$front"; frc=$?
+  wait "$win"; wrc=$?
+  wait "$psp"; prc=$?
+  # 조회가 실패했거나 빈손이면 그 표본을 숨기지 않고 ERR 로 남긴다 — 분석기가 위반 0 과 섞지 않도록.
+  f_val=$(tr -d '\r\n' <"$tmp/front")
+  w_val=$(tr -d '\r\n' <"$tmp/win")
+  m_val=$(awk -v p="$pattern" 'index($0, p) { print $1 }' "$tmp/ps" | tr '\n' ',')
+  [ "$frc" -eq 0 ] || f_val=ERR
+  [ "$wrc" -eq 0 ] || w_val=ERR
+  [ "$prc" -eq 0 ] || m_val=ERR
+  [ -n "$f_val" ] || f_val=ERR
+  [ ! -s "$tmp/ps" ] && m_val=ERR
+  # onscreen 은 빈 목록이 정상일 수 있다(화면에 앱 창이 하나도 없음) — 실패는 종료 코드로만 판정한다.
   printf '%s\tsample=%d\tfront=%s\tonscreen=%s\tmine=%s\n' \
-    "$(date '+%H:%M:%S')" "$n" \
-    "$(tr -d '\r\n' <"$tmp/front")" \
-    "$(tr -d '\r\n' <"$tmp/win")" \
-    "$(awk -v p="$pattern" 'index($0, p) { print $1 }' "$tmp/ps" | tr '\n' ',')"
+    "$(date '+%H:%M:%S')" "$n" "$f_val" "$w_val" "$m_val"
   if [ "$limit" -gt 0 ] && [ "$SECONDS" -ge "$limit" ]; then break; fi
 done
 echo "# 끝 $(date '+%F %T') samples=${n} elapsed=${SECONDS}s"

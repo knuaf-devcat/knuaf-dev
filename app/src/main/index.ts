@@ -24,8 +24,10 @@ const isMac = process.platform === 'darwin'
 // 유지하되 화면·Dock·⌘Tab·앱 활성화에는 나타나지 않는다. 이 변수가 없으면 앱 동작은 전과 같다.
 // 창을 눈으로 봐야 할 때는 `KNUAF_E2E_VISIBLE=1` 로 끈다(`window-shots.spec.ts`).
 const hidden = process.env.KNUAF_E2E_HIDDEN === '1' && process.env.KNUAF_E2E_VISIBLE !== '1'
-// 창을 만들기 전에, 그리고 앱이 '일반 앱'으로 잠깐 활성화될 틈도 없이 정책을 바꾼다 — ready 를
-// 기다리면 그 사이 새로 뜬 앱이 맨 앞을 가져간다(숨김 실행 실측: 다른 e2e 가 함께 돌 때 2/408·35/394표본).
+// 정책은 창을 만들기 전, ready 를 기다리지 않고 바꾼다. 다만 이 시점과 '맨 앞 차지' 표본의 인과는
+// 확정하지 못했다 — 다른 e2e 가 함께 돌던 실행에서 2/408·35/394표본이 관측됐고, 시점을 module scope 로
+// 옮긴 실행에서도 35표본이 있었으며, 다른 e2e 가 멈춘 뒤와 양쪽 숨김 동시 실행에서는 0이었다
+// (REPORT-HIDDEN §3·§7). 여기서는 '그 조건에서 그렇게 관측됐다'까지만 적는다.
 // 'accessory' 가 아니라 'prohibited' 인 이유는 AppKit 문서 그대로다: accessory 는 "활성화될 수 있고",
 // prohibited 는 "활성화될 수 없다". 이 앱은 화면에 뜰 일이 아예 없으므로 둘 중 하나만 맞다.
 // (이 분기는 e2e(`KNUAF_E2E_HIDDEN=1`)에서만 켜진다 — 일반 실행의 창·Dock 동작은 그대로다.)
@@ -68,14 +70,17 @@ function createWindow(): void {
     title: APP_NAME,
     backgroundColor: colors.bg,
     show: false,
+    // 창을 만들 때부터 숨기므로 렌더가 살아 있어야 한다. 이 값은 webPreferences 가 아니라 생성 옵션
+    // 최상위다(Electron 은 최상위 options 에서만 읽는다) — 숨김일 때만 명시하고 기본값에 기대지 않는다.
+    ...(hidden ? { paintWhenInitiallyHidden: true } : {}),
     ...(isMac
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 }, ...(reduceTransparency ? {} : { vibrancy: 'sidebar' as const, visualEffectState: 'followWindow' as const }) }
       : { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: colors.bar, symbolColor: colors.symbol, height: 40 } }),
     ...(!isMac && !app.isPackaged && existsSync(iconPng) ? { icon: iconPng } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true,
-      // 숨긴 창에서도 렌더·스크린샷이 살아 있어야 한다(`paintWhenInitiallyHidden` 기본값에 기대지 않는다).
-      ...(hidden ? { backgroundThrottling: false, paintWhenInitiallyHidden: true } : {})
+      // 숨긴 창에서도 타이머·애니메이션이 멈추지 않게 한다(스크린샷이 시험 대상이다).
+      ...(hidden ? { backgroundThrottling: false } : {})
     }
   })
   if (!hidden) win.once('ready-to-show', () => win?.show())
