@@ -1,7 +1,8 @@
 // Unit tests for src/main/chat/service.ts with an injected fake AgentConnection.
 // Plain Playwright `test()` in Node: no Electron and no real agent processes.
 import { expect, test } from '@playwright/test'
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
@@ -9,7 +10,7 @@ import { skillSource, VERSION_FILE } from '../src/main/agent'
 import { autoAllow, describeTool, looksLikePath, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
 import { subscriptionEnv } from '../src/main/chat/contracts'
-import { cmdQuote, winSpawn } from '../src/main/win'
+import { winSpawn } from '../src/main/win'
 import type { AgentConnection } from '../src/main/chat/contracts'
 
 const appRoot = resolve(__dirname, '..')
@@ -101,42 +102,95 @@ test('subscriptionEnv disables CLAUDE.md memory loading', () => {
  * 형님 승인 W1 연결 기제 ①. 윈도우에서 npm 이 깐 codex·claude 는 `.cmd` 이고, Node 는
  * 셸 없이 그것을 띄우지 못한다(EINVAL, Node ≥20.12 — CVE-2024-27980 처방). `.cmd`·`.bat` 만
  * `cmd.exe /d /s /c` 로 감싼다 — 그 밖은 손대지 않는다.
+ *
+ * 인용은 **cmd 파서와 MSVCRT argv 복원을 둘 다** 만족해야 한다(W1C-R1-01). 규칙은
+ * cross-spawn `lib/util/escape.js` 와 같고, npm shim(`%*` 재파싱)이라 메타문자를 두 번 막는다.
  */
 test('윈도우 `.cmd`·`.bat` 만 cmd.exe 로 감싼다 (W1 ①)', () => {
   const shim = 'C:\\Users\\학생\\AppData\\Roaming\\npm\\claude.cmd'
+  // ComSpec 지정·미지정을 시험이 직접 통제한다(W1C-R1-02) — 제품은 그 값을 그대로 쓴다.
+  const saved = { ComSpec: process.env.ComSpec, comspec: process.env.comspec }
+  try {
+    delete process.env.ComSpec
+    delete process.env.comspec
+    expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('cmd.exe')
+    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe'
+    expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('C:\\Windows\\System32\\cmd.exe')
+  } finally {
+    for (const k of ['ComSpec', 'comspec'] as const) {
+      const v = saved[k]
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+
   const w = winSpawn(shim, ['auth', 'status'], 'win32')
-  expect(w.command).toBe('cmd.exe')                       // ComSpec 이 없으면 기본값
-  expect(w.args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
-  // `/s` 는 바깥 따옴표 한 쌍을 벗긴다 — 한 줄을 한 겹 더 감싸야 그대로 명령이 된다.
-  expect(w.args[3]).toBe(`""${shim}" "auth" "status""`)
+  // 지연 확장 끔(`!`), AutoRun 무시(`/d`), 바깥 따옴표 한 쌍 벗기기(`/s`).
+  expect(w.args.slice(0, 3)).toEqual(['/v:off', '/d', '/s'])
+  expect(w.args[3]).toBe('/c')
+  // `/s` 가 벗길 바깥 따옴표 한 쌍 — 빠지면 명령이 잘린다.
+  expect(w.args[4].startsWith('"') && w.args[4].endsWith('"')).toBe(true)
+  // 두 파서를 함께 만족하는 인용: `^` 한 번 + npm shim 이라 한 번 더.
+  expect(w.args[4]).toContain('^^^"auth^^^"')
   expect(w.options).toEqual({ windowsVerbatimArguments: true, windowsHide: true })
 
-  // 경로에 공백이 있어도 한 줄 안에서 인용된다.
-  const spaced = winSpawn('C:\\Program Files\\npm\\codex.cmd', ['-c', 'model=gpt-5'], 'win32')
-  expect(spaced.args[3]).toBe('""C:\\Program Files\\npm\\codex.cmd" "-c" "model=gpt-5""')
-  // `.bat` 도 같은 자리다.
+  // `.bat` 도 같은 자리다. `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
   expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('cmd.exe')
-
-  // `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
   expect(winSpawn('C:\\x\\claude.exe', ['auth'], 'win32')).toEqual({ command: 'C:\\x\\claude.exe', args: ['auth'], options: {} })
   for (const c of ['/opt/homebrew/bin/claude', '/x/codex.cmd', '/x/a.bat']) {
     expect(winSpawn(c, ['auth', 'status'], 'darwin')).toEqual({ command: c, args: ['auth', 'status'], options: {} })
   }
 })
 
-test('cmd 한 줄 인용은 역슬래시·따옴표를 지킨다 (W1 ①)', () => {
-  expect(cmdQuote('plain')).toBe('"plain"')
-  expect(cmdQuote('a b')).toBe('"a b"')
-  // 닫는 따옴표 앞의 역슬래시는 두 배로 — 안 하면 그 `\` 가 `"` 를 이스케이프해 버린다.
-  expect(cmdQuote('C:\\dir\\')).toBe('"C:\\dir\\\\"')
-  // 안쪽 `"` 는 `\"` 로 — codex 의 `-c skills.config=[{path="…"}]` 가 이 모양이다.
-  expect(cmdQuote('path="x"')).toBe('"path=\\"x\\""')
+/** 검토 W1C-R1-01 반례 A — Codex 설정값의 `&` 가 따옴표 밖으로 나오면 명령이 갈라진다. */
+test('설정값·경로의 cmd 메타문자가 명령으로 새지 않는다 (W1 ①, 반례 A)', () => {
+  const home = 'C:\\Users\\A&B'
+  const config = `skills.config=[{path="${home}\\.codex\\skills\\knuaf-dev\\SKILL.md",enabled=false}]`
+  const line = winSpawn('C:\\tools\\codex.cmd', ['-c', config, 'app-server'], 'win32').args[4]
+  const inner = line.slice(1, -1)   // 바깥 한 쌍(`/s` 가 벗긴다)은 구조용이다
+  // 모든 `&`·`"` 가 `^` 바로 뒤에 있다 — 따옴표만으로는 cmd 가 막지 못한다.
+  expect(inner).not.toMatch(/(^|[^^])&/)
+  expect(inner).not.toMatch(/(^|[^^])"/)
+  // 실행 파일 경로의 공백도 `^` 로 막혀 한 토큰으로 남는다(두 번 이스케이프라 `^` 가 겹친다).
+  const spaced = winSpawn('C:\\Program Files\\npm\\codex.cmd', ['model=gpt-5'], 'win32').args[4]
+  expect(spaced).toMatch(/Program\^+ Files/)
 })
 
-test('cmd 로 표현할 수 없는 인자는 조용히 뭉개지 않고 던진다 (W1 ①)', () => {
+test('cmd 로 안전하게 표현할 수 없는 값은 실행 전에 거절한다 (W1 ①)', () => {
+  // `%` 는 cmd 명령줄에서 확장을 막을 수 없다 — 경로에 `%OS%` 가 있으면 다른 경로가 된다(반례 B).
+  expect(() => winSpawn('C:\\tools\\%OS%\\codex.cmd', ['app-server'], 'win32')).toThrow(/%/)
+  expect(() => winSpawn('C:\\x\\claude.cmd', ['100%'], 'win32')).toThrow(/%/)
   expect(() => winSpawn('C:\\x\\claude.cmd', ['a\nb'], 'win32')).toThrow()
-  // 맥에서는 같은 인자가 그대로 간다(줄바꿈도 정상 인자다).
-  expect(winSpawn('/x/claude', ['a\nb'], 'darwin').args).toEqual(['a\nb'])
+  // 맥에서는 같은 값이 그대로 간다(줄바꿈도 `%` 도 정상 인자다).
+  expect(winSpawn('/x/claude', ['a\nb', '100%'], 'darwin').args).toEqual(['a\nb', '100%'])
+})
+
+/**
+ * 검토 W1C-R1-01 의 **실행** 반례. 윈도우에서는 실제로 `.cmd` 를 띄워, 받은 argv 가 원래
+ * 배열과 같은지와 `&` 뒤의 부수 명령이 실행되지 않았는지를 본다. 맥에서는 문자열 조립 단언만
+ * 돈다 — skip 이 아니라 플랫폼별 단언이다.
+ */
+test('cmd 를 거쳐도 argv 가 그대로 도착하고 부수 명령이 실행되지 않는다 (W1 ①, 실행)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kd-cmdshim-'))
+  const argvFile = join(dir, 'argv.json')
+  const marker = join(dir, 'PWNED.txt')
+  const recorder = join(dir, 'recorder.mjs')
+  const shim = join(dir, 'probe.cmd')
+  writeFileSync(recorder, `import { writeFileSync } from 'node:fs'\nwriteFileSync(process.env.ARGV_OUT, JSON.stringify(process.argv.slice(2)))\n`, 'utf-8')
+  // npm shim 과 같은 모양 — `%*` 로 인자를 그대로 넘긴다(그래서 메타문자를 두 번 막는다).
+  writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${recorder}" %*\r\n`, 'utf-8')
+  const evil = `x&echo PWNED>"${marker}"`
+  const args = ['plain', '공백 있는 한글', 'a&b', 'a^b', 'a!b', 'he said "hi"', 'semi;colon', 'paren(1)', 'star*?', evil]
+  const spec = winSpawn(shim, args, 'win32')
+  // 조립 단언(두 플랫폼 공통) — 부수 명령이 될 `&` 가 막혔다.
+  expect(spec.args[4].slice(1, -1)).not.toMatch(/(^|[^^])&/)
+  if (process.platform !== 'win32') return
+
+  const child = spawn(spec.command, spec.args, { env: { ...process.env, ARGV_OUT: argvFile }, ...spec.options })
+  const code = await new Promise<number | null>((r) => child.on('exit', r))
+  expect(code, '가짜 .cmd 가 실패했다').toBe(0)
+  expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'argv 가 원래 배열과 다르다').toEqual(args)
+  expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
 })
 
 async function settled(svc: ChatService, root: string) {

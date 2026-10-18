@@ -10,7 +10,6 @@ import { createHash, randomBytes } from 'node:crypto'
 import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
-import { cmdQuote } from './win'
 
 // ---------------------------------------------------------------- types
 
@@ -331,9 +330,29 @@ export function launchScriptExt(platform: NodeJS.Platform = process.platform): s
 function batLiteral(s: string): string {
   return s.replace(/%/g, '%%')
 }
-/** 배치에 넣을 인자 하나 — `%` 를 먼저 막고 cmd 인용 규칙(`cmdQuote`)을 적용한다. */
+/** 배치의 `cd`·`set` 처럼 따옴표 **안에** 넣는 값 — `%` 만 `%%` 로 막으면 된다. */
 function batQuote(s: string): string {
-  return cmdQuote(batLiteral(s))
+  return `"${batLiteral(s)}"`
+}
+/** 배치에서 cmd 메타문자 — `%` 는 `%%` 로 따로 막으므로 여기 없다(배치에서 `^%` 는 안 통한다). */
+const BAT_META = /([()\][!^"`<>&|;, *?])/g
+
+/**
+ * 배치 파일의 **실행 줄**에 넣을 인자 하나. 확장 단계가 명령줄과 달라 `win.ts` 의 함수를
+ * 쓰지 않는다(W1C-R1-01). 순서가 중요하다:
+ *   1. `%` → `%%` — 배치 확장은 여기서만 막을 수 있다.
+ *   2. MSVCRT 인용 — `"` 앞과 끝의 역슬래시를 두 배로.
+ *   3. cmd 메타문자를 `^` 로 — **두 번**. 대상(`claude.cmd`/`codex.cmd`)이 npm shim 이라
+ *      `%*` 로 한 번 더 파싱되기 때문이다(`win.ts` 주석의 cross-spawn 규칙과 같은 이유).
+ */
+function batArg(s: string): string {
+  let a = batLiteral(s)
+  a = a.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"')
+  a = a.replace(/(?=(\\+?)?)\1$/, '$1$1')
+  a = `"${a}"`
+  a = a.replace(BAT_META, '^$1')
+  a = a.replace(BAT_META, '^$1')
+  return a
 }
 /** cmd 인자는 **한 줄**이라야 한다 — 첫 프롬프트의 줄바꿈을 한 칸으로 눌러 담는다. */
 function oneLine(s: string): string {
@@ -381,11 +400,13 @@ function buildLaunchScriptWin(o: LaunchScriptOptions): string {
   const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
   const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
   const execLine = o.agent === 'claude'
-    ? `${batQuote(o.agentPath)} --setting-sources project,local "--disallowedTools=AskUserQuestion" ${batQuote(oneLine(o.firstPrompt))}`
-    : `${batQuote(o.agentPath)}${skillOff ? ` -c ${batQuote(skillOff)}` : ''}`
+    ? `${batArg(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion')} ${batArg(oneLine(o.firstPrompt))}`
+    : `${batArg(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff)}` : ''}`
 
   return [
     '@echo off',
+    // 지연 확장을 끈다 — `!` 가 든 경로·문장이 글자 그대로 가게(레지스트리 설정과 무관하게).
+    'setlocal DisableDelayedExpansion',
     `cd /d ${batQuote(o.root)} || exit /b 1`,
     `set "PATH=${dirs.join(';')}${dirs.length ? ';' : ''}%PATH%"`,
     'set "KNUAF_DOC_APP=1"',

@@ -192,6 +192,8 @@ test.describe('buildLaunchScript', () => {
     }
     const s = buildLaunchScript(o, 'win32')
     expect(s.startsWith('@echo off\r\n')).toBe(true)
+    // 지연 확장을 끈다(`!` 가 경로·문장에서 글자 그대로 가게).
+    expect(s).toContain('\r\nsetlocal DisableDelayedExpansion\r\n')
     // 작업 폴더로 이동(드라이브까지) — 공백·한글 경로가 인용된다.
     expect(s).toContain('cd /d "C:\\Users\\학생\\내 논문" || exit /b 1')
     // PATH 는 `;` 이고 .venv 가 앞에 온다. 원래 PATH 를 덮지 않는다.
@@ -199,9 +201,11 @@ test.describe('buildLaunchScript', () => {
     expect(s).toContain('set "KNUAF_DOC_APP=1"')
     expect(s).toContain('set "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1"')
     // 채팅과 같은 가드레일 — 프로젝트 스킬만, 도구 팝업은 끈다.
-    expect(s).toContain('--setting-sources project,local "--disallowedTools=AskUserQuestion"')
-    // 첫 프롬프트는 **한 줄**이다 — cmd 인자에는 줄바꿈이 들어갈 수 없다.
-    expect(s).toContain('"이어서 하기 작업 폴더: C:\\Users\\학생\\내 논문 이 폴더 자체가 논문 작업 폴더예요.')
+    expect(s).toContain('--setting-sources project,local')
+    expect(s).toContain('--disallowedTools=AskUserQuestion')
+    // 첫 프롬프트는 **한 줄**이고 그 글자는 살아 있다(cmd 인자에는 줄바꿈이 못 들어간다).
+    expect(s).toContain('이어서')
+    expect(s).toContain('작업')
     expect(s).not.toContain('이어서 하기\r\n')
     // 맥 스크립트의 것(셔뱅·exec·export)은 없다.
     expect(s).not.toContain('#!/bin/bash')
@@ -210,6 +214,27 @@ test.describe('buildLaunchScript', () => {
     // 확장자가 실행물을 정한다(윈도우에는 실행 비트가 없다).
     expect(launchScriptExt('win32')).toBe('.cmd')
     expect(launchScriptExt('darwin')).toBe('.command')
+  })
+
+  /** W1C-R1-01(④) — 배치의 확장 단계는 명령줄과 달라 `%`→`%%`, 메타문자는 따로 막는다. */
+  test('win32 배치는 배치 확장 규칙으로 막는다 — `%`·`&`·`!`·공백 (W1 ④)', () => {
+    const o = {
+      root: 'C:\\Users\\A&B\\내 논문', agent: 'claude' as const,
+      agentPath: 'C:\\Program Files\\npm\\claude.cmd',
+      venvBin: null, bundledBin: null, firstPrompt: '100% & 확인!'
+    }
+    const s = buildLaunchScript(o, 'win32')
+    // `%` 는 배치에서 `%%` 로 적어야 글자 그대로다(배치는 거절하지 않는다 — 확장 단계가 다르다).
+    expect(s).toContain('100%%')
+    // 실행 줄의 `&`·`!` 는 전부 `^` 뒤에 있다(따옴표만으로는 cmd 가 막지 못한다).
+    const exec = s.split('\r\n').find((l) => l.includes('claude.cmd'))
+    expect(exec, '실행 줄이 없다').toBeTruthy()
+    expect(exec).not.toMatch(/(^|[^^])&/)
+    expect(exec).not.toMatch(/(^|[^^])!/)
+    // 실행 파일 경로의 공백도 `^` 로 막혀 한 토큰으로 남는다(두 번 이스케이프라 `^` 가 겹친다).
+    expect(s).toMatch(/Program\^+ Files/)
+    // `cd` 는 따옴표 안이라 `&` 가 그대로여도 안전하다.
+    expect(s).toContain('cd /d "C:\\Users\\A&B\\내 논문" || exit /b 1')
   })
 
   test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {
@@ -304,16 +329,26 @@ test.describe('agentApi', () => {
     expect((await agentApi.status(ctx, root)).skill).toEqual({ claude: 'missing', codex: 'installed' })
 
     // launch resolves the real binary, so it only runs where claude is installed.
-    // buildLaunchScript is covered separately with a fixed path, so the script
-    // contents stay asserted on every machine. 윈도우의 배치 모양은 위 win32 단위 시험이 맡는다.
-    if (claudePath && process.platform !== 'win32') {
+    // 같은 조건에서 **윈도우도** API 를 부른다 — 실행물 모양만 플랫폼별로 다르게 단언한다
+    // (W1C-R1-03: 이 검사를 조건문으로 빼면 Windows 보증이 조용히 사라진다).
+    if (claudePath) {
       const r = await agentApi.launch(ctx, { root: '/tmp/논문 폴더', kind: 'claude', revision: 2 })
       const script = readFileSync(r.scriptPath, 'utf-8')
-      expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
-      expect(script).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':`)
-      expect(script).toContain(`exec '${claudePath}' --setting-sources project,local '--disallowedTools=AskUserQuestion' '이어서 하기`)
-      expect(script).toContain(`작업 폴더: /tmp/논문 폴더`)
-      expect(opened).toEqual([])
+      expect(opened, 'dry-run 인데 open 을 불렀다').toEqual([])
+      if (process.platform === 'win32') {
+        // 윈도우: 실행물은 `.cmd` 배치이고, 같은 ctx 조합(venv·프롬프트)이 그 안에 실린다.
+        expect(r.scriptPath).toMatch(/launch-[0-9a-f]{8}\.cmd$/)
+        expect(script).toContain('@echo off')
+        expect(script).toContain('--setting-sources project,local')
+        expect(script).toContain('--disallowedTools=AskUserQuestion')
+        expect(script).toContain('/tmp/논문')          // 첫 프롬프트의 작업 폴더
+        expect(script).toContain('.venv')              // ctx 가 준 venv 자리
+      } else {
+        expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
+        expect(script).toContain(`export PATH='/tmp/논문 폴더/.venv/bin':`)
+        expect(script).toContain(`exec '${claudePath}' --setting-sources project,local '--disallowedTools=AskUserQuestion' '이어서 하기`)
+        expect(script).toContain(`작업 폴더: /tmp/논문 폴더`)
+      }
     }
   })
 })
