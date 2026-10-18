@@ -1,0 +1,117 @@
+/**
+ * 단계 3의 순수 함수 — 배치·폭 규칙과 종이 칸의 "방금 저장된 문단" 판정, 마크다운 렌더.
+ *
+ * 셋 다 화면 없이 판정할 수 있어야 한다: 폭 경계는 창을 띄우지 않고도 1,139/1,140/
+ * 1,219/1,220 을 밟아야 하고(검토 IMPL-R1-06), "방금 칠하기"는 앱을 켠 직후 첫 읽기에서
+ * 칠하지 않는 것이 틀리기 쉬운 자리다(책임자 의견 ④). e2e 는 build 뒤 창을 띄우므로
+ * 여기서 먼저 잠근다 — Playwright 가 Electron 없이 도는 Node 단위 시험이다.
+ */
+import { expect, test } from '@playwright/test'
+import { CHAT_MAX, CHAT_MIN, WIDE_MIN, chatWidthOf, layoutOf, showsToggle } from '../src/shared/layout'
+import { newBlockIndexes, splitBlocks } from '../src/shared/paper'
+import { renderMarkdown } from '../src/renderer/src/markdown'
+
+// ------------------------------------------------------------------ 배치·폭
+
+test('본문이 있는 장이 없으면 언제나 한 칸이다 (빈 종이로 진척을 연출하지 않는다)', () => {
+  for (const width of [900, 1139, 1140, 1280, 1600]) {
+    expect(layoutOf({ hasBody: false, width, closed: false }).kind).toBe('solo')
+    // 닫아 둔 표시가 남아 있어도 본문이 없으면 한 칸이다.
+    expect(layoutOf({ hasBody: false, width, closed: true }).kind).toBe('solo')
+  }
+})
+
+test('경계: 1,139 는 바꾸기, 1,140 은 두 칸', () => {
+  expect(WIDE_MIN).toBe(1140)
+  expect(layoutOf({ hasBody: true, width: 1139, closed: false }).kind).toBe('switch')
+  expect(layoutOf({ hasBody: true, width: 1140, closed: false })).toEqual({ kind: 'split', chatWidth: 460 })
+})
+
+test('대화 칸은 1,219 까지 줄고 1,220 부터 540 고정이다', () => {
+  expect(chatWidthOf(1219)).toBe(539)
+  expect(chatWidthOf(1220)).toBe(540)
+  expect(chatWidthOf(1280)).toBe(540)
+  // 아주 넓어도 대화는 540 을 넘지 않는다(넘는 폭은 종이가 가져간다).
+  expect(chatWidthOf(4000)).toBe(540)
+  // 아주 좁아도 두 칸 판정일 때 대화는 460 아래로 내려가지 않는다.
+  expect(chatWidthOf(1140)).toBe(CHAT_MIN)
+  expect(chatWidthOf(1220)).toBe(CHAT_MAX)
+})
+
+test('넓은 창에서 닫으면 한 칸 + 바꾸기, 다시 저절로 열리지 않는다', () => {
+  const closed = layoutOf({ hasBody: true, width: 1280, closed: true })
+  expect(closed.kind).toBe('solo-with-toggle')
+  expect(showsToggle(closed)).toBe(true)
+  // 좁은 창은 닫힘과 무관하게 바꾸기다.
+  expect(showsToggle(layoutOf({ hasBody: true, width: 900, closed: false }))).toBe(true)
+  expect(showsToggle(layoutOf({ hasBody: true, width: 1280, closed: false }))).toBe(false)
+  expect(showsToggle(layoutOf({ hasBody: false, width: 1280, closed: false }))).toBe(false)
+})
+
+// ---------------------------------------------------- 방금 저장된 문단 판정
+
+test('문단 나누기 — 빈 줄이 경계이고 펜스 안 빈 줄은 경계가 아니다', () => {
+  expect(splitBlocks('첫 문단\n\n둘째 문단')).toEqual(['첫 문단', '둘째 문단'])
+  // 여러 빈 줄, 앞뒤 빈 줄은 문단을 만들지 않는다.
+  expect(splitBlocks('\n\n가\n\n\n\n나\n\n')).toEqual(['가', '나'])
+  expect(splitBlocks('   ')).toEqual([])
+  const fenced = ['설명', '', '```', 'a', '', 'b', '```', '', '끝'].join('\n')
+  expect(splitBlocks(fenced)).toEqual(['설명', '```\na\n\nb\n```', '끝'])
+})
+
+test('새 문단 판정 — 앞에 없던 문단만 새것이다', () => {
+  // 도우미가 한 문단을 덧붙였다.
+  expect(newBlockIndexes(splitBlocks('가\n\n나'), splitBlocks('가\n\n나\n\n다'))).toEqual([2])
+  // 앱을 켠 직후 첫 읽기: 직전이 없으므로 전부 "새것"이다 — 화면이 이 경우를 걸러 칠하지 않는다.
+  expect(newBlockIndexes([], splitBlocks('가\n\n나'))).toEqual([0, 1])
+  // 바뀌지 않았으면 아무것도 아니다.
+  expect(newBlockIndexes(splitBlocks('가\n\n나'), splitBlocks('가\n\n나'))).toEqual([])
+})
+
+test('같은 문장이 하나 더 들어오면 새로 온 하나만 칠한다', () => {
+  const prev = splitBlocks('가')
+  expect(newBlockIndexes(prev, splitBlocks('가\n\n가'))).toEqual([1])
+  // 순서가 바뀐 경우: 예전 묶음에 다 있으므로 새것이 아니다.
+  expect(newBlockIndexes(splitBlocks('가\n\n나'), splitBlocks('나\n\n가'))).toEqual([])
+})
+
+test('본문이 다시 쓰이면 새로 온 문단만 칠한다', () => {
+  expect(newBlockIndexes(splitBlocks('가\n\n나'), splitBlocks('가\n\n바뀐 나'))).toEqual([1])
+})
+
+// ------------------------------------------------------------------ 마크다운
+
+test('마크다운 — 표·제목·목록은 그린다', () => {
+  const html = renderMarkdown('### 1. 경영 규모\n\n| 항목 | 값 |\n| --- | --- |\n| 면적 | 600평 |\n\n- 하나\n- 둘\n')
+  expect(html).toContain('<h3>')
+  expect(html).toContain('<table>')
+  expect(html).toContain('<td>600평</td>')
+  expect(html).toContain('<li>하나</li>')
+})
+
+test('마크다운 — 원문 HTML 은 글자로 남는다 (html: false)', () => {
+  const html = renderMarkdown('<script>alert(1)</script>\n\n본문 <b>굵게</b>')
+  expect(html).not.toContain('<script')
+  expect(html).not.toContain('<b>')
+  expect(html).toContain('&lt;script&gt;')
+})
+
+test('마크다운 — 링크는 열지 않는다 (GUI-12). 글자만 남는다', () => {
+  const html = renderMarkdown('자세히는 [학교 안내](https://example.com/a) 참고')
+  expect(html).not.toContain('<a')
+  expect(html).not.toContain('href')
+  expect(html).toContain('학교 안내')
+  // 맨 주소도 링크가 되지 않는다(linkify: false).
+  expect(renderMarkdown('https://example.com')).not.toContain('<a')
+})
+
+test('마크다운 — 이미지는 그리지 않는다. 앱이 원격 주소를 부르면 안 된다', () => {
+  const html = renderMarkdown('![생산량 그래프](https://example.com/x.png)')
+  expect(html).not.toContain('<img')
+  expect(html).not.toContain('src=')
+  expect(html).toContain('생산량 그래프')
+})
+
+test('마크다운 — 빈 원문은 빈 문자열', () => {
+  expect(renderMarkdown('   \n  ')).toBe('')
+})
