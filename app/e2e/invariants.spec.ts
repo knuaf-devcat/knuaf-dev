@@ -47,7 +47,10 @@ function koreanStrings(file: string): string[] {
 // "폴더를 열어 주세요"·"화면" 등). Sheet 의 닫기 이름을 copy.ts `CLOSE_LABEL` 로 옮겼고(-1),
 // 새로 생긴 화면 조각(TitleBar·Workspace·PaperPane·Popover·FilesPopover·MaterialsPopover·
 // SheetOver·Workspace)은 한글 문자열을 하나도 두지 않았다 — 문구는 전부 copy.ts 에 있다.
-const KNOWN_USER_STRING_VIOLATIONS = 223
+// 223 → 230(2차 QA 수정 B): 종이의 "골라서 고쳐 달라기"(N-I03)·"고친 부분 보기"(N-I04) 새
+// 컴포넌트(components/ReviewQuote.tsx)의 문구 7개. 그 차수에 copy.ts 는 A 워커 소유라
+// 옮기지 못했고, 책임자가 copy.ts 로 옮기면 이 숫자도 223 으로 되돌린다(REPORT-QA2-B).
+const KNOWN_USER_STRING_VIOLATIONS = 230
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []

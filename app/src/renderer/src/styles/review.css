@@ -1,0 +1,52 @@
+/*
+ * review.css — 발주 QA2-B 의 검토 표시(N-I03 골라서 고쳐 달라기 · N-I04 고친 부분 보기).
+ *
+ * `styles.css` 에 `@import` 한 줄로 들어온다(그 한 줄만 A 소유 파일에 허용됐다).
+ * 색은 토큰으로만 쓴다 — 지운 문장·새 문장 색은 여기서 정의하고, 왼쪽 색선은 쓰지 않는다(발주 §③).
+ * 대화 칸(`components.css`)은 건드리지 않는다: 인용 칩이 필요로 하는 규칙만 여기 새로 둔다.
+ */
+:root {
+  /* 고친 부분 보기 — mockup 의 ins/del 토큰과 같은 값. */
+  --rev-ins-bg: #e6f4ec; --rev-ins-ink: #14532d;
+  --rev-del-bg: #fbeceb; --rev-del-ink: #7f1d1d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rev-ins-bg: #14352a; --rev-ins-ink: #c6f0d8;
+    --rev-del-bg: #3d1d1f; --rev-del-ink: #fbd0cd;
+  }
+}
+
+/* ---- 종이 머리 토글 (고친 부분 보기) ---- */
+.review-toggle.on { background: var(--sel-bg); }
+
+/* ---- 고친 부분 보기 — 문장 단위 색 ---- */
+.paperpane .sheet .rev-ins, .paperpane .sheet ins.rev-ins {
+  background: var(--rev-ins-bg); color: var(--rev-ins-ink); text-decoration: none;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.paperpane .sheet .rev-del { background: var(--rev-del-bg); color: var(--rev-del-ink); }
+.paperpane .sheet del.rev-del { text-decoration: line-through; }
+.paperpane .sheet .blk.rev-segs { margin: 0 0 10px; }
+.paperpane .sheet .blk.rev-segs > * { border-radius: 2px; padding: 1px 0; }
+
+/* ---- 선택 행동 막대 (고쳐 달라기 · 복사) ---- */
+.selbar { position: absolute; z-index: 4; display: flex; gap: 2px; padding: 3px;
+  background: var(--send-bg); color: var(--send-ink); border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .25); font-family: var(--font); font-size: 13px;
+  transform: translate(-50%, calc(-100% - 8px)); }
+.selbar[data-below] { transform: translate(-50%, 0); }
+.selbar button { border: 0; background: none; color: inherit; font: inherit; padding: 6px 10px; border-radius: 7px; white-space: nowrap; }
+.selbar button:hover { background: rgba(255, 255, 255, .12); }
+
+/* ---- 인용 칩 (입력칸 위) — 임시 자리는 ReviewQuoteHost 가 fixed 로 얹는다 ---- */
+.review-quote-fixed-inner { position: fixed; z-index: 30; transform: translateY(-100%); }
+.review-chip { display: flex; gap: 8px; align-items: flex-start;
+  background: var(--alert-bg); border: var(--hairline) solid var(--alert-border); border-radius: 12px;
+  padding: 8px 10px; font-family: var(--font); font-size: 13.5px; color: var(--ink-2); line-height: 1.55;
+  box-shadow: var(--shadow-1); }
+.review-chip-w { flex: 1; min-width: 0; }
+.review-chip-w small { display: block; color: var(--muted); font-size: 12px; }
+.review-chip-t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.review-chip-x { border: 0; background: none; color: var(--muted); padding: 0 2px; cursor: pointer; }
+.review-chip-x:hover { color: var(--ink-2); }
