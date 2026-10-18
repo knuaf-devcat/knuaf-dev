@@ -1,0 +1,103 @@
+name: build-installers
+# 설치본이 **만들어지는지**만 확인하는 워크플로다. 배포하지 않는다(W2-R1-01).
+#
+# - 트리거: 수동 실행만(`workflow_dispatch`). 브랜치에서 돌리려면
+#     gh workflow run build-installers.yml --ref <branch>
+# - 비밀값: **하나도 받지 않는다.** 이 파일에 `secrets.` 참조가 없고, 서명 자동 탐색도 끈다
+#   (`CSC_IDENTITY_AUTO_DISCOVERY=false`). 공증은 명령에서 끈다(`--config.mac.notarize=false`).
+#   자격이 없으므로 공증 제출 경로 자체가 열리지 않는다.
+# - 발행: `--publish never`, 권한은 `contents: read` 뿐이다 — Release 자산·태그를 만들 수 없다.
+# - 결과: 워크플로 아티팩트(`installers-macos` / `installers-windows`)만.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # 러너에 인증서가 있어도 서명·공증으로 넘어가지 않게 한다.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm prepare:resources
+      # dist:mac 과 같은 빌드지만 공증을 끈다(`--config.mac.notarize=false`).
+      - run: pnpm exec electron-builder --mac --publish never --config.mac.notarize=false
+      - name: 체크섬
+        working-directory: app/dist
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt
+      - name: 아티팩트
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-macos
+          path: |
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/SHA256SUMS-macos.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm prepare:resources
+      - run: pnpm exec electron-builder --win --publish never
+      - name: 체크섬
+        working-directory: app/dist
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Filter *.exe -File
+          if (-not $files) { Write-Error "설치본(*.exe)이 만들어지지 않았습니다"; exit 1 }
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)"
+          }
+          $lines | Set-Content -Encoding ascii SHA256SUMS-windows.txt
+          Get-Content SHA256SUMS-windows.txt
+      - name: 아티팩트
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-windows
+          path: |
+            app/dist/*.exe
+            app/dist/SHA256SUMS-windows.txt
+          if-no-files-found: warn
+          retention-days: 14
