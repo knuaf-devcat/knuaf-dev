@@ -10,10 +10,12 @@ import { useEffect, useRef, type ReactNode } from 'react'
  *
  * Esc·바깥 누름으로 닫힌다. 여는 단추 자체는 바깥이 아니다(누르면 토글된다).
  */
-export function Popover({ open, onClose, align = 'left', width, label, children }: {
+export function Popover({ open, onClose, align = 'left', placement = 'down', width, label, children }: {
   open: boolean
   onClose: () => void
   align?: 'left' | 'right' | 'center'
+  /** `up` — 창 아래쪽에 붙는 앵커(입력칸 칩)는 위로 열어야 내용이 화면 안에 남는다(QA2A-R1-01). */
+  placement?: 'down' | 'up'
   width?: number
   label: string
   children: ReactNode
@@ -34,7 +36,7 @@ export function Popover({ open, onClose, align = 'left', width, label, children 
   }, [open, onClose])
   if (!open) return null
   return (
-    <div ref={ref} className={`popover align-${align}`} role="dialog" aria-label={label} style={width ? { width } : undefined}>
+    <div ref={ref} className={`popover align-${align}${placement === 'up' ? ' up' : ''}`} role="dialog" aria-label={label} style={width ? { width } : undefined}>
       {children}
     </div>
   )

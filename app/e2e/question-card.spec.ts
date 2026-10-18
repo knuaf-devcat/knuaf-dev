@@ -203,7 +203,8 @@ test('작업 중에는 한 줄이 뜨고 입력칸은 살아 있으며 보내기
     await expect(composer).toBeVisible()
     await expect(composer).toBeEnabled()
     const stop = page.locator('.chat-composer button.send')
-    await expect(stop).toHaveText(CHAT.stop)
+    // 보내기 자리는 원형 아이콘 단추가 됐다 — 이름은 화면 낭독용 aria-label 이 갖는다(발주 I-01).
+    await expect(stop).toHaveAttribute('aria-label', CHAT.stop)
 
     // 작업 중 Enter 도 보내지 않는다 — 단추만 막으면 main 의 소유권 잠금에 걸려
     // "현재 작업이 끝나거나 중단된 뒤 다시 실행해 주세요."가 뜬다(검토 P1-R1-03).

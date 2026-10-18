@@ -25,7 +25,7 @@ for (const scheme of ['light', 'dark'] as const) {
     test.setTimeout(300_000)
     mkdirSync(OUT, { recursive: true })   // CI 에서는 test-results 아래 새 폴더일 수 있다
     const root = synthProject()
-    // Pre-stage the docx input so '논문 DOCX 만들기' skips paper.generate and goes straight to docx.build.
+    // Pre-stage the docx input so '논문 파일(워드) 만들기' skips paper.generate and goes straight to docx.build.
     mkdirSync(join(root, 'build'), { recursive: true })
     writeFileSync(join(root, 'build', '검토전_본문.md'), '# Ⅰ. 머리말\n\n농장A의 재배 면적은 600평이다.\n', 'utf-8')
     const { electronApp, page } = await launch({ colorScheme: scheme })
@@ -48,7 +48,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // 파일 만들기 실행 후 — ResultCard(ok/blocked/fail 배경 구분)가 보이는 상태를 남긴다.
     await ensureDeps(page, root)
     await navTo(page, '결과물')
-    await page.click('.make-row:has-text("논문 DOCX 만들기") button')
+    await page.click('.make-row:has-text("논문 파일(워드) 만들기") button')
     await page.waitForSelector('.result', { timeout: 120_000 })
     await page.waitForTimeout(400)
     await page.screenshot({ path: `${OUT}/04b-artifacts-made${suffix}.png` })

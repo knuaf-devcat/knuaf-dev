@@ -175,7 +175,7 @@ test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 �
   // 만들기 4줄(v2 §4-2 조건 그대로) — 인터뷰 중에도 검토본은 켜져 있다.
   await expect(pop.locator('.pop-make')).toHaveCount(4)
   await expect(pop).toContainText('검토본 만들기')
-  await expect(pop).toContainText('제출용 파일 만들기')
+  await expect(pop).toContainText('제출용 후보 만들기')
   // 줄 제목으로 집는다 — 캡션에도 "검토본 만들기"가 들어간 줄이 있어 `:has-text` 로는 두 줄이 걸린다.
   await expect(pop.locator('.pop-make:has(b:text-is("검토본 만들기")) button')).toBeEnabled()
   // Esc 로 닫힌다.

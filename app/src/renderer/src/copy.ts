@@ -447,8 +447,8 @@ export const LANE_COPY: LaneCopy[] = [
     id: 'content_review',
     title: '다른 사람 검토',
     description: '작성자와 다른 검토자가 원문과 대조한 기록이에요.',
-    readyText: '독립검토 기록이 있어요.',
-    notReadyText: '아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
+    readyText: '다른 사람 검토 기록이 있어요.',
+    notReadyText: '아직 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
   },
   {
     id: 'output_review',
@@ -498,7 +498,7 @@ export const EMPTY: Record<string, { title: string; body: string; action?: strin
   },
   artifacts: {
     title: '아직 결과물이 없어요',
-    body: '도우미가 build 폴더에 파일을 만들면 여기에 나타나요.'
+    body: '도우미가 논문 파일을 만들면 여기에 나타나요.'
   }
 }
 
@@ -702,8 +702,8 @@ export const READ_ONLY_NOTE = '읽기 전용이에요. 수정은 도우미와의
 
 /** SKILL.md:34 — when no independent review exists, say so first, always. */
 export const INDEPENDENT_REVIEW_MISSING = {
-  title: '독립검토 미실행',
-  body: '아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
+  title: '다른 사람 검토 기록이 아직 없어요',
+  body: '자동 점검 통과가 이를 대신하지 않아요.'
 } as const
 
 // ---------------------------------------------------------------------------
@@ -838,6 +838,8 @@ export const CHAT = {
   // 단축키는 툴팁으로 — placeholder는 실제 기능만 말한다(05-어휘교체표 §10).
   placeholder: '답변을 입력하세요',
   placeholderHint: 'Enter 보내기 · Shift+Enter 줄바꿈',
+  /** 입력칸 아래 한 줄 — 시안 P/L 그대로(아이스 그레이 아님, 조용한 글). */
+  disclaimer: '도우미도 틀릴 수 있어요. 수치와 출처는 꼭 확인하세요.',
   send: '보내기',
   emptyTitle: '아직 대화가 없어요',
   emptyBody: '도우미와 나눈 대화가 여기 쌓여요.',
@@ -906,6 +908,17 @@ export const CHAT = {
   unfold: '여기에 펼치기',
   // --- 아래 칸: 허락 카드(설계 §3-2) -----------------------------------------
   askTitle: '도우미가 허락을 기다려요',
+  /** 명령·상세를 접어 두는 자리 — 쉬운 말 이유는 앞에, 명령·경로는 작게 보이고 상세만 여기로. */
+  askDetail: '무엇을 바꾸는지 보기',
+  // --- I-02 ① 표시만: 입력칸 `+` 오른쪽 칩과 그 팝오버 -----------------------
+  /** 지금 연결된 AI 이름 뒤에 붙는 칩 글자(예: `ChatGPT · 생각 깊이 기본 ▾`). */
+  depthChip: '생각 깊이 기본',
+  modelChipTitle: '이 논문의 도우미',
+  depthTitle: '생각 깊이',
+  depthDefault: '기본값',
+  /** 값은 지어내지 않는다 — 지금은 그 사용자의 CLI 기본값이 쓰인다는 사실만 말한다. */
+  depthFollows: (name: string) => `내 ${name} 설정을 따라요`,
+  depthSoon: '곧 고를 수 있어요',
   // --- 아래 칸: 작업 중 한 줄(설계 §3) --------------------------------------
   runningLine: '도우미가 작업 중이에요',
 }
@@ -960,7 +973,7 @@ export const ARTIFACTS = {
     title: '파일 만들기',
     review: '검토본 만들기',
     reviewBody: '지금 원고를 검토용 파일로 묶어요',
-    docx: '논문 DOCX 만들기',
+    docx: '논문 파일(워드) 만들기',
     docxBody: '도우미가 만든 본문을 논문 양식으로 묶어요',
     /**
      * 표지 정보(paper-input.json)가 없어 앞머리를 못 붙이는 경우. 본문만으로도
@@ -974,7 +987,7 @@ export const ARTIFACTS = {
      * 없는 것은 원고가 아니라 합쳐진 본문 파일이므로, 그걸 만드는 버튼을 가리킨다.
      */
     docxNoInput: '아직 합쳐진 본문 파일이 없어요. 위의 "검토본 만들기"를 먼저 눌러 주세요',
-    submit: '제출용 파일 만들기',
+    submit: '제출용 후보 만들기',
     submitBody: '학교 제출용 후보를 만들어요 — 누르면 검토 상태를 먼저 알려줘요',
     xlsx: '재무 엑셀 만들기',
     xlsxBody: '단계가 여럿이라 "설정 > 고급 도구"의 재무 엑셀에서 진행해요',
@@ -985,7 +998,7 @@ export const ARTIFACTS = {
      * 학생이 도우미를 재촉하게 했다(시험주행 발견 18).
      */
     xlsxNoInput: '학교 재무 양식 파일이 아직 없어요. 도우미에게 양식 파일 위치를 알려 주면 여기서 이어서 만들어요',
-    gateBlocked: '제출용 파일을 만들 수 없어요. 먼저 필요한 것',
+    gateBlocked: '제출용 후보를 만들 수 없어요. 먼저 필요한 것',
     gateDetails: '자세히',
     advancedOpen: '고급 도구에서 직접 실행',
     /** 실패했는데 스크립트가 이유를 안 남긴 경우 — 제목만 띄우고 끝내지 않는다(GUI-08). */
@@ -1192,6 +1205,26 @@ export function objectParticle(word: string): string {
 }
 
 /**
+ * 종이 검토 — 골라서 고쳐 달라기(N-I03) · 고친 부분 보기(N-I04).
+ * 2차 QA 수정 B 가 `components/ReviewQuote.tsx` 안에 두었던 문구를 여기 한 곳으로 옮겼다
+ * (copy.ts 첫 줄 규칙 — 화면 문구는 한 곳에).
+ */
+export const REVIEW = {
+  /** 고른 문장 위 행동 막대. */
+  quote: '고쳐 달라기',
+  copy: '복사',
+  /** 종이 머리 토글. */
+  diffToggle: '고친 부분 보기',
+  diffToggleHint: '지운 문장과 새로 쓴 문장을 색으로 보여 줘요',
+  /** 인용 칩. */
+  quoteLead: (title: string) => `${title}에서 고른 문장`,
+  removeQuote: '인용 빼기',
+  quoteLabel: '고른 문장',
+  /** 학생 글이 비었을 때 보낼 말 — 무엇을 하려는지가 메시지에 남아야 한다. */
+  quoteFallback: '이 부분을 고쳐 줘'
+} as const
+
+/**
  * 설정 (03-화면/08) — 폴더 / 도우미 연결 / 문제 해결 / 고급 도구 / Python 실행기 / 앱 정보.
  * 문제 해결·고급 도구는 평소 닫힌 펼침 목록; 실패 경로의 딥링크가 해당 펼침을 연 채로 진입한다.
  */
@@ -1212,9 +1245,9 @@ export const SETTINGS = {
   folderNoneAfterFail: '아직 열려 있는 폴더가 없어요.',
   helperTitle: '도우미 연결',
   helperChatWhich: '어느 도우미와 채팅할까요?',
-  helperChatCodex: 'ChatGPT (Codex)',
-  helperChatClaude: 'Claude Code — 실험 중',
-  helperChatNote: 'Claude Code 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
+  helperChatCodex: 'ChatGPT',
+  helperChatClaude: 'Claude — 실험 중',
+  helperChatNote: 'Claude 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
   /**
    * 권한 묻기 기본값 — 기본은 '묻지 않기'다. 숨기지 않고 여기 보이는 설정으로 둔다.
    * tradeoff 는 무엇을 포기하는지 사실만 적는다: 도우미는 논문 폴더 밖의 PDF·웹 문서도 읽고,

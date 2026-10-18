@@ -2,12 +2,17 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
-import { FolderPicker } from '../components/FolderPicker'
+import { useReview, buildQuotedMessage } from '../store/review'
+import { FirstRun } from '../components/FirstRun'
+import { ReviewQuoteChip } from '../components/ReviewQuote'
+import { PopHead, Popover, PopSep } from '../components/Popover'
+import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
+import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Feedback } from '../components/Feedback'
 import { Icon } from '../components/Icon'
 import { Badge } from '../components/Badge'
-import { CHAT, CHAT_EVENT, CLOSE_LABEL, FOLDER, describeChatError, relativeTime } from '../copy'
+import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, describeChatError } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -62,14 +67,9 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
   const text = folding && fold ? [...lines.slice(0, fold.span.start), ...lines.slice(fold.span.end + 1)].join('\n') : m.text
   const long = text.length > LONG_MESSAGE
   const shown = long && !open ? text.slice(0, LONG_MESSAGE) : text
+  // 도우미는 **테두리·상자·발화자/시간 머리 없는 본문**, 학생만 오른쪽 말풍선(시안 D/E/G, N-I01).
   return (
     <div className={`chat-msg ${m.role}`}>
-      <div className="chat-msg-head">
-        <span className="chat-who">{m.role === 'user' ? CHAT.me : CHAT.assistant}</span>
-        <span className="caption">{relativeTime(m.at)}</span>
-        {m.role === 'user' && m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
-        {m.role === 'user' && m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
-      </div>
       <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(shown, onGoArtifacts) : shown}</div>
       {folding && fold && (
         <div className="q-fold">
@@ -79,7 +79,13 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
         </div>
       )}
       {long && <button className="lk" onClick={() => setOpen(!open)}>{open ? CHAT.showLess : CHAT.showMore(m.text.length - LONG_MESSAGE)}</button>}
-      {m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
+      {m.role === 'user' && (m.delivery === 'pending' || m.delivery === 'uncertain') && (
+        <div className="chat-delivery">
+          {m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
+          {m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
+        </div>
+      )}
+      {m.role === 'user' && m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
   )
 }
@@ -100,12 +106,44 @@ function EventLine({ title, onGo }: { title: string; onGo: () => void }) {
 }
 
 /**
- * 폴더 없음 — "홈"이 아니라 내 논문의 한 상태(03-화면/01). 첫 실행은 온보딩 2단계가
- * **같은 부품**(`FolderPicker`)으로 폴더를 고르고, 여기는 재방문의 자리다(App.tsx 의 분기).
+ * 폴더 없음 — 재실행 첫 화면이다(발주 QA 재실행 결정). 첫 실행과 **같은 두 단계 부품**
+ * (`FirstRun`)을 제목줄이 있는 대화 칸 안에 얹는다. 연결이 확인돼 있으면 길잡이가
+ * "AI 연결 ✓ → 논문 폴더 → 시작"으로 서고 폴더 단계부터, 끊겨 있으면 1단계(AI 연결)부터다.
+ * 최근 논문을 자동으로 열지 않는다 — 학생이 고른다. 폴더를 고른 순간의 시작 의사는 남기지
+ * 않는다(첫 실행과 달리, 여기서는 이미 지난 학생의 이어 쓰기를 앱이 대신 시작하지 않는다).
  */
 function NoFolder() {
   return (
-    <FolderPicker copy={{ title: CHAT.noFolderTitle, intro: CHAT.noFolderIntro, ...FOLDER, recents: CHAT.recentTitle, foot: CHAT.noFolderBody }} />
+    <div className="onb">
+      <div className="onb-inner"><FirstRun /></div>
+    </div>
+  )
+}
+
+/**
+ * 입력칸 `+` 오른쪽의 칩 — 지금 연결된 AI 이름 + `생각 깊이 기본`(발주 I-02 ①, **표시만**).
+ * 누르면 작은 팝오버가 열린다: 위는 AI 바꾸기(제목줄 계정 팝오버와 같은 `AccountChooser`),
+ * 아래는 생각 깊이 한 줄을 **흐린 비활성**으로 — 값은 지어내지 않고 "곧 고를 수 있어요"만 말한다.
+ * 실제 모델·추론 값을 넘기는 코드는 건드리지 않는다(안 주면 CLI 기본값이 쓰이는 지금 동작 그대로).
+ */
+function ComposerModelChip() {
+  const [open, setOpen] = useState(false)
+  const { provider } = useAccountProvider()
+  return (
+    <div className="pop-host">
+      <button type="button" className="model" title={CHAT.modelChipTitle} aria-expanded={open} onClick={() => setOpen(!open)}>
+        {PROVIDER_NAME[provider]} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} align="left" placement="up" width={400} label={CHAT.modelChipTitle}>
+        <AccountChooser onPicked={() => setOpen(false)} />
+        <PopSep />
+        <PopHead>{CHAT.depthTitle}</PopHead>
+        <div className="pop-row off" aria-disabled="true">
+          <span className="c"><b>{CHAT.depthDefault}</b><small>{CHAT.depthFollows(PROVIDER_NAME[provider])}</small></span>
+          <span className="m">{CHAT.depthSoon}</span>
+        </div>
+      </Popover>
+    </div>
   )
 }
 
@@ -135,6 +173,8 @@ export function Chat() {
   const seg: ChatMode = resolveChatMode(mode, settings)
   const provider: Provider = chosenProvider(connectSelected, settings) ?? chatProvider(seg)
   const endRef = useRef<HTMLDivElement>(null)
+  /** 입력칸 — 한 줄에서 시작해 글이 늘면 자란다(시안 P/L). 최대 높이 뒤에는 스크롤. */
+  const taRef = useRef<HTMLTextAreaElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [dragging, setDragging] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -165,6 +205,39 @@ export function Chat() {
   const running = snapshot?.state === 'running' || snapshot?.state === 'permission'
   const lastUncertain = snapshot?.messages.filter((m) => m.role === 'user' && m.delivery === 'uncertain').at(-1)
   const attach = async (): Promise<void> => { const p = await window.knuaf.pickFile({ title: CHAT.attach }); if (p) insertPath(p) }
+
+  /**
+   * 종이에서 고른 문장(인용) — 입력칸 위 칩이 보여 주고, 보낼 때 메시지에 합쳐진다(N-I03).
+   * 두 상태 다 앱 메모리에만 산다(정본 폴더에 쓰지 않는다).
+   */
+  const quote = useReview((s) => s.quote)
+  const clearQuote = useReview((s) => s.clearQuote)
+  /**
+   * 보내기 — 인용이 붙어 있으면 `> 문장 · (장에서) · 글` 형식으로 합쳐 보낸다(발주 QA2-B §2 (a)).
+   * **인용은 그 논문의 것**이라 다른 폴더 대화에는 붙이지 않는다(QA2B-R1-01). 초안은
+   * `consumeDraft` 로 넘겨 일반 전송과 **같은 규칙**으로 소비한다 — 보낸 글이 입력칸에 남지 않고,
+   * 전송 중 새로 쓴 글은 지켜진다(QA2B-R1-02). 보낸 뒤에는 그 인용이 아직 그대로일 때만 지운다
+   * — 늦게 온 결과가 그사이 새로 붙인 인용을 지우지 않게.
+   */
+  const sendBody = async (text?: string): Promise<boolean> => {
+    const q = useReview.getState().quote
+    if (!q || q.root !== projectRoot) return send(text)
+    const ok = await send(buildQuotedMessage(q, text ?? draft), { consumeDraft: true })
+    if (ok && useReview.getState().quote === q) clearQuote()
+    return ok
+  }
+
+  // 인용은 그 논문의 것 — 다른 논문을 열면 지운다(QA2B-R1-01).
+  useEffect(() => {
+    const q = useReview.getState().quote
+    if (q && q.root !== projectRoot) clearQuote()
+  }, [projectRoot, clearQuote])
+
+  // 고쳐 달라기를 누르면 인용이 붙는다 — 입력칸으로 초점을 옮겨 바로 쓰게 한다(QA2B-R1-06).
+  useEffect(() => { if (quote) taRef.current?.focus() }, [quote])
+
+  /** 인용만 있어도 보낼 수 있다 — "이 부분을 고쳐 줘"만 원하는 경우(발주 QA2-B §2 (a)). */
+  const canSend = !!draft.trim() || !!quote
 
   const emptyChat = !!snapshot && snapshot.messages.length === 0
   const hasRevision = (revision ?? 0) >= 1
@@ -199,6 +272,21 @@ export function Chat() {
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
+  /**
+   * 입력칸 높이를 내용에 맞춘다 — `height:auto` 로 되돌린 뒤 `scrollHeight` 를 준다(그래야
+   * 글이 줄어도 줄어든다). 최대 높이는 CSS(`max-height`)가 막고 그 위로는 스크롤이다.
+   *
+   * 의존성에 `zone.kind` 를 넣는 이유(검토 QA-R1-02): 허락·질문 카드가 입력칸 자리를
+   * 차지하면 textarea 가 사라졌다가 다시 나타나는데, Chat 자신은 계속 마운트돼 있고 초안도
+   * 그대로라 `[draft]` 만으로는 다시 실행되지 않았다 — 5줄 초안이 한 줄 높이로 줄어 보였다.
+   * 구역이 입력칸으로 돌아올 때도 높이를 다시 잰다.
+   */
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft, zone.kind])
   /**
    * 대화 이벤트 줄의 "종이에서 보기" — 학생이 **명시적으로** 누른 이동이다. 그래서 닫아 둔
    * 종이도 다시 열고(자동으로 열리지 않는 규칙은 저장·감시에만 적용된다), 좁은 창이면 종이로
@@ -272,8 +360,13 @@ export function Chat() {
           <div className="askcard" role="alert">
             <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
             <div className="askcard-t">{zone.request.title}</div>
-            <div className="prose">{zone.request.detail}</div>
+            {/* 합쳐진 detail 을 첫 줄=명령으로 나누지 않는다 — 여러 줄 명령(command 두 줄)이거나
+                이유만 있는 요청을 오분류했다(QA2A-R1-02). 원문을 줄바꿈 그대로 한 덩어리로 보여 준다. */}
+            {zone.request.detail && <div className="askcard-raw">{zone.request.detail}</div>}
             <div className="caption">{CHAT.allowAlwaysHint}</div>
+            <Disclosure label={CHAT.askDetail}>
+              <div className="prose">{zone.request.detail}</div>
+            </Disclosure>
             <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
               <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
               {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
@@ -295,6 +388,8 @@ export function Chat() {
             {zone.kind === 'running' && (
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
+            {/* 인용 칩 — 입력칸 바로 위(N-I03). 이 논문의 인용만 보여 준다(QA2B-R1-01). */}
+            {quote && quote.root === projectRoot && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}
@@ -303,27 +398,29 @@ export function Chat() {
                 const f = e.dataTransfer.files[0]
                 if (f) insertPath(window.knuaf.pathForFile(f))
               }}>
-              <textarea value={draft} rows={3} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
+              {/* 한 줄에서 시작해 글이 늘면 자란다 — 최대 높이 뒤에는 스크롤(시안 P/L). */}
+              <textarea ref={taRef} value={draft} rows={1} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
                   e.preventDefault()
                   // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
                   // 단추만 막으면 Enter 로 들어와 main 의 소유권 잠금에 걸린다(검토 P1-R1-03).
-                  if (zone.kind === 'running' || busy || !draft.trim()) return
-                  void send()
+                  if (zone.kind === 'running' || busy || !canSend) return
+                  void sendBody()
                 }} />
-              <div className="row between">
-                <div className="row">
-                  <button onClick={() => void attach()}>{CHAT.attach}</button>
-                  <span className="caption">{CHAT.attachHint}</span>
-                </div>
-                {/* 보내기 자리가 작업 중에는 멈추기가 된다. */}
+              <div className="crow">
+                {/* 왼쪽 아래 32×32 원형 `+` — 파일 첨부(기존 동작 그대로). */}
+                <button type="button" className="circ" title={CHAT.attach} aria-label={CHAT.attach} onClick={() => void attach()}><Icon name="plus" size={16} /></button>
+                <ComposerModelChip />
+                <span className="sp" />
+                {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
-                  ? <button className="send" onClick={() => void stop()}>{CHAT.stop}</button>
-                  : <button className="send" onClick={() => void send()} disabled={busy || !draft.trim()}>{CHAT.send}</button>}
+                  ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={13} /></button>
+                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !canSend}><Icon name="up" size={17} /></button>}
               </div>
             </div>
+            <p className="disc">{CHAT.disclaimer}</p>
           </>
         )}
 
@@ -333,7 +430,7 @@ export function Chat() {
           // 미연결·확인 실패·도구 없음: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
           // 사라져도 "답변에 첨부"/"고쳐달라기"가 쓴 draft가 조용히 삼켜지지 않아야 한다.
           <>
-            <div className="empty">
+            <div className="zone-note">
               <div className="t">{chatConnTitle}</div>
               <div>{chatConnBody}</div>
               {connState !== 'no-tool' && status?.detail && <div className="caption">{status.detail}</div>}

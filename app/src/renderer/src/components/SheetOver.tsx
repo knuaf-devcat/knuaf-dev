@@ -22,7 +22,7 @@ export function SheetOver({ open, title, onClose, children, screen }: { open: bo
     <div className="sheetover" role="dialog" aria-label={title} data-screen={screen}>
       <div className="sheetover-head">
         <h2>{title}</h2>
-        <button className="quiet" aria-label={CLOSE_LABEL} onClick={onClose}><Icon name="x" /></button>
+        <button className="quiet" aria-label={CLOSE_LABEL} onClick={onClose}><Icon name="x" size={13} /> {CLOSE_LABEL}</button>
       </div>
       <div className="sheetover-body">{children}</div>
     </div>

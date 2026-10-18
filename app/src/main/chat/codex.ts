@@ -71,7 +71,11 @@ export class CodexConnection implements AgentConnection {
     rpc.onRequest = (id, method, p) => {
       if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval') {
         this.approvals.set(String(id), id)
-        this.events?.permission({ id: String(id), title: method.includes('commandExecution') ? '명령 실행 확인' : '파일 변경 확인', detail: p.command ?? p.reason ?? JSON.stringify(p) })
+        // 이유(reason)와 명령(command)을 **둘 다** 남긴다 — 예전 `p.command ?? p.reason` 은 명령이
+        // 있으면 이유를 버려, 화면이 "무엇을 왜 허락하는지"를 말할 수 없었다(검토 QA N-I05).
+        // 권한 정책·승인 동작은 그대로고, 학생에게 보여 줄 문자열만 넓힌다.
+        const detail = [p.command, p.reason].filter((v: unknown): v is string => typeof v === 'string' && v.trim() !== '').join('\n\n')
+        this.events?.permission({ id: String(id), title: method.includes('commandExecution') ? '명령 실행 확인' : '파일 변경 확인', detail: detail || JSON.stringify(p) })
       } else if (method === 'item/tool/requestUserInput') {
         // The unmodified interview contract requires chat text, not tool popups.
         rpc.send({ id, result: { answers: {} } })

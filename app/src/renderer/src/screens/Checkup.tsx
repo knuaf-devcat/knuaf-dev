@@ -46,7 +46,8 @@ function laneLine(status: Status, L: LaneCopy): string {
       return L.notReadyText ?? ''
     }
     case 'content_review':
-      return status.lanes.content_review.independent_review_missing ? INDEPENDENT_REVIEW_MISSING.body : CHECKUP.laneLines.reviewDone
+      // R-05: '다른 사람 검토' 설명은 "아직 기록이 없어요…" — lane 의 notReadyText 한 곳에서 온다.
+      return status.lanes.content_review.independent_review_missing ? (L.notReadyText ?? '') : CHECKUP.laneLines.reviewDone
     case 'output_review': {
       const o = status.lanes.output_review
       if (o.summary.total === 0) return CHECKUP.laneLines.fileNone
@@ -129,11 +130,6 @@ export function Checkup() {
         const professor = LANE_COPY.find((l) => l.id === 'professor')!
         return (
           <>
-            <div className="row between checkup-head">
-              <span className="caption">{CHECKUP.head(ahead ?? status.revision)}</span>
-              <button className="quiet" onClick={() => void refresh()} disabled={loading}><Icon name="refresh" size={14} /> {CHECKUP.refresh}</button>
-            </div>
-
             <section className="chk">
               <div className="t">{CHECKUP.fileTitle}</div>
               {made.length === 0
@@ -196,15 +192,20 @@ export function Checkup() {
                 <div className="ln">
                   <b>{content.title}</b>
                   <span>{laneLine(status, content)}</span>
-                  <button className="quiet" onClick={copyRequest}>{copied ? CHECKUP.copied : CHECKUP.copyRequest}</button>
+                  <button onClick={copyRequest}>{copied ? CHECKUP.copied : CHECKUP.copyRequest}</button>
                 </div>
                 <div className="ln"><b>{output.title}</b><span>{laneLine(status, output)}</span><span /></div>
                 <div className="ln"><b>{professor.title}</b><span>{laneLine(status, professor)}</span><span /></div>
               </div>
             </section>
 
-            {/* 등록 현황·완료 안내는 기술 기록이다 — 기본 화면에 두지 않고 접어 둔다(DESIGN §5 쉬운 말). */}
+            {/* 등록 현황·완료 안내는 기술 기록이다 — 기본 화면에 두지 않고 접어 둔다(DESIGN §5 쉬운 말).
+                "지금 논문 · N번째 기록 · 새로고침"도 여기로 내렸다(발주 R-04) — 새로고침 기능은 그대로다. */}
             <Disclosure label={CHECKUP.recordDetail}>
+              <div className="row between checkup-head">
+                <span className="caption">{CHECKUP.head(ahead ?? status.revision)}</span>
+                <button className="quiet" onClick={() => void refresh()} disabled={loading}><Icon name="refresh" size={14} /> {CHECKUP.refresh}</button>
+              </div>
               {Object.keys(status.counts).some((k) => COLLECTION_LABEL[k]) && (
                 <p className="caption">{CHECKUP.countsCaption} — {Object.entries(status.counts).filter(([k]) => COLLECTION_LABEL[k]).map(([k, v]) => `${COLLECTION_LABEL[k]} ${v}`).join(' · ')}</p>
               )}

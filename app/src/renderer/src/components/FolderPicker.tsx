@@ -67,7 +67,8 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
 
       {shown && <Feedback kind={shown.kind} title={shown.title} body={shown.action} details={<code>{shown.raw}</code>} />}
 
-      <div className="list">
+      {/* 새로 시작 / 이어 쓰기 두 행 — 첫 실행 연결 단계와 같은 한 테두리 묶음(시안 B, N-R01). */}
+      <div className="choices">
         <div className="item"><div className="head">
           <div>
             <div style={{ fontWeight: 600 }}>{copy.newName}</div>
@@ -91,7 +92,7 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
           {(settings?.recent ?? []).map((r: RecentEntry, i) => {
             const p = peeks[r.root]
             return (
-              <ProjectCard key={r.root} index={i} root={r.root} openedAt={relativeTime(r.opened_at)} revision={p?.revision ?? null}
+              <ProjectCard key={r.root} index={i} root={r.root} openedAt={relativeTime(r.opened_at)}
                 exists={p ? p.exists : true} hasProject={p?.hasProject ?? false}
                 onOpen={() => void openFolder(r.root)} onRemove={() => void remove(r.root)} />
             )

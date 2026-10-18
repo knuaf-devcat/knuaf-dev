@@ -93,22 +93,22 @@ export function SettingsScreen() {
         <div className="card-head"><h2>{SETTINGS.helperTitle}</h2></div>
         {/* 내 논문은 항상 앱 채팅 — 여기서 고르는 것은 어느 도우미인지뿐. */}
         <div className="caption" style={{ marginBottom: 'var(--sp-1)' }}>{SETTINGS.helperChatWhich}</div>
-        <label className="opt-card">
+        <label className="opt-row">
           <input type="radio" name="helper-chat" checked={mode === 'codex-chat'} onChange={() => void pickHelper('codex-chat')} />
           <span>{SETTINGS.helperChatCodex}</span>
         </label>
-        <label className="opt-card">
+        <label className="opt-row">
           <input type="radio" name="helper-chat" checked={mode === 'claude-chat'} onChange={() => void pickHelper('claude-chat')} />
           <span>{SETTINGS.helperChatClaude}</span>
         </label>
         <p className="caption">{SETTINGS.helperChatNote}</p>
         {/* 권한 묻기 기본값은 '묻지 않기'. 숨긴 기본값이 아니라 여기서 보이고 되돌릴 수 있어야 한다. */}
         <div className="caption" style={{ marginTop: 'var(--sp-4)', marginBottom: 'var(--sp-1)' }}>{SETTINGS.permissionWhich}</div>
-        <label className="opt-card">
+        <label className="opt-row">
           <input type="radio" name="permission-mode" checked={permission === 'trust'} onChange={() => void pickPermission('trust')} />
           <span>{SETTINGS.permissionTrust}</span>
         </label>
-        <label className="opt-card">
+        <label className="opt-row">
           <input type="radio" name="permission-mode" checked={permission === 'ask'} onChange={() => void pickPermission('ask')} />
           <span>{SETTINGS.permissionAsk}</span>
         </label>

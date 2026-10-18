@@ -43,12 +43,16 @@ export function MaterialsPopover() {
         {refs.length > 0 && <>
           <PopSep />
           <PopHead>{MATERIALS.refTitle}</PopHead>
-          {shown.map((f) => (
-            <PopRow key={f.path} icon={<Icon name="doc" size={16} />} meta={<span className="caption" title={f.path}>{f.path}</span>}>
-              <span className="c">{name(f.path)}</span>
-            </PopRow>
-          ))}
-          {more > 0 && <div className="pop-empty caption">{MATERIALS.moreFiles(more)}</div>}
+          {/* 이름은 한 줄 말줄임(전체 이름·경로는 title 로). 긴 목록은 안에서 스크롤해
+              아래 "자료 전체 보기" 가 화면 밖으로 밀리지 않게 한다(N-I06). */}
+          <div className="pop-scroll">
+            {shown.map((f) => (
+              <PopRow key={f.path} icon={<Icon name="doc" size={16} />}>
+                <span className="c"><b title={f.path}>{name(f.path)}</b></span>
+              </PopRow>
+            ))}
+            {more > 0 && <div className="pop-empty caption">{MATERIALS.moreFiles(more)}</div>}
+          </div>
         </>}
         <PopSep />
         <PopRow icon={<Icon name="files" size={16} />} onClick={() => { setOpen(false); openSheet('materials') }}>{MATERIALS_POPOVER.all}</PopRow>

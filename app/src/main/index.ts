@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, nativeTheme, systemPreferences } from 'electron'
+import { app, BrowserWindow, nativeImage, nativeTheme, screen, systemPreferences } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Sidecar } from './sidecar'
@@ -8,6 +8,7 @@ import { APP_ROOT } from './python'
 import { installMenu, type MenuAction } from './menu'
 import { LEGACY_USERDATA_NAMES, migrateUserDataDir } from './userdata'
 import { APP_NAME } from '../shared/name'
+import { defaultWindowSize } from '../shared/window'
 
 // Tests point userData at a temp dir so first-run state (credit, recents) is isolated.
 if (process.env.KNUAF_USER_DATA) app.setPath('userData', process.env.KNUAF_USER_DATA)
@@ -68,9 +69,11 @@ function createWindow(): void {
   const reduceTransparency = isMac && systemPreferences.accessibilityDisplayShouldReduceTransparency
   const colors = chromeColors()
   const iconPng = join(APP_ROOT, 'build', 'icon.png')
+  // 기본 창 크기(시안 안쪽 1280×800) — 화면 작업 영역보다 크면 그 안에 맞춰 줄인다(발주 QA).
+  const { width, height } = defaultWindowSize(screen.getPrimaryDisplay().workAreaSize)
   win = new BrowserWindow({
-    width: 1180,
-    height: 800,
+    width,
+    height,
     minWidth: 900,
     minHeight: 600,
     title: APP_NAME,

@@ -1,156 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
-import { displayState, useConnect, canAdvance, type ConnInfo, type ConnState } from '../store/connect'
-import { useChat, type ChatMode } from '../store/chat'
-import { FolderPicker } from '../components/FolderPicker'
-import { ConnectBadges, ConnectRow } from '../components/ConnectRow'
-import { CHAT, FOLDER, ONBOARD, PRIVACY_NOTE } from '../copy'
-import type { Provider } from '../../../shared/chat'
-import { useShallow } from 'zustand/react/shallow'
+import { useChat } from '../store/chat'
+import { FirstRun } from '../components/FirstRun'
 
 /**
- * 첫 실행 화면 — AI 연결 ① → 논문 폴더 ② (DESIGN §6, IMPL-PLAN §4-3).
+ * 첫 실행 화면 — 크롬 없이 가운데 한 줄기(발주 QA 재실행 결정).
  *
- * 순서를 뒤집은 이유: 이 앱의 주 작업이 AI 인터뷰이고, 연결은 CLI 전역 계정의 사실이라
- * 논문 폴더와 무관하다. 폴더를 고르기 전에 AI 가 준비됐는지부터 보여 주면 학생은 아직
- * 필요하지 않은 결정(어느 폴더에 쓸까)을 하기 전에 막힐 곳을 먼저 본다.
- *
- * 두 결정을 한 화면에 겹쳐 묻지 않는다(R5 §3 "한 번에 한 결정"). 여기에는 모델·논문 제목·
- * 저장 경로가 없고, 번호 원 스테퍼도 없다.
- *
- * 2단계의 폴더 고르기는 `FolderPicker` 를 쓴다 — 재방문(폴더 없음) 화면과 같은 부품이다.
- * 두 벌로 두면 한쪽만 고쳐지고, 학생에게 같은 일이 두 모양으로 보인다.
+ * 내용(두 단계·길잡이)은 `FirstRun` 한 곳에 있고, 여기서는 그 부품을 크롬 없는 틀에 얹고
+ * "폴더를 골랐다"는 사실을 기록한다. 재실행 첫 화면도 **같은 부품**을 제목줄 있는 대화 칸
+ * 안에 얹는다(`Chat` 의 폴더 없음 화면) — 재실행에서는 시작 의사를 남기지 않는다.
  */
-const MODE: Record<Provider, ChatMode> = { codex: 'codex-chat', claude: 'claude-chat' }
-const ROWS: Provider[] = ['codex', 'claude']
-
 export function Onboarding({ onDone }: { onDone?: () => void }) {
-  const { settings, loadSettings } = useProject(useShallow((s) => ({ settings: s.settings, loadSettings: s.loadSettings })))
-  const { codex, claude, selected, loggingIn, select, refreshAll, stopPolling } = useConnect(useShallow((s) => ({
-    codex: s.codex, claude: s.claude, selected: s.selected, loggingIn: s.loggingIn, select: s.select,
-    refreshAll: s.refreshAll, stopPolling: s.stopPolling
-  })))
-  const [step, setStep] = useState<'connect' | 'folder'>('connect')
-  /** 로그인을 시킨 공급자 — 그 로그인이 성공하면 그 선택을 기록한다(로그인 자체가 선택이다). */
-  const loginTarget = useRef<Provider | null>(null)
-  /** 건너뛰기 판정은 한 번만 한다 — 상태가 오갈 때마다 화면이 튀지 않게. */
-  const settled = useRef(false)
-  /**
-   * **앱을 열 때 이미 있던** 선택. 이 세션에서 방금 고른 것(로그인·[이걸로 시작])은 여기
-   * 들어가지 않는다 — 그때는 설계대로 [다음 — 논문 폴더 고르기]를 학생이 누른다.
-   * 먼저 온 학생도 같은 흐름을 한 번 보는 것이 "한 번에 한 결정"에 맞다.
-   */
-  const storedChoice = useRef<Provider | null>(settings?.provider_choice?.provider ?? null)
-
-  const info = (p: Provider): ConnInfo => (p === 'codex' ? codex : claude)
-  const stateOf = (p: Provider): ConnState => displayState(info(p), loggingIn[p])
-
-  useEffect(() => { void refreshAll(); return () => stopPolling() }, [refreshAll, stopPolling])
-
-  /**
-   * 학생이 고른 순간을 여기서 기록한다. `helper_mode` 는 화면 표시용 기본값이고,
-   * `provider_choice` 가 "고른 적 있음"의 기록이다(IMPL-R1-02). 둘 다 적어 두면 옛 화면도
-   * 같은 공급자를 본다.
-   */
-  const remember = async (p: Provider) => {
-    await window.knuaf.setSettings({ helper_mode: MODE[p], provider_choice: { provider: p, at: new Date().toISOString() } })
-    await loadSettings()
-    select(p)
-  }
-
-  // 고른 적이 있고 그 공급자가 연결돼 있으면 ①을 건너뛴다(IMPL-PLAN §4-3 건너뛰기 규칙).
-  // stateOf 는 매 렌더 새로 만들어지므로 의존성에 넣지 않는다 — 판정은 settled 로 한 번뿐이다.
-  useEffect(() => {
-    const stored = storedChoice.current
-    if (settled.current || !stored) return
-    if (stateOf(stored) === 'checking') return
-    settled.current = true
-    if (canAdvance(stored, stateOf)) { select(stored); setStep('folder') }
-  }, [codex, claude, loggingIn])
-
-  // 로그인이 끝나면 그 공급자를 고른 것으로 기록한다.
-  useEffect(() => {
-    const target = loginTarget.current
-    if (!target || stateOf(target) !== 'connected') return
-    loginTarget.current = null
-    void remember(target)
-  }, [codex, claude, loggingIn])
-
+  const loadSettings = useProject((s) => s.loadSettings)
   /**
    * 폴더가 열렸다 — 첫 실행 화면을 지났음을 기록하고, 그 폴더에서 첫 대화를 시작할 의사를
    * 남긴다(대화가 비어 있으면 Chat 이 한 번 보낸다). 여기서 보내지 않는 이유: 대화 화면이
    * 뜨기도 전에 보내면 그 응답을 받을 화면이 없다.
    */
-  const opened = async (root: string) => {
+  const opened = async (root: string): Promise<void> => {
     await window.knuaf.setSettings({ onboarded_at: new Date().toISOString() })
     useChat.getState().armStart(root)
     await loadSettings()
     onDone?.()
   }
-
-  /**
-   * 전진 조건은 하나다 — **고른 것이 지금 연결돼 있다**(P2-R1-03). 저장된 선택만 보고 넘어가면
-   * 연결을 못 마친 첫 실행이 "AI 연결 완료"로 폴더 단계에 서게 된다.
-   * [다음] 단추·자동 건너뛰기·2단계의 `AI 연결 ✓` 가 모두 이 값을 쓴다.
-   */
-  const advance = canAdvance(selected, stateOf)
-  const connectDone = step === 'folder' && canAdvance(selected ?? storedChoice.current, stateOf)
-  /** 지금 하는 단계만 진하게(나머지는 흐리게) — 길잡이 한 줄에서 "여기"를 표시한다. */
-  const here = (part: 'connect' | 'folder' | 'start'): string => (part === step ? 'on' : '')
-
   return (
     <div className="onb">
       <div className="drag-strip" aria-hidden="true" />
       <div className="onb-inner">
-        {/* 길잡이 — 번호 원 없이 한 줄(DESIGN §6). 지난 단계는 ✓ 로 끝난 것을 말한다. */}
-        <div className="caption onb-way">
-          <strong className={here('connect')}>{connectDone ? ONBOARD.guideConnectDone : ONBOARD.guideConnect}</strong>
-          <span> → </span>
-          <strong className={here('folder')}>{ONBOARD.guideFolder}</strong>
-          <span> → </span>
-          <strong className={here('start')}>{ONBOARD.guideStart}</strong>
-        </div>
-
-        {step === 'connect' ? (
-          <>
-            <h1>{ONBOARD.connectTitle}</h1>
-            <p className="caption" style={{ margin: 'var(--sp-2) 0 var(--sp-5)' }}>{ONBOARD.connectIntro}</p>
-
-            <div className="list">
-              {ROWS.map((p) => (
-                /* 상태 문구·행동 단추는 계정 팝오버와 **같은 부품**이다(ConnectRow). 여기서만
-                   "권장/실험 중" 표시와 "이걸로 시작"이 붙는다. */
-                <ConnectRow key={p} provider={p} badges={<ConnectBadges provider={p} />}
-                  onLogin={(who) => { loginTarget.current = who }}
-                  suffix={stateOf(p) === 'connected' && p === selected ? ONBOARD.chosenSuffix : undefined}
-                  extra={stateOf(p) === 'connected' && selected !== p
-                    ? { label: ONBOARD.startWith, run: () => void remember(p).then(() => setStep('folder')) }
-                    : undefined} />
-              ))}
-            </div>
-
-            <div className="row" style={{ marginTop: 'var(--sp-5)' }}>
-              <button className="primary" disabled={!advance} onClick={() => setStep('folder')}>{ONBOARD.connectNext}</button>
-              {!advance && <span className="caption">{ONBOARD.connectWaiting}</span>}
-            </div>
-            <p className="caption" style={{ marginTop: 'var(--sp-5)' }}>{PRIVACY_NOTE}</p>
-            {/* 개인정보 줄 바로 아래 한 줄 — "둘 다 있나요?"는 보통 글자, 뒤만 링크다(시안 A). */}
-            <p className="caption" style={{ marginTop: 'var(--sp-2)' }}>
-              {ONBOARD.howToChooseLead}{' '}
-              <button className="onb-help" onClick={() => void window.knuaf.openGuide()}>{ONBOARD.howToChooseLink}</button>
-            </p>
-          </>
-        ) : (
-          <>
-            <FolderPicker
-              copy={{ title: ONBOARD.folderTitle, intro: ONBOARD.folderIntro, ...FOLDER, foot: ONBOARD.folderFoot }}
-              onOpened={(root) => void opened(root)}
-            />
-            <div className="row" style={{ marginTop: 'var(--sp-4)' }}>
-              <button className="quiet" onClick={() => setStep('connect')}>{ONBOARD.folderBack}</button>
-            </div>
-          </>
-        )}
+        <FirstRun onFolderOpened={(root) => void opened(root)} />
       </div>
     </div>
   )

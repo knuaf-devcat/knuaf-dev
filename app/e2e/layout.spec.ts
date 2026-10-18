@@ -8,10 +8,26 @@
  */
 import { expect, test } from '@playwright/test'
 import { CHAT_MAX, CHAT_MIN, WIDE_MIN, chatWidthOf, layoutOf, showsToggle } from '../src/shared/layout'
+import { DEFAULT_WINDOW, WINDOW_MARGIN, defaultWindowSize } from '../src/shared/window'
 import { newBlockIndexes, splitBlocks } from '../src/shared/paper'
 import { fileStateOf, isReviewExport, reviewBasisOf } from '../src/shared/files'
 import { renderMarkdown } from '../src/renderer/src/markdown'
 import { fileStatusText } from '../src/renderer/src/copy'
+
+// ---------------------------------------------------------------- 기본 창 크기
+
+test('기본 창은 1280×800 이고 작업 영역이 작으면 그 안으로 줄인다 (발주 QA 창 크기)', () => {
+  // 작업 영역이 넉넉하면 시안 안쪽 크기 그대로.
+  expect(defaultWindowSize({ width: 1728, height: 1117 })).toEqual({ width: 1280, height: 800 })
+  expect(DEFAULT_WINDOW).toEqual({ width: 1280, height: 800 })
+  // 윈도우 1366×768 노트북 — 세로만 작업 영역에 맞춰 줄어든다(1366−40=1326 > 1280 이라 가로는 1280).
+  expect(defaultWindowSize({ width: 1366, height: 768 })).toEqual({ width: 1280, height: 768 - WINDOW_MARGIN })
+  expect(defaultWindowSize({ width: 1366, height: 768 }).height).toBe(728)
+  // 아주 작은 작업 영역 — 가로·세로 모두 −40 으로 줄어든다(화면 밖으로 나가지 않게).
+  expect(defaultWindowSize({ width: 1000, height: 700 })).toEqual({ width: 1000 - WINDOW_MARGIN, height: 700 - WINDOW_MARGIN })
+  // 절대값 1280·800 을 넘지 않는다.
+  expect(defaultWindowSize({ width: 4000, height: 3000 })).toEqual({ width: 1280, height: 800 })
+})
 
 // ------------------------------------------------------------------ 배치·폭
 

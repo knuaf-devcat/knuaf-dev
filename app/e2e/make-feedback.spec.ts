@@ -51,15 +51,15 @@ test('팝오버의 만들기 고지·결과가 그 줄 아래에 남는다 (P3-R
 
     // 시도 전후 모두 고지가 그 줄 아래에 있다.
     const fb = pop.locator('[data-make="review"] .make-fb')
-    await expect(fb.first(), '독립검토 미실행 고지가 만들기 줄에 없다').toContainText('독립검토', { timeout: 10_000 })
+    await expect(fb.first(), '다른 사람 검토 고지가 만들기 줄에 없다').toContainText('다른 사람 검토', { timeout: 10_000 })
     // 결과도 같은 자리에서 이어진다(경로 + 폴더에서 보기).
     await expect(pop).toContainText('검토본을 만들었어요', { timeout: 60_000 })
     await expect(pop.getByRole('button', { name: '폴더에서 보기' }).first()).toBeVisible()
 
     // 제출용 후보 — 관문이 막혀 있으면 그 이유가 같은 자리에 보인다.
-    const submitRow = pop.locator('.pop-make:has(b:text-is("제출용 파일 만들기"))')
+    const submitRow = pop.locator('.pop-make:has(b:text-is("제출용 후보 만들기"))')
     await submitRow.getByRole('button').click()
-    await expect(pop).toContainText('제출용 파일', { timeout: 30_000 })
+    await expect(pop).toContainText('제출용 후보', { timeout: 30_000 })
     await expect(pop.locator('.make-fb.warning').last()).toBeVisible({ timeout: 30_000 })
   } finally {
     await electronApp.close()
@@ -139,7 +139,7 @@ test('나중에 생긴 표지 입력을 새로고침이 알아챈다 (P3-R1-05)'
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
     await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
     const pop = page.locator('.paper-head .popover')
-    const docxRow = pop.locator('.pop-make:has(b:text-is("논문 DOCX 만들기"))')
+    const docxRow = pop.locator('.pop-make:has(b:text-is("논문 파일(워드) 만들기"))')
     await expect(docxRow.getByRole('button'), '표지 입력도 본문도 없으면 잠겨 있는 것이 맞다').toBeDisabled()
 
     // 도우미가 표지 입력을 준비했다 — 기록은 그대로이므로 새로고침이 그것을 봐야 한다.
@@ -150,7 +150,7 @@ test('나중에 생긴 표지 입력을 새로고침이 알아챈다 (P3-R1-05)'
     // 결과물 전체 화면도 같은 조건을 본다.
     await page.getByRole('button', { name: '결과물 전체 보기' }).click()
     const sheet = page.locator('[data-screen="artifacts"]')
-    await expect(sheet.locator('.make-row:has-text("논문 DOCX 만들기") button')).toBeEnabled({ timeout: 20_000 })
+    await expect(sheet.locator('.make-row:has-text("논문 파일(워드) 만들기") button')).toBeEnabled({ timeout: 20_000 })
   } finally {
     await electronApp.close()
   }
@@ -253,14 +253,14 @@ test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반�
     // 종이 머리 아래: 고지가 **보이고**, 그 아래에 만드는 중 줄이 있다.
     const strip = page.locator('.paper-fb')
     await expect(strip.locator('.make-fb.warning')).toBeVisible({ timeout: 15_000 })
-    await expect(strip.locator('.make-fb.warning')).toContainText('독립검토')
+    await expect(strip.locator('.make-fb.warning')).toContainText('다른 사람 검토')
     await expect(strip.locator('.make-fb.running')).toContainText('만드는 중')
 
     // 같은 실행의 팝오버 줄에도 고지가 보인다.
     await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
     const pop = page.locator('.paper-head .popover')
     const fb = pop.locator('[data-make="review"] .make-fb')
-    await expect(fb.filter({ hasText: '독립검토' })).toBeVisible()
+    await expect(fb.filter({ hasText: '다른 사람 검토' })).toBeVisible()
     await expect(fb.filter({ hasText: '만드는 중' })).toBeVisible()
 
     // 응답을 풀면 같은 자리들이 결과로 바뀐다(시도 시점과 결과 시점이 구별된다).

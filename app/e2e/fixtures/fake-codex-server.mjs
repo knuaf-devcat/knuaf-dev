@@ -10,6 +10,8 @@
  *   FAKE_CODEX_STATE  로그인 시작을 기억할 파일 하나 — 있으면 account/read 가 chatgpt
  *   FAKE_CODEX_REPLY  turn/start 뒤에 보낼 도우미 글의 **파일 경로**(예: 질문 원문)
  *   FAKE_CODEX_ASK    1이면 turn/start 뒤에 권한 요청을 보내고 턴을 끝내지 않는다
+ *   FAKE_CODEX_ASK_COMMAND  권한 요청의 command (기본 `cat /etc/hosts`, 빈 값이면 필드 생략)
+ *   FAKE_CODEX_ASK_REASON   권한 요청의 reason (기본 쉬운 이유 한 줄, 빈 값이면 필드 생략)
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -19,6 +21,9 @@ if (MODE === 'dead') process.exit(1)
 const STATE = process.env.FAKE_CODEX_STATE ?? ''
 const REPLY_FILE = process.env.FAKE_CODEX_REPLY ?? ''
 const ASK = process.env.FAKE_CODEX_ASK === '1'
+/** 권한 요청의 command·reason — 여러 줄 명령/이유만 있는 요청을 재현하려고 열어 둔다(QA2A-R1-02). */
+const ASK_COMMAND = process.env.FAKE_CODEX_ASK_COMMAND ?? 'cat /etc/hosts'
+const ASK_REASON = process.env.FAKE_CODEX_ASK_REASON ?? '논문 폴더 밖 파일을 읽으려고 해요'
 /** 턴을 끝내지 않는다 — "작업 중" 화면을 안정적으로 본다. */
 const HOLD = process.env.FAKE_CODEX_HOLD === '1'
 
@@ -62,7 +67,11 @@ function handle(message) {
       if (ASK) {
         // 허락 카드 장면 — 턴을 끝내지 않고 학생의 답을 기다린다.
         // 요청 id 는 최상위에 있어야 한다(줄 단위 JSON-RPC — 앱도 그렇게 읽는다).
-        out({ id: ++serverSeq, method: 'item/commandExecution/requestApproval', params: { threadId, command: 'cat /etc/hosts', reason: '논문 폴더 밖 파일을 읽으려고 해요' } })
+        out({ id: ++serverSeq, method: 'item/commandExecution/requestApproval', params: {
+          threadId,
+          ...(ASK_COMMAND ? { command: ASK_COMMAND } : {}),
+          ...(ASK_REASON ? { reason: ASK_REASON } : {})
+        } })
         return
       }
       if (HOLD) return

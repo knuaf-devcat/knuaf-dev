@@ -10,13 +10,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
-import { launch, synthProject } from './helpers'
+import { launch, openProject, synthProject } from './helpers'
 import { ONBOARD } from '../src/renderer/src/copy'
 import { fakeCodexEnv, replyFile, scratch, writeCliShim, writeFakeClaude } from './fixtures/fake-codex'
 
 const INTRO = 'text=먼저, 쓰고 있는 AI를 연결해요'
 const FOLDER_STEP = 'text=논문을 담을 폴더를 골라요'
-const NO_FOLDER = 'text=논문 작업 폴더를 골라 주세요'
 /** 도우미가 없는 새 폴더(revision 0) — 첫 마디가 `이어서 하기`가 아니라 `시작하기`가 된다. */
 const synthProjectNoContent = (): string => synthProject({ withContent: false })
 const settings = (userData: string) => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8'))
@@ -225,7 +224,7 @@ test('저장된 선택만으로는 다음 단계로 가지 못한다 (P2-R1-03)'
   }
 })
 
-test('확인 실패는 폴더 화면에서도 로그인 필요가 아니다 (P2-R1-01)', async () => {
+test('확인 실패는 첫 화면과 폴더 화면 모두에서 로그인 필요가 아니다 (P2-R1-01)', async () => {
   // 검토 재현: `claude auth status` 가 JSON 이 아닌 것을 뱉는 가짜 CLI. 도구는 있는데
   // 대답을 못 들은 상태다 — 로그인을 요구하면 엉뚱한 재인증을 시킨다.
   const dir = scratch()
@@ -238,12 +237,18 @@ test('확인 실패는 폴더 화면에서도 로그인 필요가 아니다 (P2-
   })
   const { electronApp, page } = await launch({ userData, env })
   try {
-    await page.locator('.project').first().click()   // 폴더를 연다(온보딩은 이미 지났다)
+    // ① 첫 화면(1단계, FirstRun→ConnectRow) — 확인 실패를 로그인으로 접지 않는다.
+    await expect(page.locator('[data-provider="claude"] .reason').first()).toContainText('연결 상태를 확인하지 못했어요', { timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
+
+    // ② 같은 시험에서 논문을 **실제로 연다** — 폴더 안 Chat 의 상태 소비 경로도 검사한다
+    //    (검토 QA-R1-01: 두 화면은 `useConnect` 와 `useChat.statusInfo` 라는 별도 경로다).
+    await openProject(page, root)
     await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
-    // 로그인부터 요구하지 않는다 — 다시 확인만 권한다.
     await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '다시 확인' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
   } finally {
     await electronApp.close()
   }
@@ -263,14 +268,19 @@ test('여는 화면은 첫 실행 화면 **위에** 뜬다 (순서가 뒤집히�
   }
 })
 
-test('이미 지난 학생이 최근 논문을 열 때는 온보딩을 거치지 않는다', async () => {
+test('이미 지난 학생이 다시 켜면 폴더 화면(첫 실행 2단계)부터 본다', async () => {
+  // 발주 QA 재실행 결정 — 재실행 첫 화면은 시안 ② 논문 폴더 화면이다(온보딩 2단계와 같은 부품).
+  // 연결이 확인돼 있어야 폴더 단계가 서므로 가짜 codex(logged-in) + 고른 선택을 쓴다.
   const dir = scratch()
   const root = synthProjectNoContent()
-  const userData = userDataWithRecent(dir, root)
-  const { electronApp, page } = await launch({ userData })
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const userData = userDataWithRecent(dir, root, { provider_choice: { provider: 'codex', at: new Date().toISOString() } })
+  const { electronApp, page } = await launch({ userData, env, waitFor: FOLDER_STEP })
   try {
-    // 폴더 없음 화면이 먼저다 — 로그인 벽으로 전체를 막지 않는다(DESIGN §6 · R5 §5.3).
-    await expect(page.locator(NO_FOLDER)).toBeVisible()
+    // 길잡이가 "AI 연결 ✓ → 논문 폴더 → 시작"으로 선다 — 1단계는 지나갔다.
+    await expect(page.locator(FOLDER_STEP)).toBeVisible()
+    await expect(page.locator('.onb-way')).toContainText('AI 연결 ✓')
+    // 첫 실행 인트로(로그인 벽)는 뜨지 않는다.
     await expect(page.locator(INTRO)).toHaveCount(0)
     await page.locator('.project').first().click()
     await page.waitForSelector('.chat-pane', { timeout: 30_000 })

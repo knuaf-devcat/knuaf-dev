@@ -12,12 +12,19 @@ import { useStage } from './useStage'
 import { newBlockIndexes, splitBlocks } from '../../../shared/paper'
 import { fileStateOf, isReviewExport } from '../../../shared/files'
 import { zoneOf } from '../../../shared/zone'
-import { PAPER, TITLEBAR } from '../copy'
+import { hasChange } from '../../../shared/diff'
+import { baselineKey, quoteOf, useReview } from '../store/review'
+import { ReviewSelectBar } from './ReviewSelectBar'
+import { ReviewDiffBlocks } from './ReviewDiff'
+import { PAPER, REVIEW, TITLEBAR } from '../copy'
 import type { SectionRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
 
 /** 절 하나의 본문. `hash` 는 정본이 말하는 본문 지문이다. */
 type Doc = { title: string; draft: string; hash: string }
+
+/** 종이에서 고른 문장 — 행동 막대가 뜨는 자리와 무엇을 골랐는지. */
+type Sel = { text: string; sectionId: string; sectionTitle: string; x: number; top: number; bottom: number }
 
 /** 새로 저장된 문단을 칠해 두는 시간. 저장하지 않는다(IMPL-PLAN §4-2). */
 const FRESH_MS = 8_000
@@ -75,7 +82,24 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   const sects = useRef<SectionRow[] | null>(sections)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const desk = useRef<HTMLDivElement>(null)
+  const pane = useRef<HTMLElement>(null)
   sects.current = sections
+  /** 종이에서 고른 문장 — 행동 막대가 뜰 자리와 무엇을 골랐는지(N-I03). */
+  const [sel, setSel] = useState<Sel | null>(null)
+  /**
+   * 절마다 **이번 실행에서 처음 본 본문** — "고친 부분 보기"의 기준(N-I04). store 에 둔다
+   * (검토 QA2B-R1-03): 여기 지역 상태였을 때 종이 칸을 닫았다 열면 컴포넌트가 새로 만들어져
+   * 기준이 사라졌다. 논문(root)+절로 키를 잡아 화면 조각의 수명과 분리한다. 정본 폴더에는
+   * 쓰지 않는다 — 앱을 다시 켜면 초기화된다.
+   */
+  const baseline = useReview((s) => s.baseline)
+  const noteBaseline = useReview((s) => s.noteBaseline)
+  const showDiff = useReview((s) => s.showDiff)
+  const toggleDiff = useReview((s) => s.toggleDiff)
+  const setQuote = useReview((s) => s.setQuote)
+  const card = zoneOf(snapshot, status, pStatus)
+  /** 행동 막대는 아래 칸이 **입력칸**일 때만 — 질문·허락 카드가 그 자리를 차지한다(발주 §③). */
+  const canQuote = card.kind === 'composer'
 
   const load = useCallback(async () => {
     if (!root || !sections) { setDocs({}); return }
@@ -91,6 +115,9 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
     for (const r of rows) {
       const sec = sections.find((s) => s.id === r.id)
       if (!sec) continue
+      // 기준 본문은 **처음 본 순간에만** 박는다 — 이후 저장은 모두 이 기준과 견준다.
+      const key = baselineKey(root, r.id)
+      if (!useReview.getState().baseline[key]) noteBaseline(key, { title: r.title, draft: r.draft, hash: sec.draft_hash })
       const before = prevDocs.current[r.id]
       // 지문이 같으면 다시 그리지 않는다 — 같은 글이고 칠할 것도 없다.
       if (before && before.hash === sec.draft_hash) continue
@@ -110,10 +137,11 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       timers.current.forEach(clearTimeout)
       timers.current = [setTimeout(() => setFresh({}), FRESH_MS)]
     }
-  }, [root, sections])
+  }, [root, sections, noteBaseline])
 
   // 폴더가 바뀌면 직전 본문을 들고 가지 않는다 — 다른 논문에 칠할 것은 없다.
-  useEffect(() => { prevDocs.current = {}; setDocs({}); setFresh({}); return () => { timers.current.forEach(clearTimeout); timers.current = [] } }, [root])
+  // 비교 기준(store)은 논문별 키라 건드리지 않는다 — 같은 논문을 다시 열면 이어진다.
+  useEffect(() => { prevDocs.current = {}; setDocs({}); setFresh({}); setSel(null); return () => { timers.current.forEach(clearTimeout); timers.current = [] } }, [root])
   // 기록이 오르면 다시 읽는다(사이드바 차례와 같은 기준, IMPL-PLAN §4-2).
   useEffect(() => { void load() }, [load, revision])
 
@@ -124,15 +152,45 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
     focusSection(null)
   }, [focusedSection, focusSection])
 
+  /**
+   * 마우스를 떼면 고른 문장을 읽는다(N-I03). 선택이 **종이 안**이고 **한 장 안**일 때만
+   * 행동 막대를 띄운다 — 어느 장의 문장인지 말할 수 없으면 인용 형식도 만들 수 없다.
+   */
+  const readSelection = useCallback(() => {
+    if (!canQuote) { setSel(null); return }
+    const s = window.getSelection()
+    const el = desk.current?.querySelector('.sheet')
+    const host = pane.current
+    if (!s || s.isCollapsed || s.rangeCount === 0 || !el || !host) { setSel(null); return }
+    const range = s.getRangeAt(0)
+    if (!el.contains(range.commonAncestorContainer)) { setSel(null); return }
+    const text = s.toString().replace(/\s+/g, ' ').trim()
+    if (!text) { setSel(null); return }
+    const node = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as Element)
+      : range.startContainer.parentElement
+    const secEl = node?.closest('[id^="sec-"]') ?? null
+    const section = secEl ? (sections ?? []).find((x) => `sec-${x.id}` === secEl.id) ?? null : null
+    if (!section) { setSel(null); return }
+    const r = range.getBoundingClientRect()
+    const pr = host.getBoundingClientRect()
+    setSel({ text, sectionId: section.id, sectionTitle: section.title, x: r.left + r.width / 2 - pr.left, top: r.top - pr.top, bottom: r.bottom - pr.top })
+  }, [canQuote, sections])
+
   if (!root) return null
-  const card = zoneOf(snapshot, status, pStatus)
   const slotSection = card.kind === 'question' && card.card.chapterHint
     ? sectionForChapter(sections ?? [], card.card.chapterHint)?.id ?? null
     : null
   const writing = sections?.find((s) => s.status === 'drafting') ?? null
+  /** 바뀐 절이 하나라도 있어야 "고친 부분 보기"가 켜진다(발주 §③). */
+  const changed = (sections ?? []).some((s) => {
+    const d = docs[s.id]
+    const base = baseline[baselineKey(root, s.id)]
+    return !!d && !!base && hasChange(base.draft, d.draft)
+  })
 
   return (
-    <section className="paperpane" aria-label={PAPER.paneLabel}>
+    <section className="paperpane" aria-label={PAPER.paneLabel} ref={pane}>
       <div className="paper-head">
         <div className="pop-host">
           <button className="chap" aria-expanded={toc} onClick={() => setToc(!toc)}>
@@ -152,6 +210,12 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
           </Popover>
         </div>
         <span className="sp" />
+        {/* 고친 부분 보기 — 바뀐 절이 있을 때만 보인다(발주 §③ N-I04). 켜면 지운/새 문장이 색으로 갈린다. */}
+        {changed && (
+          <button className={`lnk review-toggle${showDiff ? ' on' : ''}`} aria-pressed={showDiff} title={REVIEW.diffToggleHint} onClick={toggleDiff}>
+            <Icon name="check" size={14} />{REVIEW.diffToggle}
+          </button>
+        )}
         <MaterialsPopover />
         <FilesPopover make={make} open={filesOpen} onOpenChange={setFilesOpen} />
         {/* 권하는 단추 **하나** — "지금"이 고른 행동이다(1·2단계는 없다: 대화가 이끈다).
@@ -178,29 +242,41 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         </div>
       )}
 
-      <div className="desk" ref={desk}>
+      <div className="desk" ref={desk} onMouseUp={readSelection} onMouseDown={() => setSel(null)} onScroll={() => setSel(null)}>
         <div className="sheet">
           {(sections ?? []).length === 0
             ? <div className="paper-empty"><p className="doc-s">{PAPER.empty}</p><p className="ln">{PAPER.emptyBody}</p></div>
             : (sections ?? []).map((s) => {
               const doc = docs[s.id]
+              const base = baseline[baselineKey(root, s.id)]
               const blocks = doc ? splitBlocks(doc.draft) : []
               const mark = new Set(fresh[s.id] ?? [])
               return (
                 <div key={s.id} id={`sec-${s.id}`} className={blocks.length === 0 ? 'paper-empty' : undefined}>
                   <h2>{s.title}{s.status === 'drafting' && <span className="tag">{PAPER.writingTag}</span>}</h2>
-                  {blocks.length === 0 && <p className="ln">{PAPER.emptyLine}</p>}
-                  {/* markdown-it 이 html:false 로 만든 태그만 들어온다 — 링크·이미지는 렌더 단계에서
-                      지운다(markdown.ts). 도우미가 쓴 글자가 곧 마크업이 되는 경로는 없다. */}
-                  {blocks.map((b, i) => (
-                    <div key={i} className={mark.has(i) ? 'blk new' : 'blk'} dangerouslySetInnerHTML={{ __html: renderMarkdown(b) }} />
-                  ))}
+                  {/* "고친 부분 보기"가 켜져 있고 이 절이 실제로 바뀌었으면 비교를, 아니면 지금 본문을 그린다. */}
+                  {showDiff && doc && base && hasChange(base.draft, doc.draft)
+                    ? <ReviewDiffBlocks before={base.draft} after={doc.draft} />
+                    : <>
+                        {blocks.length === 0 && <p className="ln">{PAPER.emptyLine}</p>}
+                        {/* markdown-it 이 html:false 로 만든 태그만 들어온다 — 링크·이미지는 렌더 단계에서
+                            지운다(markdown.ts). 도우미가 쓴 글자가 곧 마크업이 되는 경로는 없다. */}
+                        {blocks.map((b, i) => (
+                          <div key={i} className={mark.has(i) ? 'blk new' : 'blk'} dangerouslySetInnerHTML={{ __html: renderMarkdown(b) }} />
+                        ))}
+                      </>}
                   {slotSection === s.id && <div className="slot"><Icon name="info" size={14} /><span>{PAPER.questionSlot}</span></div>}
                 </div>
               )
             })}
         </div>
       </div>
+      {/* 고른 문장 위에 뜨는 행동 막대(N-I03) — 좁아지면 선택 아래로 뒤집는다. */}
+      {sel && canQuote && (
+        <ReviewSelectBar x={sel.x} top={sel.top} bottom={sel.bottom} paneWidth={pane.current?.clientWidth ?? 0}
+          onQuote={() => { setQuote(quoteOf(root, sel.text, sel.sectionId, sel.sectionTitle)); setSel(null); window.getSelection()?.removeAllRanges() }}
+          onCopy={() => { void navigator.clipboard?.writeText(sel.text); setSel(null); window.getSelection()?.removeAllRanges() }} />
+      )}
       {/* 점검 한 장이 논문 칸을 덮는다(시안 ⑫) — 내용은 Checkup 하나뿐이다. */}
       {overlay}
     </section>
