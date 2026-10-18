@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
+import { cmdQuote } from './win'
 
 // ---------------------------------------------------------------- types
 
@@ -317,7 +318,29 @@ export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBi
   return dirs
 }
 
-export function buildLaunchScript(o: LaunchScriptOptions): string {
+export function buildLaunchScript(o: LaunchScriptOptions, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? buildLaunchScriptWin(o) : buildLaunchScriptPosix(o)
+}
+
+/** 실행물 확장자 — 맥·리눅스는 `.command`(Terminal 이 열어 준다), 윈도우는 `.cmd`. */
+export function launchScriptExt(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? '.cmd' : '.command'
+}
+
+/** 배치 파일에서 `%` 는 변수 확장이다 — 글자 그대로 넣으려면 `%%` 로 적는다. */
+function batLiteral(s: string): string {
+  return s.replace(/%/g, '%%')
+}
+/** 배치에 넣을 인자 하나 — `%` 를 먼저 막고 cmd 인용 규칙(`cmdQuote`)을 적용한다. */
+function batQuote(s: string): string {
+  return cmdQuote(batLiteral(s))
+}
+/** cmd 인자는 **한 줄**이라야 한다 — 첫 프롬프트의 줄바꿈을 한 칸으로 눌러 담는다. */
+function oneLine(s: string): string {
+  return s.replace(/\s*\n+\s*/g, ' ').trim()
+}
+
+function buildLaunchScriptPosix(o: LaunchScriptOptions): string {
   const pathParts = agentBinDirs(o).map(sq)
   pathParts.push('"$HOME/.local/bin"', '"$PATH"')
 
@@ -345,6 +368,35 @@ export function buildLaunchScript(o: LaunchScriptOptions): string {
   ].join('\n')
 }
 
+/**
+ * 윈도우 대응 실행물 — `.command`(bash) 대신 `.cmd`(배치)다. 같은 일을 한다: 작업 폴더로
+ * 이동하고, 프로젝트 .venv·번들 파이썬 자리를 PATH 앞에 두고, 같은 환경변수를 세우고,
+ * 같은 가드레일(`--setting-sources project,local` / 전역 knuaf-dev 사본 끄기)로 도우미를 띄운다.
+ *
+ * 다른 곳 둘: cmd 에는 `exec` 가 없고(그냥 실행한다), **한 인자에 줄바꿈을 담을 수 없다** —
+ * 첫 프롬프트의 줄바꿈은 한 칸으로 눌러 한 줄로 만든다(문장 뜻은 그대로다).
+ */
+function buildLaunchScriptWin(o: LaunchScriptOptions): string {
+  // 윈도우에는 홈브루 자리가 없다(agentBinDirs 의 그 둘은 맥 전용) — venv·번들만 앞에 둔다.
+  const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
+  const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
+  const execLine = o.agent === 'claude'
+    ? `${batQuote(o.agentPath)} --setting-sources project,local "--disallowedTools=AskUserQuestion" ${batQuote(oneLine(o.firstPrompt))}`
+    : `${batQuote(o.agentPath)}${skillOff ? ` -c ${batQuote(skillOff)}` : ''}`
+
+  return [
+    '@echo off',
+    `cd /d ${batQuote(o.root)} || exit /b 1`,
+    `set "PATH=${dirs.join(';')}${dirs.length ? ';' : ''}%PATH%"`,
+    'set "KNUAF_DOC_APP=1"',
+    'set "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1"',
+    `echo ${batLiteral(BANNER)}`,
+    'echo.',
+    execLine,
+    ''
+  ].join('\r\n')
+}
+
 // ---------------------------------------------------------------- 7. launch
 
 export function firstPromptFor(revision: number | null, root?: string): string {
@@ -357,7 +409,7 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
   const writeFile = deps.writeFile ?? ((p, data, mode) => writeFileSync(p, data, { encoding: 'utf-8', mode }))
   const chmod = deps.chmod ?? chmodSync
   mkdirSync(o.supportDir, { recursive: true })
-  const scriptPath = join(o.supportDir, `launch-${randomBytes(4).toString('hex')}.command`)
+  const scriptPath = join(o.supportDir, `launch-${randomBytes(4).toString('hex')}${launchScriptExt()}`)
   writeFile(scriptPath, buildLaunchScript(o), 0o755)
   chmod(scriptPath, 0o755) // writeFile mode is masked by umask; make sure it is executable
   if (!o.dryRun) {

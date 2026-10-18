@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import {
-  agentApi, buildLaunchScript, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, probeVersion,
+  agentApi, buildLaunchScript, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
   skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
 import { serverArgsFor } from '../src/main/chat/codex'
@@ -179,6 +179,39 @@ test.describe('buildLaunchScript', () => {
     expect(s).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)
   })
 
+  /**
+   * 형님 승인 W1 연결 기제 ④. 윈도우에는 `.command`(bash)가 없으므로 `.cmd`(배치)를 낸다 —
+   * 같은 일(작업 폴더로 이동·PATH·환경변수·가드레일)을 하고, cmd 가 담을 수 없는 것만 다르다.
+   */
+  test('win32 는 .cmd 배치로 같은 일을 한다 — 첫 프롬프트는 한 줄로 눌러 담는다', () => {
+    const o = {
+      root: 'C:\\Users\\학생\\내 논문', agent: 'claude' as const,
+      agentPath: 'C:\\Users\\학생\\AppData\\Roaming\\npm\\claude.cmd',
+      venvBin: 'C:\\Users\\학생\\내 논문\\.venv\\Scripts', bundledBin: null,
+      firstPrompt: firstPromptFor(3, 'C:\\Users\\학생\\내 논문')
+    }
+    const s = buildLaunchScript(o, 'win32')
+    expect(s.startsWith('@echo off\r\n')).toBe(true)
+    // 작업 폴더로 이동(드라이브까지) — 공백·한글 경로가 인용된다.
+    expect(s).toContain('cd /d "C:\\Users\\학생\\내 논문" || exit /b 1')
+    // PATH 는 `;` 이고 .venv 가 앞에 온다. 원래 PATH 를 덮지 않는다.
+    expect(s).toContain('set "PATH=C:\\Users\\학생\\내 논문\\.venv\\Scripts;%PATH%"')
+    expect(s).toContain('set "KNUAF_DOC_APP=1"')
+    expect(s).toContain('set "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1"')
+    // 채팅과 같은 가드레일 — 프로젝트 스킬만, 도구 팝업은 끈다.
+    expect(s).toContain('--setting-sources project,local "--disallowedTools=AskUserQuestion"')
+    // 첫 프롬프트는 **한 줄**이다 — cmd 인자에는 줄바꿈이 들어갈 수 없다.
+    expect(s).toContain('"이어서 하기 작업 폴더: C:\\Users\\학생\\내 논문 이 폴더 자체가 논문 작업 폴더예요.')
+    expect(s).not.toContain('이어서 하기\r\n')
+    // 맥 스크립트의 것(셔뱅·exec·export)은 없다.
+    expect(s).not.toContain('#!/bin/bash')
+    expect(s).not.toContain('export ')
+    expect(s).not.toContain('exec ')
+    // 확장자가 실행물을 정한다(윈도우에는 실행 비트가 없다).
+    expect(launchScriptExt('win32')).toBe('.cmd')
+    expect(launchScriptExt('darwin')).toBe('.command')
+  })
+
   test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {
     const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/homebrew/bin/codex', venvBin: null, bundledBin: null, firstPrompt: '시작하기' })
     expect(s.trimEnd().split('\n').pop()).toBe(`exec '/opt/homebrew/bin/codex'`)
@@ -216,7 +249,7 @@ test.describe('buildLaunchScript', () => {
 })
 
 test.describe('launch', () => {
-  test('dryRun writes an executable .command and never calls open', async () => {
+  test('dryRun writes an executable launch script and never calls open', async () => {
     const supportDir = join(mkdtempSync(join(tmpdir(), 'kd-support-')), 'nested')
     let opened = 0
     const r = await launch({
@@ -224,9 +257,16 @@ test.describe('launch', () => {
       firstPrompt: '시작하기', supportDir, dryRun: true
     }, { open: async () => { opened++; return '' } })
     expect(r.scriptPath.startsWith(supportDir)).toBe(true)
-    expect(r.scriptPath).toMatch(/launch-[0-9a-f]{8}\.command$/)
-    expect(statSync(r.scriptPath).mode & 0o111).toBeTruthy()
-    expect(readFileSync(r.scriptPath, 'utf-8')).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)
+    const win = process.platform === 'win32'
+    expect(r.scriptPath).toMatch(win ? /launch-[0-9a-f]{8}\.cmd$/ : /launch-[0-9a-f]{8}\.command$/)
+    const body = readFileSync(r.scriptPath, 'utf-8')
+    if (win) {
+      // 윈도우에는 POSIX 실행 비트가 없다 — 실행물을 정하는 것은 확장자다(위 단언).
+      expect(body).toContain('--setting-sources project,local')
+    } else {
+      expect(statSync(r.scriptPath).mode & 0o111).toBeTruthy()
+      expect(body).toContain(`exec '/opt/homebrew/bin/claude' --setting-sources project,local '--disallowedTools=AskUserQuestion' '시작하기'`)
+    }
     expect(opened).toBe(0)
   })
 
@@ -265,8 +305,8 @@ test.describe('agentApi', () => {
 
     // launch resolves the real binary, so it only runs where claude is installed.
     // buildLaunchScript is covered separately with a fixed path, so the script
-    // contents stay asserted on every machine.
-    if (claudePath) {
+    // contents stay asserted on every machine. 윈도우의 배치 모양은 위 win32 단위 시험이 맡는다.
+    if (claudePath && process.platform !== 'win32') {
       const r = await agentApi.launch(ctx, { root: '/tmp/논문 폴더', kind: 'claude', revision: 2 })
       const script = readFileSync(r.scriptPath, 'utf-8')
       expect(script).toContain(`cd '/tmp/논문 폴더' || exit 1`)
