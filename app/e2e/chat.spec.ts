@@ -58,6 +58,40 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
   for (const d of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) expect(dirs).toContain(d)
 })
 
+/**
+ * 형님 승인 W1 연결 기제 ② 전용 단언.
+ *
+ * `delimiter` 와 `AGENT_PATH_DIRS` 는 모듈이 로드될 때 그 플랫폼 값으로 정해지므로, 한
+ * 프로세스에서 두 플랫폼을 **불러 볼 수 없다**. 그래서 양쪽 기대값을 문자열로 명시해 두고
+ * 지금 호스트의 것과 견준다 — 윈도우 CI 가 `;` 쪽을, 맥이 `:` 쪽을 실행한다.
+ */
+test('subscriptionEnv 는 PATH 를 플랫폼 구분자로 잇는다 (W1 ②)', () => {
+  const extras = ['/p/.venv/bin', '/app/python/bin']
+  const orig = process.env.PATH ?? ''
+  // 윈도우: 홈브루 자리가 없다(AGENT_PATH_DIRS = []).
+  const expectedWin = ['/p/.venv/bin', '/app/python/bin', orig].filter(Boolean).join(';')
+  // 맥·리눅스: 홈브루 자리가 앞에 붙는다(contracts.ts 의 AGENT_PATH_DIRS).
+  const expectedPosix = ['/p/.venv/bin', '/app/python/bin', '/opt/homebrew/bin', '/usr/local/bin', orig].filter(Boolean).join(':')
+  const win = process.platform === 'win32'
+  expect(subscriptionEnv(extras).PATH).toBe(win ? expectedWin : expectedPosix)
+  // 구분자 자체도 못 박는다 — 윈도우 `;`, 그 밖 `:`.
+  expect(delimiter).toBe(win ? ';' : ':')
+
+  if (win) {
+    // `C:\…` 안의 `:` 가 갈라지지 않는다 — 이음매가 `;` 라서다(`:` 로 이으면 여기서 쪼개진다).
+    const drive = 'C:\\Program Files\\내 앱\\bin'
+    const path = subscriptionEnv([drive]).PATH!
+    expect(path.startsWith(`${drive};`)).toBe(true)
+    expect(path.split(';')[0]).toBe(drive)
+    expect(path.split(';')[0].endsWith('bin')).toBe(true)
+  } else {
+    const dir = '/p/.venv/bin'
+    const path = subscriptionEnv([dir]).PATH!
+    expect(path.startsWith(`${dir}:`)).toBe(true)
+    expect(path.split(':')[0]).toBe(dir)
+  }
+})
+
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {
   const env = subscriptionEnv()
   expect(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1')
