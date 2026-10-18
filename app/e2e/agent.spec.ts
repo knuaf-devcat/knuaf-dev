@@ -51,7 +51,9 @@ test.describe('skill source + version', () => {
   test('skillSource resolves the checkout and packaged layouts', () => {
     expect(source).toBe(resolve(appRoot, '..', 'skills', 'knuaf-dev'))
     expect(existsSync(join(source, 'SKILL.md'))).toBe(true)
-    expect(skillSource(appRoot, true, '/App/Contents/Resources')).toBe('/App/Contents/Resources/skill')
+    // 패키지 배치는 `resourcesPath` 아래 `skill` 이다 — 조립은 join 이 하므로 기대값도 join 으로
+    // 만든다(윈도우에서는 역슬래시가 나온다). 리터럴 '/' 로 견주면 윈도우에서만 어긋난다.
+    expect(skillSource(appRoot, true, '/App/Contents/Resources')).toBe(join('/App/Contents/Resources', 'skill'))
   })
 
   test('skillVersion is stable, 12 hex, and changes with content', () => {
@@ -196,7 +198,10 @@ test.describe('buildLaunchScript', () => {
     mkdirSync(join(home, '.codex', 'skills', 'knuaf-dev'), { recursive: true })
     writeFileSync(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n')
     const cfg = codexSkillConfigOverride(home)
-    expect(cfg).toBe(`skills.config=[{path="${join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md')}",enabled=false}]`)
+    // 제품은 TOML 문자열용으로 역슬래시를 두 번 쓴다 — 윈도우 경로 그대로 견주면 어긋나므로
+    // 기대값에도 같은 이스케이프를 적용한다(맥에서는 역슬래시가 없어 종전과 같은 문자열).
+    const esc = (p: string): string => p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    expect(cfg).toBe(`skills.config=[{path="${esc(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'))}",enabled=false}]`)
     const s = buildLaunchScript({ root: '/x', agent: 'codex', agentPath: '/opt/codex', venvBin: null, bundledBin: null, firstPrompt: '', home })
     expect(s).toContain(`-c '${cfg}'`)
 

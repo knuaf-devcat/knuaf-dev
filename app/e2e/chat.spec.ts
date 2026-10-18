@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { skillSource, VERSION_FILE } from '../src/main/agent'
 import { autoAllow, describeTool, lostToolCalls } from '../src/main/chat/claude'
@@ -45,15 +45,16 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
   // "env: node: No such file or directory" 만 본다. 바이너리를 찾아내는 것과
   // 그 바이너리가 인터프리터를 찾는 것은 다른 문제다 — findExecutable 은 codex 를
   // 찾아내고도 이 지점에서 실패했다.
-  const dirs = subscriptionEnv().PATH!.split(':')
-  for (const d of ['/opt/homebrew/bin', '/usr/local/bin']) expect(dirs).toContain(d)
+  const dirs = subscriptionEnv().PATH!.split(delimiter)
+  // 홈브루 자리는 맥 전용이다(contracts.ts 의 AGENT_PATH_DIRS 가 win32 에서 빈 배열).
+  if (process.platform !== 'win32') for (const d of ['/opt/homebrew/bin', '/usr/local/bin']) expect(dirs).toContain(d)
   // 프로젝트 .venv 와 번들 CPython 이 앞자리에 온다. 학생 맥의 기본 python3 는 3.9 라
   // 스킬의 최소 조건(3.10)에 못 미치고, 이게 없으면 앱은 번들 3.12 로 도는데 도우미만
   // 쓸 수 있는 Python 을 못 찾는다.
-  const withPy = subscriptionEnv(['/p/.venv/bin', '/app/python/bin']).PATH!.split(':')
+  const withPy = subscriptionEnv(['/p/.venv/bin', '/app/python/bin']).PATH!.split(delimiter)
   expect(withPy.slice(0, 2)).toEqual(['/p/.venv/bin', '/app/python/bin'])
   // 원래 PATH 를 덮어쓰지 않고 앞에 붙이기만 한다.
-  for (const d of (process.env.PATH ?? '').split(':').filter(Boolean)) expect(dirs).toContain(d)
+  for (const d of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) expect(dirs).toContain(d)
 })
 
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {
@@ -395,7 +396,9 @@ test('등록된 출처 파일은 폴더 밖이어도 읽을 수 있다', () => {
   // 학생이 "재무 엑셀은 여기 있어요"라고 알려준 파일은 폴더 밖에 있을 수 있다.
   // 이름을 댄 파일까지 매번 묻는 것은 학생 자신의 답변을 못 믿는 것과 같다.
   // 다만 "이 경로는 안다"는 뜻일 뿐이므로 셸 실행에는 적용하지 않는다.
-  const xlsx = '/Users/s/바탕화면/재무계획.xlsx'
+  // 제품의 "등록된 출처" 목록은 `realOrSelf(resolve(root, p))` 로 만들어진다(registeredSources).
+  // 그래서 여기 넘기는 값도 같은 규칙(resolve)으로 만들어야 윈도우에서도 같은 문자열이 된다.
+  const xlsx = resolve('/Users/s/바탕화면/재무계획.xlsx')
   expect(autoAllow(ROOT, 'Read', { file_path: xlsx })).toBe(false)
   expect(autoAllow(ROOT, 'Read', { file_path: xlsx }, [xlsx])).toBe(true)
   expect(autoAllow(ROOT, 'Read', { file_path: '/Users/s/바탕화면/다른것.xlsx' }, [xlsx])).toBe(false)
@@ -420,7 +423,8 @@ test('한글 마무리 항목도 이름으로 불린다', () => {
 test('물을 때는 원시 JSON 이 아니라 사람 말로 말한다', () => {
   const out = describeTool('Write', { file_path: '/etc/hosts' }, ROOT)
   expect(out.title).toBe('논문 폴더 밖의 파일을 건드리려고 해요')
-  expect(out.detail).toContain('/etc/hosts')
+  // 안내문이 보여 주는 경로는 제품이 `resolve` 한 절대경로다 — 윈도우에서는 `D:\etc\hosts`.
+  expect(out.detail).toContain(resolve('/etc/hosts'))
   expect(out.title).not.toContain('{')
   const sh = describeTool('Bash', { command: `cat ${ROOT}/sources/a.md | wc -l` }, ROOT)
   expect(sh.title).toBe('컴퓨터에서 명령을 실행하려고 해요')

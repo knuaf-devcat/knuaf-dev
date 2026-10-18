@@ -69,6 +69,14 @@ export async function launch(opts: { userData?: string; colorScheme?: 'light' | 
     colorScheme: opts.colorScheme
   })
   const page = await electronApp.firstWindow()
+  /**
+   * 창 크기를 **명시적으로** 되돌린다. 두 칸 배치(대화 | 내 논문)는 창 내부 폭이
+   * `WIDE_MIN`(1140, shared/layout.ts) 이상일 때만 나오는데, 앱이 여는 1180 짜리 창은
+   * 화면이 그보다 좁으면 OS 가 깎아 버린다 — GitHub 의 윈도우 러너 화면은 1024×768 이라
+   * 1180 요청이 1024 로 줄고, 그러면 종이(`.paperpane`)를 보는 시험이 전부 '한 칸'을 본다.
+   * 1180 은 앱의 기본값 그대로라 맥에서는 아무것도 바뀌지 않는다.
+   */
+  await electronApp.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setBounds({ width: 1180, height: 800 }) })
   if (opts.colorScheme || opts.reducedMotion) await page.emulateMedia({ colorScheme: opts.colorScheme, reducedMotion: opts.reducedMotion })
   await page.waitForSelector(opts.waitFor ?? 'text=논문 작업 폴더')
   return { electronApp, page }
