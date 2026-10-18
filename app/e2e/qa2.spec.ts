@@ -45,9 +45,11 @@ test('도우미는 테두리 없는 본문, 학생만 오른쪽 말풍선, 간�
     await expect(page.locator('.chat-msg.assistant').first()).toBeVisible({ timeout: 30_000 })
 
     // 도우미: 테두리·배경·발화자/시간 머리 없음.
+    // (한 번 잡은 요소에 getComputedStyle 을 직접 읽지 않고 재시도 단언을 쓴다 — 그 사이 노드가
+    //  새로 그려지면 떨어진 요소가 되어 빈 값이 온다. 아래 설치 안내 상자에서 실제로 그랬다.)
     const a = page.locator('.chat-msg.assistant').first()
-    expect(await a.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
-    expect(await a.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+    await expect(a).toHaveCSS('border-top-width', '0px')
+    await expect(a).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     expect(await page.locator('.chat-msg-head, .chat-who').count()).toBe(0)
 
     // 학생: 오른쪽 말풍선(최대 78%).
@@ -60,7 +62,7 @@ test('도우미는 테두리 없는 본문, 학생만 오른쪽 말풍선, 간�
     expect(ub!.x + ub!.width, '학생 말풍선이 오른쪽 여백을 넘었다').toBeLessThanOrEqual(tb!.x + tb!.width - 30 + 1.5)
 
     // 메시지 간격 18px.
-    expect(await page.locator('.chat-thread').evaluate((el) => getComputedStyle(el).rowGap)).toBe('18px')
+    await expect(page.locator('.chat-thread')).toHaveCSS('row-gap', '18px')
   } finally {
     await electronApp.close()
   }
@@ -121,7 +123,7 @@ test('허락 카드가 명령과 이유를 원문 그대로 한 덩어리로 보
     const raw = ask.locator('.askcard-raw')
     await expect(raw).toContainText('cat /etc/hosts')
     await expect(raw).toContainText('논문 폴더 밖 파일을 읽으려고 해요')
-    expect(await raw.evaluate((el) => getComputedStyle(el).fontSize)).toBe('12.5px')
+    await expect(raw).toHaveCSS('font-size', '12.5px')
     await expect(ask.locator('.askcard-cmd, .askcard-why')).toHaveCount(0)
     // 상세는 접혀 있고, 펼치면 원문 전체가 있다.
     const detail = ask.locator('details:has(summary:has-text("' + CHAT.askDetail + '"))')
@@ -264,7 +266,7 @@ test('첫 실행 두 단계 모두 폭 540 한 열 + 한 테두리 선택 묶음
     const choices = page.locator('.choices')
     await expect(choices).toHaveCount(1)
     await expect(choices.locator(':scope > .item')).toHaveCount(2)
-    expect(await choices.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
+    await expect(choices).toHaveCSS('border-top-style', 'solid')
     await expect(page.locator('.choices > .item + .item')).toHaveCount(1)
   } finally {
     await electronApp.close()
@@ -339,17 +341,19 @@ test('설치 안내 상자는 점선 카드가 아니라 아이스 그레이 상
     const note = page.locator('.chat-zone .zone-note')
     await expect(note).toBeVisible({ timeout: 30_000 })
     await expect(note).toContainText('도우미 프로그램이 아직 설치되지 않았어요')
-    expect(await note.evaluate((el) => getComputedStyle(el).borderTopStyle), '점선 카드가 남아 있다').toBe('solid')
-    const { got, want } = await page.evaluate(() => {
+    // 스타일은 **재시도 단언**으로 읽는다 — 노드가 그 사이 새로 그려지면(아래 연결 상태가 한 번 더
+    // 읽히면) 한 번 잡은 요소는 문서에서 떨어져 `getComputedStyle` 이 빈 값을 준다(맥 CI 실패 2).
+    await expect(note, '점선 카드가 남아 있다').toHaveCSS('border-top-style', 'solid')
+    // 배경은 아이스 그레이(`--alert-bg`)와 같은 값이어야 한다 — 토큰을 프로브로 재서 견준다.
+    const alertBg = await page.evaluate(() => {
       const probe = document.createElement('div')
       probe.style.background = 'var(--alert-bg)'
       document.body.appendChild(probe)
-      const want = getComputedStyle(probe).backgroundColor
+      const v = getComputedStyle(probe).backgroundColor
       probe.remove()
-      const el = document.querySelector('.chat-zone .zone-note') as HTMLElement
-      return { got: getComputedStyle(el).backgroundColor, want }
+      return v
     })
-    expect(got).toBe(want)
+    await expect(note).toHaveCSS('background-color', alertBg)
     // 버튼 동작은 그대로.
     await expect(note.getByRole('button', { name: '설치 안내' })).toBeVisible()
   } finally {
