@@ -23,8 +23,12 @@ import { useShallow } from 'zustand/react/shallow'
 /** 절 하나의 본문. `hash` 는 정본이 말하는 본문 지문이다. */
 type Doc = { title: string; draft: string; hash: string }
 
-/** 종이에서 고른 문장 — 행동 막대가 뜨는 자리와 무엇을 골랐는지. */
-type Sel = { text: string; sectionId: string; sectionTitle: string; x: number; top: number; bottom: number }
+/**
+ * 종이에서 고른 문장 — 행동 막대가 뜨는 자리와 무엇을 골랐는지.
+ * 절 **제목은 담지 않는다**: 인용을 만드는 순간의 절 목록에서 읽는다(검토 MACR2-R1-01 — 제목이
+ * 바뀐 뒤 옛 제목이 인용에 붙던 반례).
+ */
+type Sel = { text: string; sectionId: string; x: number; top: number; bottom: number }
 
 /** 새로 저장된 문단을 칠해 두는 시간. 저장하지 않는다(IMPL-PLAN §4-2). */
 const FRESH_MS = 8_000
@@ -166,26 +170,77 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
    * 막대는 그동안 숨기기만 하고(렌더의 `canQuote`), 입력칸이 돌아오면 그 선택 위에 다시 뜬다.
    * 예전에는 그 자리에서 `setSel(null)` 로 버려서 — 맥 CI 처럼 작업이 아직 도는 동안 고르면 —
    * 작업이 끝난 뒤 학생이 **처음부터 다시 골라야** 막대가 떴다(FIX-CI-MAC-R2 실패 1).
+   *
+   * 다만 **담아 둔 선택은 영원하지 않다.** 그 글자가 지금 화면에 그대로 골라져 있을 때만 유효하고,
+   * 막대가 다시 보이는 순간과 인용·복사를 만드는 순간에 살아 있는 선택과 대조한다(아래
+   * `liveSelection`·검증 effect·`quoteCurrent` — 검토 MACR2-R1-01).
    */
-  const readSelection = useCallback(() => {
+  const liveSelection = useCallback((): Sel | null => {
     const s = window.getSelection()
     const el = desk.current?.querySelector('.sheet')
     const host = pane.current
-    if (!s || s.isCollapsed || s.rangeCount === 0 || !el || !host) { setSel(null); return }
+    if (!s || s.isCollapsed || s.rangeCount === 0 || !el || !host) return null
     const range = s.getRangeAt(0)
-    if (!el.contains(range.commonAncestorContainer)) { setSel(null); return }
+    if (!el.contains(range.commonAncestorContainer)) return null
     const text = s.toString().replace(/\s+/g, ' ').trim()
-    if (!text) { setSel(null); return }
+    if (!text) return null
     const node = range.startContainer.nodeType === Node.ELEMENT_NODE
       ? (range.startContainer as Element)
       : range.startContainer.parentElement
     const secEl = node?.closest('[id^="sec-"]') ?? null
     const section = secEl ? (sections ?? []).find((x) => `sec-${x.id}` === secEl.id) ?? null : null
-    if (!section) { setSel(null); return }
+    if (!section) return null
     const r = range.getBoundingClientRect()
     const pr = host.getBoundingClientRect()
-    setSel({ text, sectionId: section.id, sectionTitle: section.title, x: r.left + r.width / 2 - pr.left, top: r.top - pr.top, bottom: r.bottom - pr.top })
+    return { text, sectionId: section.id, x: r.left + r.width / 2 - pr.left, top: r.top - pr.top, bottom: r.bottom - pr.top }
   }, [sections])
+
+  const readSelection = useCallback(() => { setSel(liveSelection()) }, [liveSelection])
+
+  /**
+   * 막대가 다시 보이는 순간(아래 칸이 입력칸일 때) 담아 둔 선택을 **살아 있는 선택과 대조**한다.
+   * 비교 모드를 끄면 종이가 다시 그려져 살아 있는 선택이 사라지는데, 그때는 화면에 없는 지운
+   * 문장이 막대·인용으로 남았다(반례 A). 글자나 절이 어긋나면 버린다 — 본문이 그대로인 상태
+   * 전환(작업 → 입력칸)에서는 선택이 그대로 살아 있으므로 지키고, 다시 고르지 않아도 막대가 뜬다.
+   *
+   * 좌표는 **지금 것**으로 갱신한다(절 제목이 길어져 문단이 밀렸을 수 있다). 의존성에 좌표를 넣지
+   * 않는 이유: 갱신이 다시 이 effect 를 부르면 레이아웃이 흔들릴 때 고리가 될 수 있다.
+   */
+  const selKey = sel ? `${sel.sectionId}\u0000${sel.text}` : ''
+  useEffect(() => {
+    if (!sel || !canQuote) return
+    const live = liveSelection()
+    if (!live || live.text !== sel.text || live.sectionId !== sel.sectionId) { setSel(null); return }
+    if (live.x !== sel.x || live.top !== sel.top || live.bottom !== sel.bottom) setSel(live)
+    // sel 의 좌표는 일부러 의존성에서 뺀다(위 주석) — 글자·절·구역이 바뀔 때만 다시 본다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canQuote, selKey, liveSelection])
+
+  // 비교 모드를 켜고 끄면 종이가 다시 그려진다(지운/새 문장이 나타났다 사라진다) —
+  // 그때 담아 둔 선택은 지금 화면의 글자가 아니다.
+  useEffect(() => { setSel(null) }, [showDiff])
+
+  /**
+   * 인용을 만든다 — **반드시 살아 있는 선택**과 **지금의 절 목록**으로. 담아 둔 값을 그대로 쓰면
+   * 제목이 바뀐 뒤 옛 제목이 붙는다(반례 B). 살아 있는 선택이 없으면 막대를 버린다.
+   */
+  const quoteCurrent = (): void => {
+    const live = liveSelection()
+    const section = live ? (sections ?? []).find((x) => x.id === live.sectionId) ?? null : null
+    if (!live || !section || !root) { setSel(null); return }
+    setQuote(quoteOf(root, live.text, section.id, section.title))
+    setSel(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  /** 복사도 같은 규칙 — 살아 있는 선택의 글자를 복사한다(화면에서 사라진 글자를 복사하지 않는다). */
+  const copyCurrent = (): void => {
+    const live = liveSelection()
+    if (!live) { setSel(null); return }
+    void navigator.clipboard?.writeText(live.text)
+    setSel(null)
+    window.getSelection()?.removeAllRanges()
+  }
 
   if (!root) return null
   const slotSection = card.kind === 'question' && card.card.chapterHint
@@ -284,8 +339,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       {/* 고른 문장 위에 뜨는 행동 막대(N-I03) — 좁아지면 선택 아래로 뒤집는다. */}
       {sel && canQuote && (
         <ReviewSelectBar x={sel.x} top={sel.top} bottom={sel.bottom} paneWidth={pane.current?.clientWidth ?? 0}
-          onQuote={() => { setQuote(quoteOf(root, sel.text, sel.sectionId, sel.sectionTitle)); setSel(null); window.getSelection()?.removeAllRanges() }}
-          onCopy={() => { void navigator.clipboard?.writeText(sel.text); setSel(null); window.getSelection()?.removeAllRanges() }} />
+          onQuote={quoteCurrent} onCopy={copyCurrent} />
       )}
       {/* 점검 한 장이 논문 칸을 덮는다(시안 ⑫) — 내용은 Checkup 하나뿐이다. */}
       {overlay}

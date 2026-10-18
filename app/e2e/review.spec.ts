@@ -6,9 +6,10 @@
  * `synthProject`/`rewriteSection` 뿐이고 실제 AI 호출·로그인은 없다.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, openProject, rewriteSection, synthProject } from './helpers'
+import { spawnSync } from 'node:child_process'
+import { launch, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
 import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
@@ -37,6 +38,31 @@ async function selectParagraph(page: Page, needle: string): Promise<void> {
     sel.removeAllRanges(); sel.addRange(range)
     p.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
   }, needle)
+}
+
+/** 그 글자를 담은 **가장 안쪽 요소**를 고른다 — 비교 모드의 `del.rev-del` 처럼 문단이 아닌 자리도. */
+async function selectText(page: Page, needle: string): Promise<void> {
+  await page.evaluate((text) => {
+    const inside = [...document.querySelectorAll('.sheet *')].filter((el) => (el.textContent ?? '').includes(text))
+    const target = inside[inside.length - 1]
+    if (!target) throw new Error(`글자를 찾지 못했다: ${text}`)
+    const range = document.createRange()
+    range.selectNodeContents(target)
+    const sel = window.getSelection()
+    if (!sel) throw new Error('선택을 만들 수 없다')
+    sel.removeAllRanges(); sel.addRange(range)
+    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  }, needle)
+}
+
+/** 절 **제목만** 바꾼다(id·본문 경로·본문 내용은 그대로) — 본문 해시가 같아 묵은 선택이 살아남는 경로. */
+function retitleSection(root: string, title: string, expected: number): void {
+  const change = join(root, `change-retitle-${expected}.json`)
+  writeFileSync(change, JSON.stringify({ request_id: `e2e:retitle:${expected}`, ops: [
+    { collection: 'sections', value: { id: 'sec-01', title, order: 1, path: 'sections/01.md', status: 'drafting' } }
+  ] }), 'utf-8')
+  const r = spawnSync(python, [join(scripts, 'gg.py'), 'apply', root, '--change', change, '--expected-revision', String(expected)], { encoding: 'utf-8' })
+  if (r.status !== 0) throw new Error(r.stdout + r.stderr)
 }
 
 test('종이에서 문장을 고르면 행동 막대가 뜨고, 고쳐 달라기가 인용을 붙여 보낸다', async () => {
@@ -189,6 +215,94 @@ test('본문이 바뀌면 묵은 행동 막대가 남지 않는다', async () =>
     rewriteSection(root, { body: BODY_800, expected: 1 })
     await expect(sheet).toContainText('800평', { timeout: 30_000 })
     await expect(page.locator('.selbar'), '본문이 바뀌었는데 묵은 막대가 남아 있다').toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('비교 모드를 끄면 화면에서 사라진 옛 문장은 막대·인용으로 남지 않는다 (MACR2-R1-01 A)', async () => {
+  // 검토 반례 A: 비교 화면의 지운 문장(600평)을 고른 뒤 비교를 끄면, 그 글자가 화면에 없는데도
+  // 작업이 끝날 때 막대가 남아 옛 문장을 인용할 수 있었다. 담아 둔 선택은 "그 글자가 지금 화면에
+  // 그대로 골라져 있을 때"만 유효하다.
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_HOLD: '1' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const sheet = page.locator('.paperpane .sheet')
+    await expect(sheet).toContainText('600평', { timeout: 30_000 })
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+
+    // 800평으로 저장하고 비교를 켠다 — 지운 600평 문장이 화면에 있다.
+    rewriteSection(root, { body: BODY_800, expected: 1 })
+    await expect(sheet).toContainText('800평', { timeout: 30_000 })
+    const toggle = page.locator('.review-toggle')
+    await expect(toggle).toBeVisible()
+    await toggle.click()
+    await expect(sheet.locator('del.rev-del'), '지운 문장이 비교 화면에 없다').toContainText('600평', { timeout: 30_000 })
+
+    // 도우미를 작업 중으로 둔다(막대가 숨는 구역).
+    await page.locator(COMPOSER).fill('작업을 시작해 주세요')
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+
+    // 비교 화면의 **지운 문장**을 고른다 — 작업 중이라 막대는 뜨지 않는다.
+    await selectText(page, '600평')
+    await expect(page.locator('.selbar')).toHaveCount(0)
+
+    // 비교를 끈다 → 그 문장이 화면에서 사라진다.
+    await toggle.click()
+    await expect(sheet.locator('del.rev-del')).toHaveCount(0)
+
+    // 작업을 끝낸다 → 다시 고르지 않았으니 막대도 인용도 없어야 한다.
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.chat-composer button.send')).toHaveAttribute('aria-label', CHAT.send, { timeout: 30_000 })
+    await expect(page.locator('.selbar'), '화면에 없는 옛 문장으로 막대가 남았다').toHaveCount(0)
+    // 늦게 그려지는 경우까지 본다(막대는 어느 시점에도 0).
+    await page.waitForTimeout(400)
+    await expect(page.locator('.selbar')).toHaveCount(0)
+    await expect(page.locator('.review-chip')).toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('절 제목만 바뀌어도 인용 출처는 지금 제목을 쓴다 (MACR2-R1-01 B)', async () => {
+  // 검토 반례 B: 본문 해시가 그대로인 채 절 제목만 바뀌면, 담아 둔 옛 제목이 인용에 붙었다.
+  // 본문이 그대로라 선택은 화면에 살아 있으므로 막대는 돌아오되, 출처는 **지금 절 목록**에서 읽는다.
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_HOLD: '1' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const sheet = page.locator('.paperpane .sheet')
+    await expect(sheet).toContainText('600평', { timeout: 30_000 })
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+
+    // 작업 중으로 둔 뒤 600평 문단을 고른다.
+    await page.locator(COMPOSER).fill('작업을 시작해 주세요')
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+    await selectParagraph(page, '600평')
+    await expect(page.locator('.selbar')).toHaveCount(0)
+
+    // 절 **제목만** 바꾼다 — 본문 해시가 같아 선택 무효화(본문 변경)는 서지 않는 경로.
+    retitleSection(root, 'Ⅱ. 농장 현황', 1)
+    await expect(sheet.locator('h2').first(), '종이 제목이 따라오지 않았다').toContainText('Ⅱ. 농장 현황', { timeout: 30_000 })
+
+    // 작업을 끝낸다 → 선택이 화면에 살아 있으니 막대가 돌아오고, 인용 출처는 지금 제목이다.
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.chat-composer button.send')).toHaveAttribute('aria-label', CHAT.send, { timeout: 30_000 })
+    const bar = page.locator('.selbar')
+    await expect(bar, '본문이 그대로인데 선택이 사라졌다').toBeVisible({ timeout: 15_000 })
+    await bar.getByRole('button', { name: '고쳐 달라기' }).click()
+
+    const chip = page.locator('.review-chip')
+    await expect(chip).toContainText('Ⅱ. 농장 현황에서 고른 문장')
+    await expect(chip, '옛 제목이 인용에 붙었다').not.toContainText('Ⅰ. 머리말')
+    await expect(chip).toContainText('600평')
   } finally {
     await electronApp.close()
   }
