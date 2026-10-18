@@ -106,12 +106,35 @@ export class CodexConnection implements AgentConnection {
     const r = await rpc.request('account/read', { refreshToken: false })
     const connected = r.account?.type === 'chatgpt'
     // 정상(연결됨)일 때는 조용해야 한다 — detail은 미연결 설명에만 쓴다.
-    return { installed: true, connected, version: this.serverVersion, detail: connected ? '' : 'ChatGPT 로그인이 필요해요. API 계정으로 자동 전환하지 않아요.' }
+    return { installed: true, connected, version: this.serverVersion, probe: 'ok' as const, detail: connected ? '' : 'ChatGPT 로그인이 필요해요. API 계정으로 자동 전환하지 않아요.' }
   }
   async login() {
     const r = await (await this.connect()).request('account/login/start', { type: 'chatgpt' })
-    if (r.authUrl) await this.options.openExternal(r.authUrl)
+    this.loginInfo = { id: typeof r.loginId === 'string' ? r.loginId : '', url: typeof r.authUrl === 'string' ? r.authUrl : '' }
+    if (this.loginInfo.url) await this.options.openExternal(this.loginInfo.url)
   }
+  /** 브라우저를 닫아 버린 학생을 위해 같은 주소를 다시 연다. */
+  async reopenLogin() {
+    if (!this.loginInfo?.url) throw new Error('다시 열 로그인 주소가 없어요. 로그인을 다시 시작해 주세요.')
+    await this.options.openExternal(this.loginInfo.url)
+  }
+  /**
+   * 취소는 app-server 의 `account/login/cancel` 이다(0.162.1 실측: `{ loginId }` 를 요구하고,
+   * 빠지면 `Invalid request: missing field \`loginId\`` 를 돌려준다). 이어서 프로세스도 닫는다 —
+   * 옛 CLI 에 그 메서드가 없을 수 있고, 남은 프로세스가 로그인을 계속 물고 있으면
+   * 취소가 화면에서만 일어난 것처럼 보인다. ChatService 는 취소 뒤 이 연결을 버리므로
+   * 다음 확인이 새 프로세스로 상태를 다시 묻는다.
+   */
+  async cancelLogin() {
+    const rpc = this.rpc
+    const loginId = this.loginInfo?.id
+    this.loginInfo = undefined
+    if (rpc && !rpc.closed && loginId) {
+      try { await rpc.request('account/login/cancel', { loginId }) } catch { /* 옛 CLI: 메서드가 없으면 프로세스를 닫아 취소한다 */ }
+    }
+    await this.stop()
+  }
+  private loginInfo?: { id: string; url: string }
   async run(text: string, sessionId: string | undefined, events: AgentEvents, replayHistory = false) {
     const rpc = await this.connect()
     if (!(await this.status()).connected) throw new Error('Codex에서 ChatGPT 계정 로그인을 먼저 완료해 주세요.')

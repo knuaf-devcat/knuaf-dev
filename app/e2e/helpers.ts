@@ -1,5 +1,5 @@
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { existsSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -34,19 +34,29 @@ export function plantStaleLock(root: string): void {
   writeFileSync(join(root, '.gg-lock', 'owner.json'), JSON.stringify({ pid: 999999, host: require('node:os').hostname(), token: 'x', acquired_at: Date.now() / 1000 - 3600 }))
 }
 
-export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference'; env?: Record<string, string>; intro?: boolean } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
+export async function launch(opts: { userData?: string; colorScheme?: 'light' | 'dark'; reducedMotion?: 'reduce' | 'no-preference'; env?: Record<string, string>; intro?: boolean; onboarded?: boolean; waitFor?: string } = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
   const userData = opts.userData ?? mkdtempSync(join(tmpdir(), 'kd-userdata-'))
   /**
    * 여는 화면은 켤 때마다 화면을 덮고 2.6초를 쓴다. 대부분의 테스트는 그것을 보려는 게
    * 아니라 그 뒤의 화면을 보려는 것이므로 기본적으로 꺼 둔다(`intro: true` 면 켠다).
+   *
+   * `onboarded_at` 도 같이 적는다. 첫 실행 화면(AI 연결 → 논문 폴더)이 생기면서, 이 표시가
+   * 없는 폴더에서는 앱이 온보딩을 띄운다 — 그러면 기존 스펙 28개가 전부 폴더 화면 대신
+   * 온보딩을 보게 된다. 첫 실행 자체를 보는 스펙은 `onboarded: false` 로 끈다.
+   *
+   * 스펙이 직접 써 둔 settings.json 은 **덮지 않고 이어 쓴다** — 그 안의 값(옛 helper_mode 등)이
+   * 시험 대상이기 때문이다.
    */
-  if (!opts.intro) {
-    const f = join(userData, 'settings.json')
-    if (!existsSync(f)) {
-      mkdirSync(userData, { recursive: true })
-      writeFileSync(f, JSON.stringify({ show_intro: false }), 'utf-8')
-    }
+  const settingsFile = join(userData, 'settings.json')
+  mkdirSync(userData, { recursive: true })
+  let preset: Record<string, unknown> = {}
+  if (existsSync(settingsFile)) {
+    try { preset = JSON.parse(readFileSync(settingsFile, 'utf-8')) as Record<string, unknown> } catch { preset = {} }
   }
+  if (!opts.intro && preset.show_intro === undefined) preset.show_intro = false
+  if (opts.onboarded === false) delete preset.onboarded_at
+  else if (!preset.onboarded_at) preset.onboarded_at = new Date().toISOString()
+  writeFileSync(settingsFile, JSON.stringify(preset), 'utf-8')
   // A shell that exports ELECTRON_RUN_AS_NODE would make the app run as plain Node (require('electron') yields the binary path).
   const env = { ...process.env, KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData, ...opts.env }
   delete env.ELECTRON_RUN_AS_NODE
@@ -57,7 +67,7 @@ export async function launch(opts: { userData?: string; colorScheme?: 'light' | 
   })
   const page = await electronApp.firstWindow()
   if (opts.colorScheme || opts.reducedMotion) await page.emulateMedia({ colorScheme: opts.colorScheme, reducedMotion: opts.reducedMotion })
-  await page.waitForSelector('text=논문 작업 폴더')
+  await page.waitForSelector(opts.waitFor ?? 'text=논문 작업 폴더')
   return { electronApp, page }
 }
 

@@ -65,6 +65,18 @@ export interface Settings {
    */
   helper_mode?: 'codex-chat' | 'claude-chat' | null
   /**
+   * 학생이 **직접 고른** 대화 공급자. `helper_mode` 는 고른 적이 없어도 기본값이 채워지고
+   * 저장되므로 선택의 증거가 아니다(IMPL-R1-02). 이 키가 있으면 대화 공급자는 이 값을
+   * 따르고, 없으면(null) 고른 적이 없다는 뜻이라 첫 화면에서 한 번 고르게 한다.
+   * 기존 사용자의 `helper_mode` 를 여기로 승격하지 않는다 — 그건 선택이 아니었다.
+   */
+  provider_choice?: { provider: 'codex' | 'claude'; at: string } | null
+  /**
+   * 첫 실행 화면(온보딩)을 지났음과 그 시각. **공급자 선택의 근거가 아니다** —
+   * 시험이 온보딩을 건너뛰게 하는 표시로도 쓴다(e2e/helpers.ts).
+   */
+  onboarded_at?: string | null
+  /**
    * 학생이 "이 폴더에서는 계속 허용"을 고른 작업폴더들(realpath·NFC 로 보관).
    * 판정할 수 없는 셸 명령(heredoc 으로 밀어 넣는 프로그램 등)은 어떤 허용 목록으로도
    * 안전을 증명할 수 없다. 읽을 수 없는 것을 반복해서 묻는 대신, 폴더 단위로 한 번

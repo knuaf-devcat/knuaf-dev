@@ -10,6 +10,13 @@ export interface AgentEvents {
 export interface AgentConnection {
   status(): Promise<ConnectionStatus>
   login(): Promise<void>
+  /**
+   * 브라우저 로그인을 그만둔다. 없으면 연결을 닫는 것으로 대신한다 — 어느 쪽이든
+   * 다음 status 는 다시 물어보므로 화면 상태는 같다(로그인 필요).
+   */
+  cancelLogin?(): Promise<void>
+  /** 진행 중인 로그인 창을 다시 연다(학생이 브라우저를 닫았을 때). */
+  reopenLogin?(): Promise<void>
   /** `replayHistory`: resume 시 과거 턴 재생은 스냅샷에 assistant 기록이 하나도 없을 때만. */
   run(text: string, sessionId: string | undefined, events: AgentEvents, replayHistory?: boolean): Promise<void>
   respond(id: string, allow: boolean): void
@@ -20,6 +27,8 @@ export interface AgentOptions {
   openExternal: (url: string) => Promise<void>
   /** 학생이 이 폴더를 신뢰하기로 했는가 — 판정 불가한 명령을 묻지 않고 통과시킨다. */
   trusted?: () => boolean
+  /** `auth status` 확인 제한 시간. 시험 이음매 — 기본 12초. */
+  statusTimeoutMs?: number
 }
 export function subscriptionEnv(extraPathDirs: string[] = []): NodeJS.ProcessEnv {
   const env = { ...process.env }

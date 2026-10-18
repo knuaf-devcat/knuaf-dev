@@ -5,6 +5,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { query, type Query, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
+import type { ConnectionStatus } from '../../shared/chat'
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
 function outsideRoot(root: string, value: unknown): string | null {
@@ -235,13 +236,21 @@ export class ClaudeConnection implements AgentConnection {
   private autoAllowed(name: string, input: unknown): boolean {
     return autoAllow(this.options.root, name, input, registeredSources(this.options.root))
   }
-  async status() {
+  /**
+   * `auth status` 의 JSON 만이 로그인 여부의 근거다. 실행 실패·시간 초과·깨진 JSON 은
+   * "로그인 필요"가 아니라 "확인하지 못했어요"다 — 예전에는 셋 다 조용히 `connected:false`
+   * 로 접혀서, CLI 가 잠깐 멈추기만 해도 학생에게 로그인을 다시 시키는 문구가 떴다
+   * (IMPL-R1-04). `probe:'failed'` 가 그 구분이고, 폴더별 화면도 같은 필드를 쓴다.
+   */
+  async status(): Promise<ConnectionStatus> {
     let output = ''
-    try { output = (await promisify(execFile)(this.options.binary, ['auth', 'status'], { env: this.options.env, timeout: 12_000 })).stdout }
-    catch (e) { output = (e as { stdout?: string }).stdout ?? '{}' }
-    let r: any = {}; try { r = JSON.parse(output) } catch { /* unknown authentication => disconnected */ }
+    try { output = (await promisify(execFile)(this.options.binary, ['auth', 'status'], { env: this.options.env, timeout: this.options.statusTimeoutMs ?? 12_000 })).stdout }
+    catch (e) { output = (e as { stdout?: string }).stdout ?? '' }
+    let r: Record<string, unknown> | null = null
+    try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object') r = parsed as Record<string, unknown> } catch { /* 실행 실패·시간 초과·깨진 JSON → 확인 실패 */ }
+    if (!r) return { installed: true, connected: false, version: null, probe: 'failed', detail: 'Claude 연결 상태를 확인하지 못했어요. 잠시 후 "다시 확인"을 눌러 주세요.' }
     const connected = r.loggedIn === true && r.authMethod === 'claude.ai' && r.apiProvider === 'firstParty'
-    return { installed: true, connected, version: null, detail: connected ? '' : 'Claude 구독 계정 로그인이 필요해요. 개인용 검증만 지원하며 API로 자동 전환하지 않아요.' }
+    return { installed: true, connected, version: null, probe: 'ok', detail: connected ? '' : 'Claude 구독 계정 로그인이 필요해요. 개인용 검증만 지원하며 API로 자동 전환하지 않아요.' }
   }
   async login() {
     if (this.loginProcess) throw new Error('브라우저에서 진행 중인 로그인을 완료해 주세요.')
@@ -261,6 +270,20 @@ export class ClaudeConnection implements AgentConnection {
     child.on('close', () => { this.loginProcess = undefined })
     const timer = setTimeout(() => child.kill(), 180_000)
     timer.unref(); child.once('close', () => clearTimeout(timer))
+  }
+  /** 취소 = 이 창에서 기다리기를 그만둔다. CLI 가 소유한 로그인 프로세스를 끝낸다. */
+  async cancelLogin() {
+    const child = this.loginProcess
+    this.loginProcess = undefined
+    child?.kill()
+  }
+  /**
+   * 다시 열기 = 지금 프로세스를 끝내고 처음부터 다시 시작한다. Claude CLI 가 브라우저를
+   * 직접 열기 때문에 URL 을 앱이 쥐고 있을 수 없다 — 새 프로세스가 새 주소를 연다.
+   */
+  async reopenLogin() {
+    await this.cancelLogin()
+    await this.login()
   }
   async run(text: string, sessionId: string | undefined, events: AgentEvents) {
     if (!(await this.status()).connected) throw new Error('Claude 구독 계정 로그인을 완료해 주세요.')

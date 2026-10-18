@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RecentEntry, Settings } from '../shared/types'
 
-const DEFAULTS: Settings = { recent: [], credit_shown_at: null, python_override: null, permission_mode: 'trust' }
+const DEFAULTS: Settings = { recent: [], credit_shown_at: null, python_override: null, permission_mode: 'trust', provider_choice: null, onboarded_at: null }
 const RECENT_MAX = 8
 
 function file(): string { return join(app.getPath('userData'), 'settings.json') }
@@ -46,11 +46,25 @@ function normalisePermissionMode(raw: unknown): Settings['permission_mode'] {
   return raw === 'ask' ? 'ask' : 'trust'
 }
 
+/**
+ * 학생이 고른 공급자. **`helper_mode` 를 여기로 승격하지 않는다**(IMPL-R1-02) —
+ * `helper_mode` 는 고른 적이 없어도 기본 `codex-chat` 이 채워져 저장되므로,
+ * 그 값을 선택으로 읽으면 첫 실행 화면을 영영 건너뛴다. 값이 없거나 모양이 어긋나면
+ * `null`(고른 적 없음)이 정답이다. 기존 사용자는 다음 첫 화면에서 한 번 고른다.
+ */
+function normaliseProviderChoice(raw: unknown): Settings['provider_choice'] {
+  if (!raw || typeof raw !== 'object') return null
+  const p = (raw as { provider?: unknown }).provider
+  if (p !== 'codex' && p !== 'claude') return null
+  const at = (raw as { at?: unknown }).at
+  return { provider: p, at: typeof at === 'string' ? at : '' }
+}
+
 export function loadSettings(): Settings {
   try {
     if (existsSync(file())) {
       const parsed = JSON.parse(readFileSync(file(), 'utf-8')) as Partial<Settings> & { recent?: unknown }
-      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent), helper_mode: migrateHelperMode(parsed), permission_mode: normalisePermissionMode(parsed.permission_mode) }
+      return { ...DEFAULTS, ...parsed, recent: normaliseRecent(parsed.recent), helper_mode: migrateHelperMode(parsed), permission_mode: normalisePermissionMode(parsed.permission_mode), provider_choice: normaliseProviderChoice(parsed.provider_choice) }
     }
   } catch { /* corrupt settings fall back to defaults */ }
   return { ...DEFAULTS, helper_mode: 'codex-chat' }

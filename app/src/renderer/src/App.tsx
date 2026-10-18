@@ -6,6 +6,7 @@ import { Materials } from './screens/Materials'
 import { Artifacts } from './screens/Artifacts'
 import { Checkup } from './screens/Checkup'
 import { SettingsScreen } from './screens/Settings'
+import { Onboarding } from './screens/Onboarding'
 import { Shell } from './components/Shell'
 import { Intro } from './components/Intro'
 import { Sidebar, type NavItem } from './components/Sidebar'
@@ -71,12 +72,23 @@ export function App() {
     chat: <Chat />, materials: <Materials />, artifacts: <Artifacts />, checkup: <Checkup />, settings: <SettingsScreen />
   }
   const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? root : null
+  /**
+   * 첫 실행 화면은 폴더를 고르기 전에 AI 연결부터 묻는다(DESIGN §6). 폴더가 열려 있으면
+   * 언제나 앱 화면이다 — 재방문은 논문을 그대로 열고, 연결이 끊겼으면 그 자리에서
+   * 다시 로그인만 묻는다(로그인 벽으로 전체를 막지 않는다).
+   *
+   * 설정을 아직 못 읽은 동안에는 아무것도 그리지 않는다. 먼저 그리면 폴더 고르기 화면이
+   * 한 번 번쩍인 뒤 첫 실행 화면으로 바뀐다 — 첫인상이 그 화면이면 순서를 바꾼 뜻이 없다.
+   */
+  const onboarding = !!settings && !root && !settings.onboarded_at
   return (
     <div style={{ height: '100%' }} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop} data-dragging={dragging || undefined}>
     {intro && <Intro onDone={() => setIntro(false)} />}
-    <Shell screenKey={screen} sidebar={<Sidebar items={NAV_ITEMS} active={screen} enabled={!!(root && hasProject)} onSelect={(s) => setScreen(s)} projectName={name} projectPath={root} revision={status?.revision ?? null} />}>
-      {screens[screen]}
-    </Shell>
+    {!settings ? null : onboarding ? <Onboarding /> : (
+      <Shell screenKey={screen} sidebar={<Sidebar items={NAV_ITEMS} active={screen} enabled={!!(root && hasProject)} onSelect={(s) => setScreen(s)} projectName={name} projectPath={root} revision={status?.revision ?? null} />}>
+        {screens[screen]}
+      </Shell>
+    )}
     </div>
   )
 }

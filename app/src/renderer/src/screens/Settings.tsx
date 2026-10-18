@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
-import { useChat, resolveChatMode, type ChatMode } from '../store/chat'
+import { useChat, chatProvider, resolveChatMode, type ChatMode } from '../store/chat'
 import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
@@ -34,7 +34,15 @@ export function SettingsScreen() {
   }, [settingsFocus])
   const save = async () => { await window.knuaf.setSettings({ python_override: override || null }); await loadSettings(); await window.knuaf.sidecarRestart(); await refreshSidecar() }
   const mode: ChatMode = resolveChatMode(null, settings)
-  const pickHelper = async (m: ChatMode) => { await window.knuaf.setSettings({ helper_mode: m }); await loadSettings(); setMode(null) }
+  /**
+   * 여기서 고른 것이 **선택의 기록**이다. `helper_mode` 는 화면 기본값일 뿐이라
+   * 그것만 저장하면 "고른 적 없음"과 "골라서 기본값과 같음"이 구별되지 않는다(IMPL-R1-02).
+   */
+  const pickHelper = async (m: ChatMode) => {
+    await window.knuaf.setSettings({ helper_mode: m, provider_choice: { provider: chatProvider(m), at: new Date().toISOString() } })
+    await loadSettings()
+    setMode(null)
+  }
   // 설정이 아직 안 읽혔거나 키가 없으면 '묻지 않기' — 디스크 기본값과 같은 쪽으로 읽는다.
   const permission: 'trust' | 'ask' = settings?.permission_mode === 'ask' ? 'ask' : 'trust'
   const pickPermission = async (m: 'trust' | 'ask') => { await window.knuaf.setSettings({ permission_mode: m }); await loadSettings() }

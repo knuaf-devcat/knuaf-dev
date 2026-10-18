@@ -68,6 +68,16 @@ const api = {
     respond: (root: string, provider: Provider, id: string, allow: boolean) => ipcRenderer.invoke('chat:respond', root, provider, id, allow),
     stop: (root: string, provider: Provider) => ipcRenderer.invoke('chat:stop', root, provider)
   },
+  /**
+   * 폴더 없이 쓰는 연결 상태·로그인 — 첫 실행 화면(온보딩). 대화(root 있는 chat.*)와 달리
+   * root 인자가 없다. 로그인 창을 다시 열거나 그만두는 경로도 여기에만 있다.
+   */
+  connect: {
+    status: (provider: Provider) => ipcRenderer.invoke('connect:status', provider),
+    login: (provider: Provider) => ipcRenderer.invoke('connect:login', provider),
+    cancel: (provider: Provider) => ipcRenderer.invoke('connect:cancel', provider),
+    reopen: (provider: Provider) => ipcRenderer.invoke('connect:reopen', provider)
+  },
   /** Snapshot push from the main ChatService; returns an unsubscribe function. */
   onChatSnapshot: (fn: (snapshot: ChatSnapshot) => void) => {
     const listener = (_e: unknown, snapshot: ChatSnapshot) => fn(snapshot)

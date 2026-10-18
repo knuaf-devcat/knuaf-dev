@@ -140,6 +140,74 @@ export class ChatService {
     return this.connection(root, provider).status()
   }
   async login(root: string, provider: Provider) { await this.connection(root, provider).login() }
+
+  // ---------------------------------------------------------------- 전역 연결 (폴더 없이)
+  //
+  // 첫 실행은 폴더를 고르기 전에 "쓸 AI 를 연결"한다(IMPL-PLAN §4-3). 연결 대상은 CLI 전역
+  // 계정이고 cwd 와 무관하므로(root 를 받는 것과 무관하게 같은 답이 나온다) 폴더별 연결과
+  // **다른 맵**에 하나씩 둔다 — 키가 겹칠 자리가 없다.
+  //
+  // 이 연결은 상태 확인·로그인만 한다. 파일을 쓰는 일(스킬 설치)은 send() 안에서만
+  // 일어나고 send() 는 폴더 연결만 쓴다 — 그래서 여기서는 논문 폴더도, connect-probe
+  // 폴더도 건드리지 않는다. 그 성질을 깨려면 이 클래스에 새 메서드를 만들어야 한다.
+  private globalRoot: string | null = null
+  private globals = new Map<Provider, AgentConnection>()
+  /** 전역 연결의 cwd — 빈 폴더. 논문 폴더가 아직 없어도 CLI 가 설 자리가 필요하다. */
+  private connectRoot(): string {
+    if (!this.globalRoot) {
+      const dir = join(this.opts.userData, 'connect-probe')
+      mkdirSync(dir, { recursive: true })
+      this.globalRoot = dir
+    }
+    return this.globalRoot
+  }
+  private globalConnection(provider: Provider): AgentConnection {
+    let c = this.globals.get(provider)
+    if (!c) {
+      const root = this.connectRoot()
+      const options: AgentOptions = {
+        binary: '', root, skill: this.skillDir(root, provider),
+        env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
+        openExternal: this.opts.openExternal, trusted: () => false
+      }
+      if (this.opts.connectionFactory) {
+        c = this.opts.connectionFactory(provider, options)
+      } else {
+        const binary = findExecutable(provider)
+        if (!binary) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} 설치가 필요해요. 연결 설정의 설치 안내를 열어 주세요.`)
+        options.binary = binary
+        c = provider === 'codex' ? new CodexConnection(options) : new ClaudeConnection(options)
+      }
+      this.globals.set(provider, c)
+    }
+    return c
+  }
+  /**
+   * 폴더 없이 연결 상태를 본다. 설치가 없으면 `installed:false`, 있는데 핸드셰이크·계정
+   * 조회가 실패하면(`probe:'failed'`) — 확인하지 못한 것을 "로그인 필요"로 꾸미지 않는다.
+   */
+  async globalStatus(provider: Provider): Promise<ConnectionStatus> {
+    if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
+    try {
+      return await this.globalConnection(provider).status()
+    } catch (e) {
+      return { installed: true, connected: false, version: null, probe: 'failed', detail: e instanceof Error ? e.message : '연결 상태를 확인하지 못했어요.' }
+    }
+  }
+  async globalLogin(provider: Provider): Promise<void> { await this.globalConnection(provider).login() }
+  /** 취소 뒤에는 연결을 버린다 — 다음 확인이 새 프로세스로 상태를 다시 묻는다. */
+  async cancelLogin(provider: Provider): Promise<void> {
+    const c = this.globals.get(provider)
+    this.globals.delete(provider)
+    if (!c) return
+    if (c.cancelLogin) await c.cancelLogin()
+    else await c.stop()
+  }
+  async reopenLogin(provider: Provider): Promise<void> {
+    const c = this.globalConnection(provider)
+    if (c.reopenLogin) await c.reopenLogin()
+    else await c.login()
+  }
   async send(root: string, provider: Provider, text: string, requestId: string) {
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
     this.snapshot(root, provider)
@@ -252,7 +320,11 @@ export class ChatService {
     await this.connections.get(key)?.stop(); this.connections.delete(key)
     await this.runs.get(key)
   }
-  async close() { await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) })) }
+  async close() {
+    await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) }))
+    await Promise.all([...this.globals.values()].map((c) => c.stop()))
+    this.globals.clear()
+  }
 }
 
 /** Personal validation never writes the user's original thesis or the source backup. */

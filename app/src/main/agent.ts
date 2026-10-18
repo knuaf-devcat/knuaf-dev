@@ -89,12 +89,19 @@ function isExecutableFile(p: string): boolean {
   }
 }
 
-/** First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null. */
+/**
+ * First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null.
+ *
+ * `KNUAF_AGENT_PATH_ONLY=1` 은 PATH 만 본다 — 시험용 이음매다. Finder 로 띄운 앱은 셸의
+ * PATH 를 물려받지 않아(/usr/bin:/bin:/usr/sbin:/sbin) 아래 EXTRA_DIRS 가 사실상 유일한
+ * 발견 경로인데, 그래서 시험에서 PATH 를 비워도 개발 기계에서는 진짜 codex 가 계속
+ * 발견됐다. "도구 없음" 화면은 그 상태를 재현할 방법이 있어야 시험된다.
+ */
 export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
   const home = env.HOME ?? env.USERPROFILE ?? ''
   const sep = process.platform === 'win32' ? ';' : ':'
   const fromPath = (env.PATH ?? '').split(sep).filter(Boolean)
-  const dirs = [...fromPath, ...EXTRA_DIRS(home)]
+  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1' ? fromPath : [...fromPath, ...EXTRA_DIRS(home)]
   const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
   const seen = new Set<string>()
   for (const dir of dirs) {
