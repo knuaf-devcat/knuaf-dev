@@ -27,12 +27,14 @@ test('검토본이 나오면 논문 DOCX 버튼이 열린다 (발견 17)', async
     await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '결과물')
 
-    const docx = page.getByRole('button', { name: ARTIFACTS.make.docx, exact: true })
+    // 만들기 줄은 "왼쪽 이름 + [만들기] 단추" 다(대조 D1-6) — 줄로 집는다.
     const docxRow = page.locator('.make-row').filter({ hasText: ARTIFACTS.make.docx })
+    const docx = docxRow.getByRole('button')
     await expect(docx, '합쳐진 본문이 하나도 없으면 잠겨 있는 것이 맞다').toBeDisabled()
     for (const blame of BLAMED_HELPER) await expect(docxRow).not.toContainText(blame)
 
-    await page.click(`button:has-text("${ARTIFACTS.make.review}")`)
+    // 줄 제목으로 정확히 집는다 — DOCX 줄의 캡션에도 "검토본 만들기"가 들어 있다.
+    await page.locator('.make-row').filter({ hasText: new RegExp('^' + ARTIFACTS.make.review) }).getByRole('button').click()
     await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 60_000 })
 
     await expect(docx, '검토본이 나왔는데도 DOCX 버튼이 잠긴 채였다').toBeEnabled({ timeout: 20_000 })

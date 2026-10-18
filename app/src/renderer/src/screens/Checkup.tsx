@@ -201,10 +201,13 @@ export function Checkup() {
               </div>
             </section>
 
-            {Object.keys(status.counts).some((k) => COLLECTION_LABEL[k]) && (
-              <p className="caption">{CHECKUP.countsCaption} — {Object.entries(status.counts).filter(([k]) => COLLECTION_LABEL[k]).map(([k, v]) => `${COLLECTION_LABEL[k]} ${v}`).join(' · ')}</p>
-            )}
-            <p className="caption">{status.completion.notice}</p>
+            {/* 등록 현황·완료 안내는 기술 기록이다 — 기본 화면에 두지 않고 접어 둔다(DESIGN §5 쉬운 말). */}
+            <Disclosure label={CHECKUP.recordDetail}>
+              {Object.keys(status.counts).some((k) => COLLECTION_LABEL[k]) && (
+                <p className="caption">{CHECKUP.countsCaption} — {Object.entries(status.counts).filter(([k]) => COLLECTION_LABEL[k]).map(([k, v]) => `${COLLECTION_LABEL[k]} ${v}`).join(' · ')}</p>
+              )}
+              <p className="caption">{status.completion.notice}</p>
+            </Disclosure>
           </>
         )
       })()}

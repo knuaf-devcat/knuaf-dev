@@ -113,7 +113,6 @@ function NoFolder() {
 export function Chat() {
   const projectRoot = useProject((s) => s.root)
   const settings = useProject((s) => s.settings)
-  const loadSettings = useProject((s) => s.loadSettings)
   const pStatus = useProject((s) => s.status)
   const pError = useProject((s) => s.error)
   const clearPError = useProject((s) => s.clearError)
@@ -122,7 +121,7 @@ export function Chat() {
   const focusSection = useProject((s) => s.focusSection)
   const setPaneView = useProject((s) => s.setPaneView)
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
-  const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
+  const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
   /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
   const startIntent = useChat((s) => s.startIntent)
   const disarmStart = useChat((s) => s.disarmStart)
@@ -136,7 +135,6 @@ export function Chat() {
   const endRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [dragging, setDragging] = useState(false)
-  const [claudeFound, setClaudeFound] = useState(false)
   const [copied, setCopied] = useState(false)
 
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
@@ -161,14 +159,6 @@ export function Chat() {
   useEffect(() => { toBottom() }, [root, snapshot?.provider])
   useEffect(() => { if (atBottom) toBottom() }, [snapshot?.messages.length, snapshot?.state, events.length])
   useEffect(() => { if (snapshot?.permission) toBottom() }, [snapshot?.permission?.id])
-  useEffect(() => {
-    if (!projectRoot) { setClaudeFound(false); return }
-    let alive = true
-    void window.knuaf.agentStatus(projectRoot)
-      .then((r) => { if (alive && r && 'result' in r) setClaudeFound(!!(r.result as { claude?: { found?: boolean } }).claude?.found) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [projectRoot])
 
   const running = snapshot?.state === 'running' || snapshot?.state === 'permission'
   const lastUncertain = snapshot?.messages.filter((m) => m.role === 'user' && m.delivery === 'uncertain').at(-1)
@@ -190,29 +180,6 @@ export function Chat() {
     if (snapshot.messages.length === 0) void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)
   }, [startIntent, projectRoot, snapshot, status, provider, hasRevision, send, disarmStart])
 
-  /**
-   * 도우미를 고르는 순간은 **선택의 기록**이다 — 온보딩 1단계·설정 라디오와 같은 자격으로
-   * `provider_choice` 를 남긴다(`helper_mode` 는 기본값이라 그것만으로는 "골랐음"이 안 된다).
-   */
-  const remember = (m: ChatMode): void => {
-    setMode(m)
-    const p = chatProvider(m)
-    useConnect.getState().select(p)
-    void window.knuaf.setSettings({ helper_mode: m, provider_choice: { provider: p, at: new Date().toISOString() } }).then(() => loadSettings())
-  }
-  /**
-   * 공급자를 고르고 첫 마디를 보낸다. 공급자가 실제로 바뀔 때는 먼저 load 를 끝내야 한다 —
-   * 위 effect 가 전환을 보고 load 를 부르는데 load 는 스냅샷을 비우므로, 바로 send 하면
-   * 그 결과가 지워진다(codex 는 기본 공급자라 이 경합을 겪지 않았다).
-   */
-  const startWith = async (mode: 'codex-chat' | 'claude-chat', text: string): Promise<void> => {
-    const next = chatProvider(mode)
-    remember(mode)
-    if (projectRoot && next !== provider) await load(projectRoot, next)
-    void send(text)
-  }
-  const startCodex = (text: string): void => { void startWith('codex-chat', text) }
-  const startClaude = (text: string): void => { void startWith('claude-chat', text) }
   const copyDraft = (): void => {
     void navigator.clipboard?.writeText(draft)
     setCopied(true)
@@ -265,26 +232,16 @@ export function Chat() {
 
       {/* 빈 대화: "시작하기"를 타이핑하게 하지 않고 버튼이 문자열을 대신 보낸다(03-화면/03 결정). */}
       {emptyChat && (
-        <div className="empty">
+        <div className="chat-empty">
           <div className="t">{CHAT.emptyTitle}</div>
           {status?.connected && !statusFailed ? (<>
-            <div>{CHAT.emptyBodyStart}{claudeFound ? ` ${CHAT.pickHelperTitle}` : ''}</div>
-            {claudeFound ? (<>
-              <div className="row" style={{ marginTop: 'var(--sp-3)', alignItems: 'stretch' }}>
-                <button className="opt-card" onClick={() => startCodex(CHAT.firstTurn)}>
-                  <span className="t">{CHAT.pickCodexTitle}</span><span className="b">{CHAT.pickCodexBody}</span>
-                </button>
-                <button className="opt-card" onClick={() => startClaude(CHAT.firstTurn)}>
-                  <span className="t">{CHAT.pickClaudeTitle}</span><span className="b">{CHAT.pickClaudeBody}</span>
-                </button>
-              </div>
-              <div className="caption" style={{ marginTop: 'var(--sp-3)' }}>{CHAT.pickHelperBody}{hasRevision && <> — <button className="lk" onClick={() => startCodex(CHAT.firstTurnNext)}>{CHAT.resume}</button></>}</div>
-            </>) : (
-              <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-                <button className="primary" onClick={() => startCodex(CHAT.firstTurn)}>{CHAT.startNew}</button>
-                {hasRevision && <button onClick={() => startCodex(CHAT.firstTurnNext)}>{CHAT.resume}</button>}
-              </div>
-            )}
+            <div>{CHAT.emptyBodyStart}</div>
+            {/* 고른 AI 로 바로 시작한다 — AI 를 고르는 자리는 첫 실행 1단계와 계정 팝오버다
+                (여기서 다시 고르게 하지 않는다, DESIGN §4). 고르는 규칙은 그대로다. */}
+            <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
+              <button className="primary" onClick={() => void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)}>{hasRevision ? CHAT.resume : CHAT.startNew}</button>
+            </div>
+            <p className="caption">{CHAT.emptyChangeAi}</p>
           </>) : <div>{CHAT.emptyBody}</div>}
         </div>
       )}
@@ -375,7 +332,6 @@ export function Chat() {
                   : connState === 'need-login'
                     ? <button className="primary" onClick={() => void login()} disabled={busy}>{CHAT.loginFor(provider)}</button>
                     : <button className="primary" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
-                {claudeFound && provider !== 'claude' && <button onClick={() => startClaude(CHAT.firstTurn)}>{CHAT.claudeStart}</button>}
                 {/* 확인 실패에는 위의 주 단추가 이미 "다시 확인"이라 여기 또 두지 않는다. */}
                 {connState !== 'failed' && connState !== 'unknown' && <button className="quiet" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
               </div>

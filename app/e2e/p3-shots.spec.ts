@@ -14,6 +14,9 @@ import { launch, openProject, setWindowWidth, synthProject } from './helpers'
 const OUT = process.env.KNUAF_SHOT_DIR ?? resolve(__dirname, '..', 'test-results', 'p3-shots')
 
 async function shoot(page: import('@playwright/test').Page, name: string): Promise<void> {
+  // **정착한 화면**을 찍는다 — 대화 칸은 스냅샷·연결 상태가 도착해야 그려지고, 그 전에는
+  // 빈 칸에 "연결 확인 중…"만 남는다(캡처가 그 순간을 잡으면 화면이 없다).
+  await page.waitForSelector('.chat-empty, .chat-msg, .qcard', { timeout: 30_000 }).catch(() => {})
   await page.waitForTimeout(700)
   await page.screenshot({ path: `${OUT}/${name}.png` })
 }

@@ -36,7 +36,7 @@ export function StageMenu() {
       <button className="tbtn now" aria-expanded={open} title={open ? TITLEBAR.nowClose : TITLEBAR.nowOpen}
         onClick={() => setOpen(!open)}>
         {open ? TITLEBAR.nowTitle : <><span className="lbl">{TITLEBAR.nowLabel}</span>{STAGES.names[now - 1]}</>}
-        <Icon name="chevron" size={14} />
+        <Icon name="chevronDown" size={14} />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} align="center" width={400} label={TITLEBAR.nowTitle}>
         <PopHead>{STAGES.head}</PopHead>

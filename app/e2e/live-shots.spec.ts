@@ -19,8 +19,10 @@ test('live shots: codex chat + claude chat', async () => {
     await page.waitForTimeout(1500)
     await page.screenshot({ path: 'e2e/artifacts/live-codex.png' })
 
-    // 빈 대화의 pick 카드로 Claude 채팅에 들어간다 — '시작하기'를 실제로 보낸다.
-    await page.click('button.opt-card:has-text("Claude Code로 시작")')
+    // v5 는 빈 대화에서 AI 를 고르지 않는다(DESIGN §4) — 계정 팝오버에서 바꾼 뒤 [시작하기]를 누른다.
+    await page.locator('.titlebar .tbtn.acct').click()
+    await page.locator('.titlebar .popover').getByRole('button', { name: /Claude로 바꾸기/ }).click()
+    await page.locator('.chat-empty button.primary').click()
     await expect.poll(async () => {
       const s = await page.evaluate(async (r) => {
         const r_ = await window.knuaf.chat.snapshot(r, 'claude')

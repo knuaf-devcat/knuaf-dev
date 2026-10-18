@@ -8,7 +8,7 @@ import { Preview } from '../components/Preview'
 import { ProgressPanel } from '../components/ProgressPanel'
 import { ResultCard } from '../components/ResultCard'
 import { useMake } from '../components/useMake'
-import { ARTIFACTS, CHECKUP, CLOSE_LABEL, EMPTY, INDEPENDENT_REVIEW_MISSING, describeError, formatBytes, relativeTime, type DescribedError } from '../copy'
+import { ARTIFACTS, CHECKUP, CLOSE_LABEL, EMPTY, FILES_POPOVER, INDEPENDENT_REVIEW_MISSING, describeError, formatBytes, relativeTime, type DescribedError } from '../copy'
 import { joinPath } from '../paths'
 import type { ArtifactItem, CheckRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
@@ -74,7 +74,7 @@ export function Artifacts() {
         {make.rows.map((r) => (
           <div className="make-row" key={r.kind}>
             <div className="grow"><div>{r.label}</div><div className="caption">{r.body}</div></div>
-            <button onClick={() => void make.run(r.kind)} disabled={!r.enabled || make.making !== null}>{r.label}</button>
+            <button onClick={() => void make.run(r.kind)} disabled={!r.enabled || make.making !== null}>{FILES_POPOVER.makeAction}</button>
           </div>
         ))}
       </div>

@@ -20,7 +20,12 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
    왼쪽 여백은 없고 오른쪽을 비운다 — 비우지 않으면 ⚙ 가 단추 밑에 깔린다. */
 [data-platform="win32"] .titlebar { min-height: 40px; padding-left: var(--sp-3); padding-right: 138px; }
 [data-platform="linux"] .titlebar { padding-left: var(--sp-3); }
+.titlebar .sp { flex: 1; }
 .titlebar button { -webkit-app-region: no-drag; }
+/* 가운데 "지금 · ○○ ▾" — 「지금」 글자만 코발트다(시안 ③④). */
+.tbtn.now { font-size: 13px; color: var(--ink-2); gap: 7px; }
+.tbtn.now .lbl { font-size: 12px; color: var(--accent); font-weight: 700; }
+.now-w { color: var(--accent); font-weight: 700; }
 .tbtn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 8px; padding: 6px 9px; font-size: 13.5px; color: var(--ink); }
 .tbtn:hover { background: var(--hover); }
 .tbtn.title { font-weight: 650; }
@@ -140,6 +145,9 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
   border-bottom: var(--hairline) solid var(--line); font-size: 14px; }
 .lanes .ln b { font-weight: 650; }
 .lanes .ln > span { color: var(--ink-2); line-height: 1.55; }
+/* "› 자세히"를 행 첫 줄과 같은 높이에 — 펼침 요약의 위 여백이 행 글자보다 아래로 내려가 있었다. */
+.lanes .ln .disclosure { margin: 0; }
+.lanes .ln .disclosure > summary { padding: 0; line-height: 1.55; align-items: flex-start; }
 .lanes .ln .list { margin-top: var(--sp-2); }
 
 /* 시트 안에서 쓰이는 화면들(자료·결과물·설정) */
@@ -395,6 +403,9 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .activity .title { font-weight: 600; color: var(--ink); margin-top: var(--sp-1); }
 .activity .sum { margin-top: var(--sp-2); color: var(--ink-2); font-size: var(--fs-caption); line-height: var(--lh-caption); display: flex; flex-direction: column; gap: 2px; }
 
+/* 내 논문 — 빈 대화(자동 시작이 안 된 경우). 상자 없이 글과 단추 하나만(DESIGN §4·§3). */
+.chat-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-6) 0 var(--sp-4); }
+.chat-empty .t { color: var(--ink); font-weight: 500; font-size: var(--fs-heading); }
 /* 내 논문 — 빈 대화 도우미 선택 카드(03-화면/03) */
 .opt-card { border: var(--hairline) solid var(--line-strong); border-radius: var(--r-md); padding: var(--sp-4); flex: 1; background: var(--panel); text-align: left; cursor: pointer; font: inherit; }
 .opt-card:hover { border-color: var(--accent); }

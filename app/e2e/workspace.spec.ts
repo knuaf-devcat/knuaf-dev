@@ -45,7 +45,8 @@ test('두 칸이 되면 대화 칸 폭이 규칙대로다 (1,140 → 460)', asyn
   expect(Math.round(width)).toBe(460)
   // 종이는 최소 680 이상을 가져간다.
   const paper = await page.locator('.paperpane').evaluate((el) => el.getBoundingClientRect().width)
-  expect(paper).toBeGreaterThanOrEqual(680)
+  // 소수점 이하가 있다(679.9999…) — 반올림해 견준다.
+  expect(Math.round(paper)).toBeGreaterThanOrEqual(680)
   await electronApp.close()
 })
 
@@ -175,7 +176,8 @@ test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 �
   await expect(pop.locator('.pop-make')).toHaveCount(4)
   await expect(pop).toContainText('검토본 만들기')
   await expect(pop).toContainText('제출용 파일 만들기')
-  await expect(pop.getByRole('button', { name: '검토본 만들기' })).toBeEnabled()
+  // 줄 제목으로 집는다 — 캡션에도 "검토본 만들기"가 들어간 줄이 있어 `:has-text` 로는 두 줄이 걸린다.
+  await expect(pop.locator('.pop-make:has(b:text-is("검토본 만들기")) button')).toBeEnabled()
   // Esc 로 닫힌다.
   await page.keyboard.press('Escape')
   await expect(page.locator('.paperpane .popover')).toHaveCount(0)

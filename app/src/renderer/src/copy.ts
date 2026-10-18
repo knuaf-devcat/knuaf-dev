@@ -529,6 +529,8 @@ export const CHECKUP = {
   copyRequest: '부탁 문장 복사',
   copied: '복사했어요',
   workTitle: '도우미에게 할 말',
+  /** 기술 기록(등록 현황·완료 안내)은 기본 화면에 두지 않는다(DESIGN §5 쉬운 말). */
+  recordDetail: '기록 자세히',
   /** 시트 머리의 다시 읽기 — 옛 점검 화면의 그 단추다. */
   refresh: '새로고침',
   todoTitle: '내가 해야 할 일',
@@ -853,14 +855,12 @@ export const CHAT = {
    */
   firstTurn: '시작하기',
   firstTurnNext: '이어서 하기',
-  pickHelperTitle: '어느 도우미로 시작할까요?',
-  pickHelperBody: '한 번 고르면 기억해요. 바꾸려면 설정에서 바꿀 수 있어요.',
-  pickCodexTitle: 'ChatGPT 채팅으로 시작',
-  pickCodexBody: '앱 안에서 대화해요. 진행 상황을 앱이 정확히 보여줘요.',
-  pickClaudeTitle: 'Claude Code로 시작',
+/**
+   * 빈 대화(자동 시작이 안 된 경우) — AI 는 첫 실행·계정 팝오버에서 고른다. 여기서 다시 고르게
+   * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
+   */
+  emptyChangeAi: '다른 AI로 바꾸려면 오른쪽 위 계정에서 바꿀 수 있어요',
   // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
-  pickClaudeBody: '앱 안에서 대화해요. 아직 실험 중인 연결 방식이에요.',
-  claudeStart: 'Claude Code로 시작',
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',
   needLoginTitleFor: (p: string) => `${p === 'claude' ? 'Claude' : 'ChatGPT'} 로그인이 필요해요`,
@@ -1125,6 +1125,8 @@ export const STAGES = {
 /** 파일 팝오버(⑩⑮) — 만들기 4줄 + 만든 파일. */
 export const FILES_POPOVER = {
   makeTitle: '만들기',
+  /** 오른쪽 단추는 늘 "만들기" 하나 — 왼쪽 줄 이름을 되풀이하지 않는다(DESIGN §4, 대조 D1-6). */
+  makeAction: '만들기',
   madeTitle: '만든 파일 — 누르면 열려요',
   madeNone: '아직 없어요',
   revealFolder: '폴더에서 보기',

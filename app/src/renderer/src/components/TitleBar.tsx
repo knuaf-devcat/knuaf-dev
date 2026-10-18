@@ -61,7 +61,7 @@ export function TitleBar() {
       <div className="pop-host">
         <button className="tbtn title" title={TITLEBAR.paperMenuTitle} aria-expanded={menu === 'paper'}
           onClick={() => setMenu(menu === 'paper' ? null : 'paper')}>
-          {root ? base(root) : TITLEBAR.paperNone}<Icon name="chevron" size={14} />
+          {root ? base(root) : TITLEBAR.paperNone}<Icon name="chevronDown" size={14} />
         </button>
         <Popover open={menu === 'paper'} onClose={() => setMenu(null)} label={TITLEBAR.paperMenuTitle} width={340}>
           <PopHead>{TITLEBAR.recentPapers}</PopHead>

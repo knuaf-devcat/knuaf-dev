@@ -47,7 +47,7 @@ export function FilesPopover({ make }: { make: Make }) {
         {make.rows.map((r) => (
           <div key={r.kind} className={`pop-make${r.enabled ? '' : ' off'}`}>
             <span className="c"><b>{r.label}</b><small>{r.body}</small></span>
-            <button className="quiet" disabled={!r.enabled || make.making !== null} onClick={() => void make.run(r.kind)}>{r.label}</button>
+            <button className="quiet" disabled={!r.enabled || make.making !== null} onClick={() => void make.run(r.kind)}>{FILES_POPOVER.makeAction}</button>
           </div>
         ))}
         <PopSep />

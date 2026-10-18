@@ -45,7 +45,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // 파일 만들기 실행 후 — ResultCard(ok/blocked/fail 배경 구분)가 보이는 상태를 남긴다.
     await ensureDeps(page, root)
     await navTo(page, '결과물')
-    await page.click('button:has-text("논문 DOCX 만들기")')
+    await page.click('.make-row:has-text("논문 DOCX 만들기") button')
     await page.waitForSelector('.result', { timeout: 120_000 })
     await page.waitForTimeout(400)
     await page.screenshot({ path: `${OUT}/04b-artifacts-made${suffix}.png` })

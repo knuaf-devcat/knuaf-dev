@@ -1,6 +1,6 @@
 import type { ReactElement, SVGProps } from 'react'
 
-export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'files' | 'tool'
+export type IconName = 'folder' | 'layout' | 'check' | 'list' | 'doc' | 'box' | 'wrench' | 'gear' | 'lock' | 'refresh' | 'x' | 'arrow' | 'chevron' | 'chevronDown' | 'info' | 'warn' | 'done' | 'circle' | 'search' | 'files' | 'tool'
 
 const PATHS: Record<IconName, ReactElement> = {
   folder: <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />,
@@ -10,12 +10,13 @@ const PATHS: Record<IconName, ReactElement> = {
   doc: <><path d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z" /><path d="M14 3.5V8h4M8.5 12h7M8.5 16h7" /></>,
   box: <><path d="M3.5 8l8.5-4 8.5 4v8l-8.5 4-8.5-4z" /><path d="M3.5 8l8.5 4 8.5-4M12 12v8" /></>,
   wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5l-9.5 9.5a2 2 0 0 1-3-3L16.5 8.5a4 4 0 0 0-2-2z" />,
-  gear: <><circle cx="12" cy="12" r="3" /><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" /></>,
+  gear: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
   lock: <><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>,
   refresh: <><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 4v5h-5" /></>,
   x: <path d="M6 6l12 12M18 6L6 18" />,
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   chevron: <path d="M9 6l6 6-6 6" />,
+  chevronDown: <path d="M6 9l6 6 6-6" />,
   info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8v.5" /></>,
   warn: <><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17v.5" /></>,
   done: <><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></>,

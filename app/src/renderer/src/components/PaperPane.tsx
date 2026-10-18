@@ -136,7 +136,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
           <button className="chap" aria-expanded={toc} onClick={() => setToc(!toc)}>
             <span className="n">{writing ? writing.title : PAPER.empty}</span>
             {writing && <span className="w">{stateWord(writing.status)}</span>}
-            <Icon name="chevron" size={14} />
+            <Icon name="chevronDown" size={14} />
           </button>
           <Popover open={toc} onClose={() => setToc(false)} label={PAPER.tocTitle} width={300}>
             <PopHead>{PAPER.tocTitle}</PopHead>

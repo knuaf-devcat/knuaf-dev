@@ -150,7 +150,7 @@ test('hard rules hold across screens', async () => {
   await navTo(page, '결과물')
   await expect(page.locator('text=독립검토 미실행')).toBeVisible()
   // 파일 만들기: 제출용 버튼은 관문이 막혀도 활성 — 경고가 관문이지 버튼 잠금이 아니다(#4).
-  const submitBtn = page.locator('button:has-text("제출용 파일 만들기")')
+  const submitBtn = page.locator('.make-row:has-text("제출용 파일 만들기") button')
   await expect(submitBtn).toBeEnabled()
   await submitBtn.click()
   await expect(page.locator('text=독립검토 미실행').first()).toBeVisible()

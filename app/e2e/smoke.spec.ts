@@ -21,7 +21,7 @@ test('open a project, see four lanes, export a draft, unlock a stale lock', asyn
   await expect(page.locator('text=학교 규칙 등록').first()).toBeVisible()
   // 결과물 > 파일 만들기 — 검토본은 관문 없이 만든다.
   await navTo(page, '결과물')
-  await page.click('button:has-text("검토본 만들기")')
+  await page.click('.make-row:has-text("검토본 만들기") button')
   await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 30_000 })
   // plant a stale lock and release it from 설정 > 문제 해결
   plantStaleLock(root)
