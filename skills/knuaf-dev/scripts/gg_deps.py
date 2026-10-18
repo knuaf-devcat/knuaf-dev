@@ -299,7 +299,17 @@ def ensure(project, find_links=None, no_index=False):
         cmd.append("--no-index")
     if find_links:
         cmd += ["--find-links", str(find_links)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    # pip 은 -r 파일을 **로케일 인코딩**으로 읽는다. requirements-runtime.txt 는 ASCII 로
+    # 두는 것이 원칙이지만(Windows 설치본 빌드가 그렇게 깨졌다), 앞으로 비ASCII 바이트가
+    # 들어와도 한국어 Windows(cp949)·서구 Windows(cp1252)에서 UnicodeDecodeError 로 죽지
+    # 않도록 자식에 UTF-8 을 강제한다. 로케일과 무관하게 같은 파일을 읽는다.
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env={**os.environ, "PYTHONUTF8": "1"},
+    )
     verified = {}
     versions = {}
     if proc.returncode == 0:

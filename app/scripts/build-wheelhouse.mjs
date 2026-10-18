@@ -25,6 +25,12 @@ if (process.env.PBS_TARGET && !process.env.PBS_TARGET.includes(process.platform 
 }
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
-const r = spawnSync(py, ['-m', 'pip', 'download', '--only-binary=:all:', '--dest', out, '-r', req, 'pip', 'setuptools'], { stdio: 'inherit' })
+const r = spawnSync(py, ['-m', 'pip', 'download', '--only-binary=:all:', '--dest', out, '-r', req, 'pip', 'setuptools'], {
+  stdio: 'inherit',
+  // pip 은 -r 파일을 **로케일 인코딩**으로 읽는다. 파일은 ASCII 로 두는 것이 원칙이지만,
+  // 앞으로 비ASCII 바이트가 들어와도 한국어 Windows(cp949)·서구 Windows(cp1252)에서
+  // UnicodeDecodeError 로 죽지 않도록 자식에 UTF-8 을 강제한다(W2 Windows 빌드 실패).
+  env: { ...process.env, PYTHONUTF8: '1' },
+})
 if (r.status !== 0) process.exit(r.status ?? 1)
 console.log('wheelhouse →', out)
