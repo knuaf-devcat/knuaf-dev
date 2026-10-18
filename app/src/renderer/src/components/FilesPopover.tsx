@@ -76,14 +76,18 @@ export function FilesPopover({ make, open, onOpenChange }: { make: Make; open: b
         ))}
         <PopSep />
         <PopHead>{FILES_POPOVER.madeTitle}</PopHead>
-        {files.length === 0
-          ? <div className="pop-empty caption">{FILES_POPOVER.madeNone}</div>
-          : files.map((f) => (
-            /* 경로는 정본 안 상대경로다 — 플랫폼 구분자 규칙(joinPath)을 거쳐야 윈도우에서도 열린다. */
-            <PopRow key={f.path} icon={<Icon name="doc" size={16} />} onClick={() => void window.knuaf.openPath(joinPath(root, f.path))} meta={statusOf(f.path)}>
-              {f.name}
-            </PopRow>
-          ))}
+        {/* 만든 파일이 쌓여도 팝오버가 창을 넘지 않게 — 목록만 안에서 스크롤하고
+            아래 "결과물 전체 보기" 이동은 늘 보인다(N-I07). */}
+        <div className="pop-scroll">
+          {files.length === 0
+            ? <div className="pop-empty caption">{FILES_POPOVER.madeNone}</div>
+            : files.map((f) => (
+              /* 경로는 정본 안 상대경로다 — 플랫폼 구분자 규칙(joinPath)을 거쳐야 윈도우에서도 열린다. */
+              <PopRow key={f.path} icon={<Icon name="doc" size={16} />} onClick={() => void window.knuaf.openPath(joinPath(root, f.path))} meta={statusOf(f.path)}>
+                {f.name}
+              </PopRow>
+            ))}
+        </div>
         <PopSep />
         <PopRow icon={<Icon name="box" size={16} />} onClick={() => { onOpenChange(false); openSheet('artifacts') }}>{FILES_POPOVER.openAll}</PopRow>
         {files.length > 0 && <PopRow icon={<Icon name="folder" size={16} />} onClick={() => window.knuaf.reveal(joinPath(root, files[0].path))}>{ARTIFACTS.reveal}</PopRow>}
