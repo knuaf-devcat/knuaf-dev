@@ -8,6 +8,9 @@ import { launch, navTo, openProject, synthProject } from './helpers'
 // permission for the launching app; when it is missing the files are still written (desktop only).
 const OUT = resolve(__dirname, '..', '..', 'docs', 'images', 'window')
 test.skip(process.platform !== 'darwin', 'macOS only')
+// 창을 맨 앞으로 올려 찍는 spec 이라 숨김 실행과 양립하지 않는다 — 기본 실행에서는
+// playwright.config.ts 가 통째로 무시하고, 손으로는 `KNUAF_WINDOW_SHOTS=1` 로 돌린다.
+test.skip(process.env.KNUAF_WINDOW_SHOTS !== '1', 'KNUAF_WINDOW_SHOTS=1 일 때만 (창이 맨 앞으로 나온다)')
 
 /** 지금 화면 맨 앞에 있는 앱 이름. 실패하면 빈 문자열 — poll 이 계속 기다린다. */
 function frontmostApp(): string {
@@ -22,7 +25,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`real window capture (${scheme})`, async () => {
     mkdirSync(OUT, { recursive: true })
     const root = synthProject()
-    const { electronApp, page } = await launch({ colorScheme: scheme })
+    const { electronApp, page } = await launch({ colorScheme: scheme, env: { KNUAF_E2E_VISIBLE: '1' } })
     await openProject(page, root)
     await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
     await navTo(page, '점검')

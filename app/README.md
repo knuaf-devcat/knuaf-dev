@@ -57,6 +57,8 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 - `KNUAF_CLAUDE_MODEL=sonnet` — Claude 채팅 SDK 세션에 `model`을 고정합니다(테스트 전용).
 - `KNUAF_DRY_LAUNCH=1` — 외부 터미널 실행 스크립트를 쓰기만 하고 열지 않습니다(테스트 전용).
 - `KNUAF_LIVE=1` — `e2e/live-*.spec.ts`를 포함해 실행합니다. 실제 Claude/Codex 로그인과 구독 사용량이 필요하므로 기본 실행에서는 제외됩니다.
+- `KNUAF_WINDOW_SHOTS=1` — 실제 창을 맨 앞으로 올려 찍는 macOS 안내서 사진 생성기 `e2e/window-shots.spec.ts`를 함께 돌립니다: `KNUAF_WINDOW_SHOTS=1 pnpm -C app test:e2e`. e2e 창은 기본적으로 화면에 뜨지 않습니다(`KNUAF_E2E_HIDDEN=1` — 창을 눈으로 보려면 `KNUAF_E2E_VISIBLE=1`).
+- 화면 확인용: `app/e2e/watch-frontmost.sh <기록 파일> [초]`(macOS) — 0.5초 간격으로 화면 맨 앞 앱과 창이 화면에 있는 앱을 기록합니다.
 
 ## 패키징 (Phase 6)
 
