@@ -31,7 +31,9 @@ const target =
 
 const app = resolve(import.meta.dirname, '..')
 const out = resolve(app, 'resources', 'python')
-const marker = process.platform === 'win32' ? resolve(out, 'python.exe') : resolve(out, 'bin', 'python3')
+// 마커는 **대상** 플랫폼을 따른다 — `PBS_TARGET` 으로 다른 OS 런타임을 받을 수 있으므로
+// 호스트(process.platform)를 보면 윈도우 런타임을 받고도 `bin/python3` 을 찾다 실패한다.
+const marker = target.includes('windows') ? resolve(out, 'python.exe') : resolve(out, 'bin', 'python3')
 
 if (!force && existsSync(marker)) {
   console.log('python runtime already present →', out, '(use --force to re-download)')
