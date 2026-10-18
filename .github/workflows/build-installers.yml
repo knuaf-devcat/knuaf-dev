@@ -9,6 +9,19 @@ name: build-installers
 # - 발행: `--publish never`, 권한은 `contents: read` 뿐이다 — Release 자산·태그를 만들 수 없다.
 # - 결과: 워크플로 아티팩트(`installers-macos` / `installers-windows`)만.
 on:
+  # 기본 브랜치에 이 파일이 없으면 `workflow_dispatch` 는 거절된다
+  # (`HTTP 404: workflow not found on the default branch`). 그래서 설치본에 영향을 주는
+  # 파일이 바뀐 `feat/**` push 에서도 돈다. 배포 경로(`release.yml`)는 태그 전용 그대로다.
+  push:
+    branches: ["feat/**"]
+    paths:
+      - ".github/workflows/build-installers.yml"
+      - ".github/workflows/release.yml"
+      - "app/electron-builder.yml"
+      - "app/package.json"
+      - "app/pnpm-lock.yaml"
+      - "app/scripts/**"
+  # main 에 합쳐진 뒤에는 손으로도 돌린다.
   workflow_dispatch:
 
 permissions:

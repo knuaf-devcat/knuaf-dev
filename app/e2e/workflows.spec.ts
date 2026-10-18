@@ -22,6 +22,16 @@ function triggers(yaml: string): string {
   return rest.slice(0, end === -1 ? undefined : end).join('\n')
 }
 
+/** `on:` 안의 특정 트리거 블록만 뽑는다(그 다음 트리거 전까지). */
+function triggerBlock(yaml: string, name: string): string {
+  const lines = triggers(yaml).split('\n')
+  const start = lines.findIndex((l) => new RegExp(`^\\s{2}${name}:`).test(l))
+  expect(start, `${name}: 블록이 없다`).toBeGreaterThanOrEqual(0)
+  const rest = lines.slice(start + 1)
+  const end = rest.findIndex((l) => /^\s{2}\S/.test(l))
+  return rest.slice(0, end === -1 ? undefined : end).join('\n')
+}
+
 test('release.yml 은 태그 배포 전용이다 — 브랜치 수동 실행 경로가 없다 (W2-R1-01)', () => {
   const yaml = read('release.yml')
   const on = triggers(yaml)
@@ -31,12 +41,26 @@ test('release.yml 은 태그 배포 전용이다 — 브랜치 수동 실행 경
   expect(yaml, '태그 배포 경로의 서명 자격 주입이 사라졌다').toMatch(/secrets\.CSC_LINK/)
 })
 
-test('build-installers.yml 은 수동 실행 전용이고 비밀값·서명·공증·발행 경로가 없다 (W2-R1-01)', () => {
+test('build-installers.yml 은 설치본에 영향 주는 feat/** push 와 수동 실행에서만 돈다 (W2-R1-01)', () => {
   const raw = read('build-installers.yml')
   // 주석은 설정이 아니므로 뺀다 — 이 파일은 주석에서 `secrets` 를 언급한다.
   const yaml = raw.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
-  expect(triggers(raw)).toMatch(/workflow_dispatch/)
-  expect(yaml, '태그로도 돈다 — 배포 경로와 겹친다').not.toMatch(/^\s{2}push:/m)
+  const on = triggers(raw)
+  expect(on).toMatch(/workflow_dispatch/)
+  expect(on, '태그로도 돈다 — 배포 경로와 겹친다').not.toMatch(/tags:/)
+  // push 는 feat/** 로만, 설치본에 영향을 주는 파일에서만 돈다.
+  const push = triggerBlock(raw, 'push')
+  expect(push).toMatch(/branches:\s*\[\s*"feat\/\*\*"\s*\]/)
+  for (const glob of [
+    '.github/workflows/build-installers.yml',
+    '.github/workflows/release.yml',
+    'app/electron-builder.yml',
+    'app/package.json',
+    'app/pnpm-lock.yaml',
+    'app/scripts/**',
+  ]) {
+    expect(push, `paths 에 ${glob} 가 없다`).toContain(glob)
+  }
   // 비밀값: 참조 자체가 없어야 한다(`secrets: inherit` 포함).
   expect(yaml, '비밀값을 참조한다').not.toMatch(/secrets/)
   // 서명·공증: 자동 탐색을 끄고 공증을 명시적으로 끈다.
