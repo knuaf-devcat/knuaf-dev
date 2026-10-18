@@ -108,18 +108,22 @@ def test_ensure_hands_pip_utf8_env(empty_folder, monkeypatch):
 
 
 def _locale_decoding_subprocess(codec):
-    """`text=True` 에 encoding 을 주지 않은 호출을, 그 로케일로 해독하는 대역으로 만든다.
+    """encoding 을 생략한 **텍스트 모드** 호출을 그 로케일로 해독하는 대역으로 만든다.
 
     파이썬 3.10 에는 `subprocess._text_encoding`(3.11 이상에만 있는 사설 함수)이 없어 그것을
-    패치할 수 없다. 대신 제품 코드가 **로케일에 맡긴** 경우(encoding 을 지정하지 않았을 때)만
-    그 로케일 인코딩을 끼워 넣어 실제 cp1252·cp949 부모와 같은 조건을 만든다 — 3.10·3.11+ 에서
-    같은 방식으로 동작하고, 검사력도 그대로다(제품 코드가 encoding 을 지키면 아무것도 바꾸지
-    않으므로 통과, 지우면 로케일 해독으로 되돌아가 실패).
+    패치할 수 없다. 대신 제품 코드가 `encoding` 을 주지 않았을 때만 그 로케일 인코딩을 끼워 넣어
+    실제 cp1252·cp949 부모와 같은 조건을 만든다 — 3.10·3.11+ 에서 같은 방식으로 동작한다.
+
+    텍스트 모드 판정은 `text` 가 아니라 `subprocess` 의 실제 규칙을 따른다: `text`·`encoding`·
+    `errors`·`universal_newlines` 중 하나라도 있으면 텍스트 모드다(3.10 `subprocess.py` 의
+    `Popen.__init__`). 실제 pip 호출에는 `text=True` 가 없고 `errors="replace"` 만으로 텍스트
+    모드이므로, `text` 만 보면 `encoding` 단독 제거 회귀를 놓친다(W1MERGE-R1-01).
     """
     real_run = subprocess.run
 
     def run(cmd, **kw):
-        if "encoding" not in kw and kw.get("text"):
+        text_mode = any(kw.get(k) for k in ("text", "encoding", "errors", "universal_newlines"))
+        if text_mode and "encoding" not in kw:
             kw["encoding"] = codec
         return real_run(cmd, **kw)
 
