@@ -321,32 +321,27 @@ export function Chat() {
       {/* 아래 칸 — 질문 카드 · 허락 카드 · 작업 중 한 줄 · 입력칸이 이 한 자리를 번갈아 쓴다.
           무엇이 쓸지는 zone.ts 한 함수가 정한다(설계 §4-1). */}
       <div className="chat-zone">
-        {zone.kind === 'permission' && (() => {
-          // 상세를 나눈다 — 첫 줄은 명령·경로(작게), 나머지는 쉬운 말 이유(앞에). 상세는 접어 둔다(N-I05).
-          const lines = (zone.request.detail ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
-          const command = lines[0] ?? ''
-          const reason = lines.slice(1).join(' ')
-          return (
-            <div className="askcard" role="alert">
-              <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
-              <div className="askcard-t">{zone.request.title}</div>
-              {reason && <div className="askcard-why">{reason}</div>}
-              {command && <div className="askcard-cmd">{command}</div>}
-              <div className="caption">{CHAT.allowAlwaysHint}</div>
-              <Disclosure label={CHAT.askDetail}>
-                <div className="prose">{zone.request.detail}</div>
-              </Disclosure>
-              <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-                <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
-                {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
-                    폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
-                    그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
-                <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(zone.request.id, true) }}>{CHAT.allowAlways}</button>
-                <button onClick={() => void respond(zone.request.id, false)}>{CHAT.deny}</button>
-              </div>
+        {zone.kind === 'permission' && (
+          <div className="askcard" role="alert">
+            <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
+            <div className="askcard-t">{zone.request.title}</div>
+            {/* 합쳐진 detail 을 첫 줄=명령으로 나누지 않는다 — 여러 줄 명령(command 두 줄)이거나
+                이유만 있는 요청을 오분류했다(QA2A-R1-02). 원문을 줄바꿈 그대로 한 덩어리로 보여 준다. */}
+            {zone.request.detail && <div className="askcard-raw">{zone.request.detail}</div>}
+            <div className="caption">{CHAT.allowAlwaysHint}</div>
+            <Disclosure label={CHAT.askDetail}>
+              <div className="prose">{zone.request.detail}</div>
+            </Disclosure>
+            <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
+              <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
+              {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
+                  폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
+                  그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
+              <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(zone.request.id, true) }}>{CHAT.allowAlways}</button>
+              <button onClick={() => void respond(zone.request.id, false)}>{CHAT.deny}</button>
             </div>
-          )
-        })()}
+          </div>
+        )}
 
         {zone.kind === 'question' && (
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />

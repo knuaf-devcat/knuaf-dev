@@ -508,11 +508,9 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .askcard-h { display: flex; align-items: center; gap: var(--sp-2); font-size: 15px; font-weight: 650; }
 .ask-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attn); flex: none; }
 .askcard-t { font-size: 14.5px; color: var(--ink); line-height: 1.6; margin: 6px 0 4px; font-weight: 550; }
-/* 쉬운 말 이유(N-I05) — 명령·경로보다 앞에, 보통 글자로. */
-.askcard-why { font-size: 14.5px; color: var(--ink-2); line-height: 1.6; margin: 0 0 6px; }
-/* 명령·경로는 작게(시안 G 의 `.path`). */
-.askcard-cmd { font-family: var(--mono); font-size: 12.5px; color: var(--muted); word-break: break-all; white-space: pre-wrap;
-  background: color-mix(in srgb, var(--ink) 5%, transparent); border-radius: 8px; padding: 6px 9px; margin: 4px 0 8px; }
+/* 요청 원문을 **나누지 않고** 한 덩어리로 작게 — 첫 줄을 명령으로 단정하지 않는다(QA2A-R1-02). */
+.askcard-raw { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: pre-wrap; word-break: break-all;
+  max-height: 168px; overflow: auto; background: color-mix(in srgb, var(--ink) 5%, transparent); border-radius: 8px; padding: 6px 9px; margin: 4px 0 8px; }
 .askcard .prose { font-size: 0.8125rem; color: var(--ink-2); }
 
 /* ---- 아래 칸: 작업 중 한 줄 (DESIGN §3) — 입력칸은 쓸 수 있고 보내기만 멈추기 ---- */

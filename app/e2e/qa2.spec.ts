@@ -95,34 +95,67 @@ test('900×600 에서 질문 카드의 직접 입력 줄이 화면 안에 있고
   }
 })
 
-test('허락 카드가 쉬운 말 이유와 작은 명령을 함께 보여 준다 (N-I05)', async () => {
-  const dir = scratch()
-  // 가짜 서버가 command='cat /etc/hosts' + reason='논문 폴더 밖 파일을 읽으려고 해요' 를 보낸다.
+/** 허락 카드 장면을 세운다 — 가짜 서버가 준 command·reason 을 그대로 화면에 띄운다. */
+async function openAsk(dir: string, extra: Record<string, string>): Promise<{ electronApp: ElectronApplication; page: Page }> {
   const root = questionProject()
   seedChat(root, [questionMessage()])
-  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_ASK: '1' })
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_ASK: '1', ...extra })
   const { electronApp, page } = await launch({ env, userData: userDataWith(dir, { permission_mode: 'ask' }) })
-  try {
-    await openProject(page, root)
-    const card = page.locator('.qcard')
-    await expect(card).toBeVisible({ timeout: 30_000 })
-    await card.getByRole('radio', { name: /농협 공판장/ }).click()
+  await openProject(page, root)
+  const card = page.locator('.qcard')
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  await card.getByRole('radio', { name: /농협 공판장/ }).click()
+  await expect(page.locator('.askcard')).toBeVisible({ timeout: 30_000 })
+  return { electronApp, page }
+}
 
+test('허락 카드가 명령과 이유를 원문 그대로 한 덩어리로 보여 준다 (N-I05)', async () => {
+  // 가짜 서버가 command='cat /etc/hosts' + reason='논문 폴더 밖 파일을 읽으려고 해요' 를 보낸다.
+  const { electronApp, page } = await openAsk(scratch(), {})
+  try {
     const ask = page.locator('.askcard')
-    await expect(ask).toBeVisible({ timeout: 30_000 })
     await expect(ask).toContainText(CHAT.askTitle)
-    // 쉬운 말 이유가 남아 있다(예전엔 command ?? reason 이 이유를 버렸다).
-    await expect(ask.locator('.askcard-why')).toContainText('논문 폴더 밖 파일을 읽으려고 해요')
-    // 명령은 작게.
-    await expect(ask.locator('.askcard-cmd')).toContainText('cat /etc/hosts')
-    expect(await ask.locator('.askcard-cmd').evaluate((el) => getComputedStyle(el).fontSize)).toBe('12.5px')
-    // 상세는 접혀 있고, 펼치면 전문이 있다.
+    // 위 제목은 기존 쉬운 말 그대로.
+    await expect(ask.locator('.askcard-t')).toHaveText('명령 실행 확인')
+    // 원문(명령 + 이유)이 한 덩어리로, 작은 글자로 남아 있다 — 나뉘지 않는다(QA2A-R1-02).
+    const raw = ask.locator('.askcard-raw')
+    await expect(raw).toContainText('cat /etc/hosts')
+    await expect(raw).toContainText('논문 폴더 밖 파일을 읽으려고 해요')
+    expect(await raw.evaluate((el) => getComputedStyle(el).fontSize)).toBe('12.5px')
+    await expect(ask.locator('.askcard-cmd, .askcard-why')).toHaveCount(0)
+    // 상세는 접혀 있고, 펼치면 원문 전체가 있다.
     const detail = ask.locator('details:has(summary:has-text("' + CHAT.askDetail + '"))')
     await expect(detail.locator('.prose')).toBeHidden()
     await detail.locator('summary').click()
     await expect(detail.locator('.prose')).toContainText('cat /etc/hosts')
+    await expect(detail.locator('.prose')).toContainText('논문 폴더 밖 파일을 읽으려고 해요')
     // 버튼은 그대로.
     await expect(ask.getByRole('button', { name: CHAT.allow, exact: true })).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('두 줄 명령도 순서가 뒤섞이지 않는다 (QA2A-R1-02 A)', async () => {
+  const cmd = 'printf "first"\nprintf "second"'
+  const { electronApp, page } = await openAsk(scratch(), { FAKE_CODEX_ASK_COMMAND: cmd })
+  try {
+    const raw = page.locator('.askcard-raw')
+    // 첫 줄을 명령으로 단정하지 않으므로 두 줄이 원문 순서대로 한 덩어리로 남는다.
+    expect(await raw.innerText()).toBe(`${cmd}\n\n논문 폴더 밖 파일을 읽으려고 해요`)
+    await expect(page.locator('.askcard-cmd, .askcard-why')).toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('이유만 있는 요청을 명령으로 오분류하지 않는다 (QA2A-R1-02 B)', async () => {
+  const reason = '논문 폴더 밖 파일을 읽으려고 해요'
+  const { electronApp, page } = await openAsk(scratch(), { FAKE_CODEX_ASK_COMMAND: '' })
+  try {
+    await expect(page.locator('.askcard-raw')).toHaveText(reason)
+    await expect(page.locator('.askcard-t')).toHaveText('명령 실행 확인')
+    await expect(page.locator('.askcard-cmd, .askcard-why')).toHaveCount(0)
   } finally {
     await electronApp.close()
   }
