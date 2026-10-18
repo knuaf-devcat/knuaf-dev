@@ -10,8 +10,10 @@ import { writeCliShim } from './fixtures/fake-codex'
 // 뒤 status() 에서 멈추는 동안 busy 가 잡힌다.
 test('a running chat turn rejects sidecar writes with agent_busy, then recovers', async () => {
   const bindir = mkdtempSync(join(tmpdir(), 'kd-bin-'))
-  // 핸드셰이크에 영원히 답하지 않는 가짜 codex — 유닉스는 sleep, 윈도우는 ping 으로 시간을 끈다.
-  writeCliShim(bindir, 'codex', 'sleep 300', 'ping -n 300 127.0.0.1 >nul')
+  // 핸드셰이크에 응답하지 않는 가짜 codex — **절대 경로 node** 로 살아만 있는다.
+  // 이 시험은 PATH 를 좁히므로(system32 없음) `ping` 같은 셸 도구에 기대면 윈도우에서
+  // 즉시 죽어 busy 가 잡히지 않는다(CI 3차).
+  writeCliShim(bindir, 'codex', 'sleep 300', `"${process.execPath}" -e "setInterval(()=>{},1000)"`)
   const root = synthProject({ withContent: false })
   plantStaleLock(root) // gives lock.unlock something real to release on the second attempt
   const { electronApp, page } = await launch({ env: { PATH: [bindir, '/usr/bin', '/bin'].join(delimiter) } })

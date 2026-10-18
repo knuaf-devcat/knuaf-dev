@@ -7,6 +7,7 @@ import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
+import { writeCliShim } from './fixtures/fake-codex'
 import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
 import type { ConnectionStatus } from '../src/shared/chat'
@@ -258,11 +259,6 @@ test('다시 열기는 로그인 주소를 다시 연다', async () => {
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch { return false }
 }
-/** 가짜 CLI 가 남긴 마지막 PID. */
-function lastPid(file: string): number {
-  const lines = readFileSync(file, 'utf-8').trim().split('\n')
-  return Number(lines[lines.length - 1])
-}
 async function until(ok: () => boolean, ms = 5_000): Promise<boolean> {
   const end = Date.now() + ms
   while (Date.now() < end) { if (ok()) return true; await new Promise((r) => setTimeout(r, 20)) }
@@ -270,34 +266,32 @@ async function until(ok: () => boolean, ms = 5_000): Promise<boolean> {
 }
 
 test('다시 열기 뒤 취소는 새 로그인 프로세스까지 끝낸다 (P2-R1-02)', async () => {
-  // 아무 계정도 쓰지 않는 가짜 실행 파일이 자기의 PID 를 남긴다 — 그 PID 의 생사만 본다.
+  // 오래 살아 있는 가짜 로그인 CLI. PID 는 **연결이 기록한** `loginProcess.pid` 를 읽는다 —
+  // 윈도우 배치는 자기 PID 를 쓸 수 없고(`%PROCESSID%` 가 없다), 우리가 보는 것은 자식
+  // 프로세스 자체(cmd.exe)의 생사다. 본문은 유닉스 `sleep`, 윈도우는 **절대경로 node** 로
+  // 살아만 있는다(PATH·셸 도구에 기대지 않는다 — CI 3차에서 `ping` 이 좁은 PATH 에 없어 죽었다).
   const dir = mkdtempSync(join(tmpdir(), 'kd-claude-'))
-  const pidFile = join(dir, 'pids')
-  const cli = join(dir, 'claude')
-  writeFileSync(cli, `#!/bin/sh\necho $$ >> ${JSON.stringify(pidFile)}\nexec sleep 300\n`, 'utf-8')
-  chmodSync(cli, 0o755)
+  writeCliShim(dir, 'claude', 'exec sleep 300', `"${process.execPath}" -e "setTimeout(()=>{},60000)"`)
+  const cli = join(dir, process.platform === 'win32' ? 'claude.cmd' : 'claude')
   const options: AgentOptions = { binary: cli, root: dir, skill: source, env: {}, openExternal: async () => {} }
   const conn = new ClaudeConnection(options)
+  const pidOf = (): number | undefined => (conn as unknown as { loginProcess?: { pid?: number } }).loginProcess?.pid
   try {
     await conn.login()                                   // A
-    expect(await until(() => existsSync(pidFile))).toBe(true)
-    const a = lastPid(pidFile)
+    const a = pidOf()
+    expect(a, '로그인 프로세스가 뜨지 않았다').toBeTruthy()
     await conn.reopenLogin()                             // A 를 끝내고 B 를 띄운다
-    expect(await until(() => !alive(a)), '이전 프로세스가 끝나지 않았다').toBe(true)
-    const b = lastPid(pidFile)
-    expect(b).not.toBe(a)
+    expect(await until(() => !alive(a!)), '이전 프로세스가 끝나지 않았다').toBe(true)
     // 이전 자식(A)의 종료가 **살아 있는 새 자식(B)** 의 추적을 지우면 안 된다.
-    const tracked = (conn as unknown as { loginProcess?: { pid?: number } }).loginProcess
-    expect(tracked?.pid, '살아 있는 새 프로세스의 추적이 사라졌다').toBe(b)
+    const b = pidOf()
+    expect(b, '살아 있는 새 프로세스의 추적이 사라졌다').toBeTruthy()
+    expect(b).not.toBe(a)
+    expect(alive(b!), '새 로그인 프로세스가 살아 있지 않다').toBe(true)
     await conn.cancelLogin()
-    expect(await until(() => !alive(b)), '취소가 새 로그인 프로세스를 죽이지 않았다').toBe(true)
-    expect((conn as unknown as { loginProcess?: unknown }).loginProcess).toBeUndefined()
+    expect(await until(() => !alive(b!)), '취소가 새 로그인 프로세스를 죽이지 않았다').toBe(true)
+    expect(pidOf()).toBeUndefined()
   } finally {
     await conn.stop()
-    if (existsSync(pidFile)) for (const line of readFileSync(pidFile, 'utf-8').trim().split('\n')) {
-      const pid = Number(line)
-      if (pid && alive(pid)) { try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ } }
-    }
   }
 })
 
