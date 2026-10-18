@@ -20,11 +20,13 @@ const NO_FOLDER = 'text=논문 작업 폴더를 골라 주세요'
 /** 도우미가 없는 새 폴더(revision 0) — 첫 마디가 `이어서 하기`가 아니라 `시작하기`가 된다. */
 const synthProjectNoContent = (): string => synthProject({ withContent: false })
 const settings = (userData: string) => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8'))
-// 확인용 캡처는 저장소 밖 설계 폴더에 남긴다 — `docs/images/` 는 학생 안내서 사진이라
-// 스크린샷 spec 이 실행할 때마다 덮어쓴다(책임자 지시). 실기기 캡처(window-shots.spec.ts)는
-// macOS 화면 기록 권한과 "우리 앱이 맨 앞"을 요구해 회색으로 실패하기도 한다 — 이 화면은
-// 웹 층만 보면 되므로 page.screenshot 으로 남긴다.
-const SHOTS = process.env.KNUAF_SHOTS_DIR ?? resolve('/Users/nara/knuaf-dev/docs/design/gui-2026-10-opus-v5/impl/shots-p2')
+// 확인용 캡처는 `KNUAF_SHOTS_DIR` 로 받는다. 없으면 **저장소 밖 설계 폴더가 아니라**
+// git 이 무시하는 `app/test-results` 아래에 남긴다 — 저장소 안(`docs/images/`)에는 쓰지 않는다.
+// 예전에는 설계 폴더를 기본값으로 두고 그 존재 여부를 파일 머리에서 `test.skip` 으로 봤는데,
+// 그러면 그 폴더가 없는 CI(맥·윈도우 모두)에서 **온보딩 15건이 통째로** 사라졌다(2026-10-18 지적).
+const SHOTS = process.env.KNUAF_SHOTS_DIR ?? resolve(__dirname, '..', 'test-results', 'onboarding-shots')
+/** 캡처 시험 **전용** skip — 자리를 콕 집어 준 경우에만 그 자리를 따진다. 나머지 시험은 언제나 돈다. */
+const noShots = process.env.KNUAF_SHOTS_DIR !== undefined && !existsSync(dirname(SHOTS))
 const noTool = () => {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
@@ -104,12 +106,10 @@ test('PATH 로 도구를 찾을 수 없으면 그렇게 말하고 다시 확인�
   await electronApp.close()
 })
 
-/**
- * 화면 캡처. 저장 위치가 없는 기계(CI 등)에서는 건너뛴다 — 저장소 안에 쓰지 않는다.
- */
-test.skip(!existsSync(dirname(SHOTS)), 'capture destination is outside this checkout')
+/** 화면 캡처 — 자리를 콕 집어 준 경우에만 그 자리를 따진다(위 `noShots`). */
 for (const scheme of ['light', 'dark'] as const) {
   test(`첫 실행 화면 캡처 (${scheme}) — 도구 없음`, async () => {
+    test.skip(noShots, 'capture destination is outside this checkout')
     const { userData, env } = noTool()
     const { electronApp, page } = await launch({ userData, onboarded: false, colorScheme: scheme, waitFor: INTRO, env })
     await page.setViewportSize({ width: 1180, height: 800 })
@@ -282,6 +282,7 @@ test('이미 지난 학생이 최근 논문을 열 때는 온보딩을 거치지
 /** 연결 장면 캡처 — 1단계(둘 다 연결됨)와 2단계. */
 for (const scheme of ['light', 'dark'] as const) {
   test(`연결된 첫 실행 화면 캡처 (${scheme})`, async () => {
+    test.skip(noShots, 'capture destination is outside this checkout')
     const dir = scratch()
     const bin = join(dir, 'bin')
     const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
