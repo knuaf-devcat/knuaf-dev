@@ -27,6 +27,18 @@ function messageOf(r: Reply<unknown>): string | null {
   return 'error' in r && r.error ? r.error.message : null
 }
 
+/**
+ * 전송이 끝난 뒤 초안을 무엇으로 둘지.
+ *
+ * main 은 실행 중 스냅샷을 먼저 보내고 전송 응답을 나중에 돌려준다(service.ts). 그래서
+ * 응답이 돌아올 때까지 학생이 다음 말을 쓸 수 있고, 그때 성공했다고 초안을 비우면 그
+ * 글이 사라진다(검토 IMPL-R1-01). 문자열 비교로는 "같은 문장을 지웠다 다시 쓴" 경우를
+ * 구분할 수 없다 — 초안 편집 번호(`draftSeq`)를 비교한다.
+ */
+export function draftAfterSend(seqAtSend: number, seqNow: number, current: string): string {
+  return seqNow === seqAtSend ? '' : current
+}
+
 interface ChatState {
   root: string | null
   provider: Provider
@@ -35,6 +47,8 @@ interface ChatState {
   /** status 호출 자체가 실패 — 확정된 실패지 "확인 중"이 아니다. 가짜 status를 만들지 않고 구분한다. */
   statusFailed: boolean
   draft: string
+  /** 초안 편집 번호 — 학생이 초안을 바꾼 모든 경로가 1씩 올린다(`draftAfterSend` 판정용). */
+  draftSeq: number
   busy: boolean
   error: string | null
   /** Session override; null = follow settings.helper_mode / codex_terminal. */
@@ -54,8 +68,9 @@ interface ChatState {
   load: (root: string, provider?: Provider) => Promise<void>
   refreshStatus: () => Promise<void>
   login: () => Promise<void>
-  /** Send `text` (defaults to the draft) with a fresh requestId; clears the draft on acceptance. */
-  send: (text?: string) => Promise<void>
+  /** Send `text` (defaults to the draft) with a fresh requestId; clears the draft on acceptance.
+   *  Returns false when the send was refused — the question card unlocks itself on refusal. */
+  send: (text?: string) => Promise<boolean>
   respond: (id: string, allow: boolean) => Promise<void>
   stop: () => Promise<void>
   /** Push target for window.knuaf.onChatSnapshot; ignores snapshots for other roots/providers. */
@@ -73,11 +88,12 @@ export const useChat = create<ChatState>((set, get) => ({
   status: null,
   statusFailed: false,
   draft: '',
+  draftSeq: 0,
   busy: false,
   error: null,
   mode: null,
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
-  setDraft: (draft) => { set({ draft }); const r = get().root; if (r) void window.knuaf.chat.setDraft(r, draft) },
+  setDraft: (draft) => { set((s) => ({ draft, draftSeq: s.draftSeq + 1 })); const r = get().root; if (r) void window.knuaf.chat.setDraft(r, draft) },
   insertPath: (path) => {
     const d = get().draft
     get().setDraft(d ? (d.endsWith('\n') ? d + path : d + '\n' + path) : path)
@@ -91,7 +107,7 @@ export const useChat = create<ChatState>((set, get) => ({
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
     // 사이 붙인 첨부 경로나 쓴 글이 말없이 사라진다.
     const switching = get().root !== root
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(switching ? { draft: '' } : {}) })
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {}) })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
@@ -107,11 +123,13 @@ export const useChat = create<ChatState>((set, get) => ({
     // 달라져 위 가드에서 빠지고 두 번째는 switching 이 false 라 건너뛰어 아무도
     // 복원하지 않았다. 기준은 "같은 폴더인가"가 아니라 "화면에 학생 것이 있는가"다.
     const typedMeanwhile = get().draft !== ''
+    const savedDraft = 'result' in saved ? saved.result : ''
     set({
       snapshot: 'result' in snap ? snap.result : null,
       status: 'result' in st ? st.result : null,
       statusFailed: !('result' in st),
-      ...(typedMeanwhile ? {} : { draft: 'result' in saved ? saved.result : '' }),
+      // 디스크 값을 불러오는 것도 초안 편집으로 센다(설계 §4-1).
+      ...(typedMeanwhile ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
       error: messageOf(snap) ?? messageOf(st)
     })
   },
@@ -144,16 +162,21 @@ export const useChat = create<ChatState>((set, get) => ({
   send: async (text) => {
     const { root, provider, draft } = get()
     const body = (text ?? draft).trim()
-    if (!root || !body) return
+    if (!root || !body) return false
+    // 보낼 때의 초안 편집 번호. 응답이 돌아올 때까지 한 번이라도 바뀌었으면 그 글이 최신이다.
+    const seqAtSend = get().draftSeq
     set({ busy: true, error: null })
     const requestId = crypto.randomUUID()
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
     if ('result' in r) {
-      const keep = text === undefined ? '' : get().draft
+      // 보기를 눌러 보낸 `send(text)` 는 초안을 건드리지 않는다 — 학생이 쓰던 글이 남는다.
+      const keep = text === undefined ? draftAfterSend(seqAtSend, get().draftSeq, get().draft) : get().draft
       set({ busy: false, snapshot: r.result, draft: keep })
-      void window.knuaf.chat.setDraft(root, keep)   // 보낸 뒤에는 남겨 둘 초안이 없다
+      void window.knuaf.chat.setDraft(root, keep)
+      return true
     }
-    else set({ busy: false, error: messageOf(r) })
+    set({ busy: false, error: messageOf(r) })
+    return false
   },
   respond: async (id, allow) => {
     const { root, provider } = get()
