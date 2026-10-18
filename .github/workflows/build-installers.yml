@@ -1,7 +1,8 @@
 name: build-installers
 # 설치본이 **만들어지는지**만 확인하는 워크플로다. 배포하지 않는다(W2-R1-01).
 #
-# - 트리거: 수동 실행만(`workflow_dispatch`). 브랜치에서 돌리려면
+# - 트리거: `feat/**` push 중 **설치본에 영향을 주는 파일이 바뀐 경우**(아래 `paths`)와
+#   `workflow_dispatch`. 수동 실행은 이 파일이 기본 브랜치에 있어야 동작한다 —
 #     gh workflow run build-installers.yml --ref <branch>
 # - 비밀값: **하나도 받지 않는다.** 이 파일에 `secrets.` 참조가 없고, 서명 자동 탐색도 끈다
 #   (`CSC_IDENTITY_AUTO_DISCOVERY=false`). 공증은 명령에서 끈다(`--config.mac.notarize=false`).
