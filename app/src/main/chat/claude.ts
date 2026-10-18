@@ -80,9 +80,26 @@ function tokens(seg: string): string[] {
   return out
 }
 
+/**
+ * 이 낱말이 "경로처럼 생겼는가" — 폴더 밖 검사를 걸어야 하는지 정한다.
+ *
+ * 윈도우에는 구분자가 둘(`/`·`\`)이고 드라이브 문자(`C:`)·UNC(`\\server\share`)가 따로 있다.
+ * `/` 만 보면 `D:\…\재무계획.xlsx` 가 평범한 낱말로 읽혀 **폴더 밖 검사를 통째로 건너뛴다** —
+ * 폴더 밖 파일을 읽는 셸 명령이 묻지 않고 자동 허용되던 구멍이다(형님 승인 W1 연결 기제 ③).
+ *
+ * 맥에서는 종전 그대로 `/` 만 본다 — 거기서 `\` 는 **파일명에 들어갈 수 있는 글자**라
+ * 구분자로 읽으면 안 된다(맥 판정 불변).
+ */
+export function looksLikePath(a: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (a === '.' || a === '..') return true
+  if (a.includes('/')) return true
+  if (platform !== 'win32') return false
+  return a.includes('\\') || /^[A-Za-z]:/.test(a)
+}
+
 /** 경로처럼 생긴 인자는 전부 작업폴더 안이어야 한다. 플래그와 평범한 낱말은 통과. */
 function argsInRoot(root: string, args: string[]): boolean {
-  return args.every((a) => a.startsWith('-') || !(a.includes('/') || a === '.' || a === '..') || outsideRoot(root, a) === null)
+  return args.every((a) => a.startsWith('-') || !looksLikePath(a) || outsideRoot(root, a) === null)
 }
 
 /**
@@ -137,7 +154,7 @@ function bashOutside(root: string, raw: string): string[] | null {
   for (const seg of cmd.split(/\s*(?:\|\||&&|;|\|)\s*/)) {
     // 실행 파일 자체(/usr/bin/grep 등)는 뺀다 — argsInRoot 와 같은 범위.
     for (const a of tokens(seg).slice(1)) {
-      if (a.startsWith('-') || !(a.includes('/') || a === '.' || a === '..')) continue
+      if (a.startsWith('-') || !looksLikePath(a)) continue
       const o = outsideRoot(root, a)
       if (o && !out.includes(o)) out.push(o)
     }

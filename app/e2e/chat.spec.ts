@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { skillSource, VERSION_FILE } from '../src/main/agent'
-import { autoAllow, describeTool, lostToolCalls } from '../src/main/chat/claude'
+import { autoAllow, describeTool, looksLikePath, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
 import { subscriptionEnv } from '../src/main/chat/contracts'
 import type { AgentConnection } from '../src/main/chat/contracts'
@@ -404,6 +404,40 @@ test('등록된 출처 파일은 폴더 밖이어도 읽을 수 있다', () => {
   expect(autoAllow(ROOT, 'Read', { file_path: '/Users/s/바탕화면/다른것.xlsx' }, [xlsx])).toBe(false)
   // 목록에 있어도 셸은 별개다.
   expect(autoAllow(ROOT, 'Bash', { command: `cat "${xlsx}"` }, [xlsx])).toBe(false)
+})
+
+/**
+ * 형님 승인 W1 연결 기제 ③ (보안). 윈도우는 구분자가 둘(`/`·`\`)이고 드라이브 문자·UNC 가
+ * 따로 있는데, `/` 만 보면 `D:\…` 가 "평범한 낱말"로 읽혀 폴더 밖 검사를 통째로 건너뛴다.
+ */
+test('경로 판정은 구분자 무관이다 — 윈도우 `D:\`·UNC·드라이브 문자 (W1 ③)', () => {
+  // 맥 판정 불변: 여기서 `\` 는 파일명에 들어갈 수 있는 글자라 경로가 아니다.
+  for (const a of ['a\\b', 'build\\probe.docx', 'D:\\x', 'C:foo', '\\\\srv\\share']) {
+    expect(looksLikePath(a, 'darwin'), a).toBe(false)
+  }
+  expect(looksLikePath('a/b', 'darwin')).toBe(true)
+  expect(looksLikePath('.', 'darwin')).toBe(true)
+  expect(looksLikePath('..', 'darwin')).toBe(true)
+  // 윈도우: `\`·드라이브 문자·UNC 를 전부 경로로 본다.
+  for (const a of ['D:\\참고자료\\재무계획.xlsx', 'C:/x', 'C:foo', '\\\\srv\\share\\x', 'build\\probe.docx']) {
+    expect(looksLikePath(a, 'win32'), a).toBe(true)
+  }
+  // 평범한 낱말·플래그는 두 플랫폼 모두 경로가 아니다(묻지 않고 통과하는 쪽은 그대로).
+  for (const a of ['doctor', '--version', '-c', 'project,local', '']) {
+    expect(looksLikePath(a, 'win32'), a).toBe(false)
+    expect(looksLikePath(a, 'darwin'), a).toBe(false)
+  }
+})
+
+test('폴더 밖 윈도우 경로를 읽는 셸은 자동 허용하지 않는다 (W1 ③)', () => {
+  // 이 판정은 그 플랫폼의 `resolve` 가 있어야 의미가 있다 — 맥에서는 `D:\…` 가 그냥 파일명이고
+  // 폴더 안 상대경로로 접히는 것이 맞다(맥 판정 불변). 그래서 윈도우에서만 단언한다.
+  if (process.platform !== 'win32') return
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "D:\\참고자료\\재무계획.xlsx"' })).toBe(false)
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "C:\\Users\\s\\.ssh\\id_rsa"' })).toBe(false)
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "\\\\srv\\공유\\남의논문.md"' })).toBe(false)
+  // 폴더 안 윈도우 경로는 그대로 통과해야 한다(과잉 차단 방지).
+  expect(autoAllow(ROOT, 'Bash', { command: `cat "${ROOT}\\sources\\a.md"` })).toBe(true)
 })
 
 test('모르는 도구는 묻는다', () => {
