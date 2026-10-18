@@ -58,6 +58,10 @@ test('build-installers.yml 은 설치본에 영향 주는 feat/** push 와 수�
     'app/package.json',
     'app/pnpm-lock.yaml',
     'app/scripts/**',
+    // 설치본에 실제로 들어가는 입력 — 이게 빠지면 요구 파일·스킬·안내만 바뀐 push 에서
+    // 설치본 확인이 조용히 돌지 않는다.
+    'skills/knuaf-dev/**',
+    'docs/학생용-사용안내.*',
   ]) {
     expect(push, `paths 에 ${glob} 가 없다`).toContain(glob)
   }

@@ -21,6 +21,10 @@ on:
       - "app/package.json"
       - "app/pnpm-lock.yaml"
       - "app/scripts/**"
+      # 설치본에 실제로 들어가는 입력 — stage:skill 이 싣고 build:wheelhouse 가 읽는다.
+      - "skills/knuaf-dev/**"
+      # build:guide 가 읽고 설치본에 실린다(안내 PDF·HTML).
+      - "docs/학생용-사용안내.*"
   # main 에 합쳐진 뒤에는 손으로도 돌린다.
   workflow_dispatch:
 
