@@ -1,7 +1,7 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import {
@@ -36,6 +36,27 @@ test.describe('findExecutable / probeVersion', () => {
   test('falls back to the extra dirs when PATH is empty', () => {
     // Same answer without PATH: the fallback dirs must cover the usual installs.
     expect(findExecutable('claude', { PATH: '', HOME: process.env.HOME })).toBe(claudePath)
+  })
+
+  /**
+   * 검토 W1D-R1-02 — 복사된 환경(`AgentCtx.env`·시험 입력)은 일반 객체라 윈도우의 실제 키
+   * `Path` 를 쓴다. 같은 원인으로 도구를 못 찾으면 안 된다. 맥은 `Path` 가 별개 변수다.
+   */
+  test('복사된 환경에서도 PATH 를 찾는다 — 윈도우는 키 이름을 대소문자 무시로 (W1D-R1-02)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kd-env-'))
+    const win = process.platform === 'win32'
+    const file = join(dir, win ? 'knuaf-probe-tool.cmd' : 'knuaf-probe-tool')
+    writeFileSync(file, win ? '@echo off\r\n' : '#!/bin/sh\nexit 0\n', 'utf-8')
+    if (!win) chmodSync(file, 0o755)
+    if (win) {
+      // 윈도우에서 실제 키는 `Path` 다 — 복사본에서도 찾아야 한다.
+      expect(findExecutable('knuaf-probe-tool', { Path: dir, USERPROFILE: dir })).toBe(file)
+      expect(findExecutable('knuaf-probe-tool', { PATH: dir, USERPROFILE: dir })).toBe(file)
+    } else {
+      // 맥에서는 `Path` 와 `PATH` 가 서로 다른 변수다 — `Path` 만으로는 찾지 않는다(맥 판정 불변).
+      expect(findExecutable('knuaf-probe-tool', { Path: dir, HOME: dir })).toBeNull()
+      expect(findExecutable('knuaf-probe-tool', { PATH: dir, HOME: dir })).toBe(file)
+    }
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {

@@ -39,10 +39,12 @@ function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => 
 }
 
 /**
- * PATH 값 읽기 — 윈도우는 환경변수 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인 경우가
- * 많다(`{...process.env}` 는 그 키를 그대로 복사한다). 두 플랫폼에서 같은 방식으로 읽는다.
+ * PATH 값 읽기. 윈도우는 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인 경우가 많으므로
+ * 대소문자 무시로 찾는다. 맥·리눅스에서는 `PATH` 와 `Path` 가 **서로 다른 변수**이므로 그대로
+ * `PATH` 만 읽는다 — 여기서 대소문자를 무시하면 맥 시험이 거짓 실패한다(검토 W1D-R1-01).
  */
 function pathOf(env: NodeJS.ProcessEnv): string {
+  if (process.platform !== 'win32') return env.PATH ?? ''
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH')
   return (key ? env[key] : '') ?? ''
 }
@@ -87,8 +89,9 @@ test('subscriptionEnv 는 PATH 를 플랫폼 구분자로 잇는다 (W1 ②)', (
   const win = process.platform === 'win32'
   const env = subscriptionEnv(extras)
   expect(pathOf(env)).toBe(win ? expectedWin : expectedPosix)
-  // 대소문자만 다른 PATH 키가 둘 생기면 자식이 어느 쪽을 볼지 알 수 없다 — 하나여야 한다.
-  expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), 'PATH 키가 중복됐다').toHaveLength(1)
+  // 윈도우에서 대소문자만 다른 PATH 키가 둘 남으면 자식이 어느 쪽을 볼지 알 수 없다 — 하나여야 한다.
+  // 맥에서는 `PATH` 와 `Path` 가 서로 다른 변수라 둘 다 있는 것이 맞다(검토 W1D-R1-01).
+  if (win) expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), 'PATH 키가 중복됐다').toHaveLength(1)
   // 구분자 자체도 못 박는다 — 윈도우 `;`, 그 밖 `:`.
   expect(delimiter).toBe(win ? ';' : ':')
 
@@ -113,9 +116,21 @@ test('윈도우에서는 기존 PATH 키(대소문자 무시)에 이어 쓴다 (
   expect(pathKeyOf({ PATH: 'C:\\x' }, 'win32')).toBe('PATH')
   expect(pathKeyOf({ PATHx: 'C:\\x' }, 'win32'), '다른 이름은 건드리지 않는다').toBe('PATH')
   expect(pathKeyOf({}, 'win32')).toBe('PATH')
-  // 맥·리눅스는 종전 그대로 `PATH`.
+
+  // 혼합 키: Node 는 자식에게 사전순 첫 키(`PATH`)만 넘긴다 — 하나로 정리하고 그 키를 쓴다
+  // (검토 W1D-R1-02). 삽입 순서가 아니라 사전순이 기준이다.
+  for (const mixed of [{ Path: 'C:\\system', PATH: 'C:\\override' }, { PATH: 'C:\\override', Path: 'C:\\system' }]) {
+    const env: NodeJS.ProcessEnv = { ...mixed }
+    expect(pathKeyOf(env, 'win32')).toBe('PATH')
+    expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), '중복 키가 남았다').toEqual(['PATH'])
+  }
+
+  // 맥·리눅스는 종전 그대로 `PATH` 이고, 아무 키도 지우지 않는다(`Path` 는 별개 변수다).
   expect(pathKeyOf({ Path: 'C:\\x' }, 'darwin')).toBe('PATH')
   expect(pathKeyOf({}, 'darwin')).toBe('PATH')
+  const mac: NodeJS.ProcessEnv = { PATH: '/usr/bin', Path: '/separate' }
+  expect(pathKeyOf(mac, 'darwin')).toBe('PATH')
+  expect(Object.keys(mac).filter((k) => k.toUpperCase() === 'PATH'), '맥에서 키를 지웠다').toEqual(['PATH', 'Path'])
 })
 
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {

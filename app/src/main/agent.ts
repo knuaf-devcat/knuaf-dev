@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
+import { pathKeyOf } from './chat/contracts'
 
 // ---------------------------------------------------------------- types
 
@@ -100,7 +101,9 @@ function isExecutableFile(p: string): boolean {
 export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
   const home = env.HOME ?? env.USERPROFILE ?? ''
   const sep = process.platform === 'win32' ? ';' : ':'
-  const fromPath = (env.PATH ?? '').split(sep).filter(Boolean)
+  // 윈도우에서 실제 키는 `Path` 인 경우가 많다 — 복사된 env(`AgentCtx.env`·시험 입력)에서도
+  // 같은 규칙으로 읽어야 도구를 찾는다(검토 W1D-R1-02). 맥은 종전 그대로 `PATH`.
+  const fromPath = (env[pathKeyOf(env)] ?? '').split(sep).filter(Boolean)
   const dirs = env.KNUAF_AGENT_PATH_ONLY === '1' ? fromPath : [...fromPath, ...EXTRA_DIRS(home)]
   const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
   const seen = new Set<string>()

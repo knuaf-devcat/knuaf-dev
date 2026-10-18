@@ -34,12 +34,21 @@ export interface AgentOptions {
 /**
  * PATH 를 쓸 **키** 이름. 윈도우는 환경변수 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인
  * 경우가 많다 — `{...process.env}` 는 있는 그대로 복사하므로 새 `PATH` 키를 만들면 시스템 PATH 가
- * `Path` 에 남아 자식에게서 사라진다(윈도우 CI 3차: AI 도구 자식이 node·시스템 경로를 못 찾았다).
- * 그래서 기존 키를 찾아 거기에 잇고, 중복 키를 만들지 않는다. 맥·리눅스는 종전 그대로 `PATH`.
+ * `Path` 에 남아 자식에게서 사라진다(윈도우 CI 3차). 맥·리눅스는 종전 그대로 `PATH`.
+ *
+ * 혼합 키(`PATH`·`Path` 공존)가 있으면 윈도우에서는 **하나로 정리한다**: Node 는 자식에게 env 키를
+ * 사전순으로 정렬해 대소문자가 같은 첫 키만 전달하므로, 그 키(`PATH` < `Path`)를 남기고 나머지를
+ * 지운다. 그러지 않으면 우리가 앞에 붙인 경로가 자식에게 닿지 않는다(검토 W1D-R1-02).
+ *
+ * **부작용(win32)**: 넘겨받은 객체에서 중복 PATH 키를 지운다. 맥·리눅스는 아무것도 지우지 않는다
+ * (`PATH` 와 `Path` 는 거기서 서로 다른 변수다).
  */
 export function pathKeyOf(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
   if (platform !== 'win32') return 'PATH'
-  return Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+  const keys = Object.keys(env).filter((k) => k.toUpperCase() === 'PATH').sort()
+  if (keys.length === 0) return 'PATH'
+  for (const k of keys.slice(1)) delete env[k]
+  return keys[0]
 }
 
 export function subscriptionEnv(extraPathDirs: string[] = []): NodeJS.ProcessEnv {
