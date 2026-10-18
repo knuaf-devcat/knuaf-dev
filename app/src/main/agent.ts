@@ -338,6 +338,16 @@ function batQuote(s: string): string {
 const BAT_META = /([()\][!^"`<>&|;, *?])/g
 
 /**
+ * 배치의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
+ * 막는다(`win.ts` 의 `escapeCommand` 와 같은 규칙 — `%` 는 배치 확장이라 `%%`).
+ * 두 층으로 막으면 첫 cmd 해석 뒤에도 `^` 가 남아 실행 파일 이름을 찾지 못한다
+ * (W1C-R1-01 확인. cross-spawn `parse.js` 도 명령에는 `escape.command` 만 쓴다).
+ */
+function batCommand(s: string): string {
+  return batLiteral(s).replace(BAT_META, '^$1')
+}
+
+/**
  * 배치 파일의 **실행 줄**에 넣을 인자 하나. 확장 단계가 명령줄과 달라 `win.ts` 의 함수를
  * 쓰지 않는다(W1C-R1-01). 순서가 중요하다:
  *   1. `%` → `%%` — 배치 확장은 여기서만 막을 수 있다.
@@ -400,8 +410,8 @@ function buildLaunchScriptWin(o: LaunchScriptOptions): string {
   const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
   const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
   const execLine = o.agent === 'claude'
-    ? `${batArg(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion')} ${batArg(oneLine(o.firstPrompt))}`
-    : `${batArg(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff)}` : ''}`
+    ? `${batCommand(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion')} ${batArg(oneLine(o.firstPrompt))}`
+    : `${batCommand(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff)}` : ''}`
 
   return [
     '@echo off',

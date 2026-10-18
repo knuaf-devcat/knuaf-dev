@@ -1,5 +1,6 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
+import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
@@ -231,10 +232,65 @@ test.describe('buildLaunchScript', () => {
     expect(exec, '실행 줄이 없다').toBeTruthy()
     expect(exec).not.toMatch(/(^|[^^])&/)
     expect(exec).not.toMatch(/(^|[^^])!/)
-    // 실행 파일 경로의 공백도 `^` 로 막혀 한 토큰으로 남는다(두 번 이스케이프라 `^` 가 겹친다).
-    expect(s).toMatch(/Program\^+ Files/)
+    // **실행 파일 경로는 한 층만** — shim 의 `%*` 로 다시 해석되지 않는다(W1C-R1-01 확인).
+    // 두 층이면 첫 해석 뒤에도 `^` 가 남아 프로그램 이름을 찾지 못한다.
+    const cmdPart = exec!.split(' --setting-sources ')[0]
+    expect(cmdPart).toMatch(/Program\^ Files/)
+    expect(cmdPart).not.toContain('^^')
+    expect(cmdPart).not.toContain('^"')
     // `cd` 는 따옴표 안이라 `&` 가 그대로여도 안전하다.
     expect(s).toContain('cd /d "C:\\Users\\A&B\\내 논문" || exit /b 1')
+  })
+
+  /**
+   * W1C-R1-01(④) **실행** 반례 — 생성한 배치를 직접 `cmd /d /c` 로 돌린다(터미널 창 없이).
+   * 가짜 `codex.cmd` 가 받은 argv 를 남기고, `Program Files` 공백 경로·`A&B` 홈의 설정값·
+   * `&` 부수 명령이 명령으로 갈라지지 않았는지 본다. 맥은 문자열 단언만 — skip 아니라 분기다.
+   */
+  test('win32 배치를 실제로 실행해도 argv 가 그대로 온다 (W1 ④, 실행)', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'kd-batch-'))
+    // 루트는 ASCII 로 둔다 — 배치 **파일 내용**의 한글은 cmd 코드페이지에 달려 있어(별도 한계)
+    // 여기서는 argv 보존만 본다. 한글 argv 는 ①(명령줄) 시험이 CreateProcessW 경로로 검사한다.
+    const root = join(base, 'thesis folder')                // 공백
+    const agentDir = join(base, 'Program Files', 'npm')    // 공백 경로
+    const home = join(base, 'A&B')                         // cmd 메타문자
+    const argvFile = join(base, 'argv.json')
+    const marker = join(base, 'PWNED.txt')
+    const recorder = join(base, 'recorder.mjs')
+    const agentPath = join(agentDir, 'codex.cmd')
+    for (const d of [root, agentDir, join(home, '.codex', 'skills', 'knuaf-dev')]) mkdirSync(d, { recursive: true })
+    writeFileSync(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n', 'utf-8')
+    writeFileSync(recorder, `import { writeFileSync } from 'node:fs'\nwriteFileSync(process.env.ARGV_OUT, JSON.stringify(process.argv.slice(2)))\n`, 'utf-8')
+    // npm shim 과 같은 모양 — `%*` 로 인자를 그대로 넘긴다(그래서 인자만 두 번 막는다).
+    writeFileSync(agentPath, `@echo off\r\n"${process.execPath}" "${recorder}" %*\r\n`, 'utf-8')
+
+    const config = codexSkillConfigOverride(home)!
+    const codex = buildLaunchScript({ root, agent: 'codex', agentPath, venvBin: null, bundledBin: null, firstPrompt: '', home }, 'win32')
+    // (문자열, 두 플랫폼) 명령은 한 층·인자는 `^` 뒤 — A&B 설정값이 갈라지지 않는다.
+    const exec = codex.split('\r\n').find((l) => l.includes('codex.cmd'))!
+    expect(exec.split(' -c ')[0]).toMatch(/Program\^ Files/)
+    expect(exec.split(' -c ')[0]).not.toContain('^^')
+    expect(exec).not.toMatch(/(^|[^^])&/)
+
+    // `&` 뒤의 부수 명령 — 따옴표만으로는 막지 못하므로 실제 실행으로 확인한다.
+    const evil = `x&echo PWNED>"${marker}"`
+    const claude = buildLaunchScript({ root, agent: 'claude', agentPath, venvBin: null, bundledBin: null, firstPrompt: evil }, 'win32')
+    expect(claude).not.toMatch(/(^|[^^])&/)
+    if (process.platform !== 'win32') return
+
+    const run = (script: string): Promise<number | null> => new Promise((resolve) => {
+      const file = join(base, 'run.cmd')
+      writeFileSync(file, script, 'utf-8')
+      spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', file], { env: { ...process.env, ARGV_OUT: argvFile }, windowsHide: true, stdio: 'ignore' })
+        .on('exit', resolve)
+    })
+    expect(await run(codex), 'codex 배치가 실패했다').toBe(0)
+    expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'codex argv 가 다르다').toEqual(['-c', config])
+    expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
+    expect(await run(claude), 'claude 배치가 실패했다').toBe(0)
+    expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'claude argv 가 다르다')
+      .toEqual(['--setting-sources', 'project,local', '--disallowedTools=AskUserQuestion', evil])
+    expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
   })
 
   test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {

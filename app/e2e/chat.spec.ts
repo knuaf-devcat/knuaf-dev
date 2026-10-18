@@ -109,13 +109,16 @@ test('subscriptionEnv disables CLAUDE.md memory loading', () => {
 test('윈도우 `.cmd`·`.bat` 만 cmd.exe 로 감싼다 (W1 ①)', () => {
   const shim = 'C:\\Users\\학생\\AppData\\Roaming\\npm\\claude.cmd'
   // ComSpec 지정·미지정을 시험이 직접 통제한다(W1C-R1-02) — 제품은 그 값을 그대로 쓴다.
+  // `.cmd`·`.bat` 두 확장자 모두 **같은 통제 안에서** 각각의 기대 명령을 단언한다.
   const saved = { ComSpec: process.env.ComSpec, comspec: process.env.comspec }
   try {
     delete process.env.ComSpec
     delete process.env.comspec
     expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('cmd.exe')
+    expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('cmd.exe')
     process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe'
     expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('C:\\Windows\\System32\\cmd.exe')
+    expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('C:\\Windows\\System32\\cmd.exe')
   } finally {
     for (const k of ['ComSpec', 'comspec'] as const) {
       const v = saved[k]
@@ -134,8 +137,7 @@ test('윈도우 `.cmd`·`.bat` 만 cmd.exe 로 감싼다 (W1 ①)', () => {
   expect(w.args[4]).toContain('^^^"auth^^^"')
   expect(w.options).toEqual({ windowsVerbatimArguments: true, windowsHide: true })
 
-  // `.bat` 도 같은 자리다. `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
-  expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('cmd.exe')
+  // `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
   expect(winSpawn('C:\\x\\claude.exe', ['auth'], 'win32')).toEqual({ command: 'C:\\x\\claude.exe', args: ['auth'], options: {} })
   for (const c of ['/opt/homebrew/bin/claude', '/x/codex.cmd', '/x/a.bat']) {
     expect(winSpawn(c, ['auth', 'status'], 'darwin')).toEqual({ command: c, args: ['auth', 'status'], options: {} })
