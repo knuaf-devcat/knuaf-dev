@@ -11,7 +11,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { join } from 'node:path'
-import { addSectionBody, launch, markSectionReady, openProject, setWindowWidth, synthProject } from './helpers'
+import { addSectionBody, launch, markSectionReady, openProject, rewriteSection, setWindowWidth, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 
 test('본문이 없으면 한 칸, 첫 장이 저장되면 두 칸이 된다', async () => {
@@ -257,4 +257,44 @@ test('자료 팝오버 — 보기 전용: 현재 작성물 + 자료 전체 보�
   // 자료 넣기(파일 고르기)는 여기 없다 — 입력칸과 자료 시트가 맡는다.
   await expect(pop.getByRole('button', { name: '파일 고르기…' })).toHaveCount(0)
   await electronApp.close()
+})
+
+test('대화 이벤트의 "종이에서 보기"는 닫아 둔 종이를 실제로 연다 (P3-R1-04 A)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  try {
+    await openProject(page, root)
+    await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+    await page.getByRole('button', { name: '내 논문 닫기' }).click()
+    await expect(page.locator('.paperpane')).toHaveCount(0)
+
+    // 절 본문이 바뀌면 대화에 이벤트 줄이 뜬다 — 그 "종이에서 보기"는 학생이 누른 명시적 이동이다.
+    rewriteSection(root, { body: '고친 본문이다.', expected: 1 })
+    const ev = page.locator('.chat-event')
+    await expect(ev, '이벤트 줄이 없다').toBeVisible({ timeout: 30_000 })
+    await ev.getByRole('button', { name: '종이에서 보기' }).click()
+    await expect(page.locator('.paperpane'), '종이에서 보기를 눌렀는데 종이가 안 열렸다').toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('좁은 창의 "내 논문 닫기"는 대화로 돌아간다 (P3-R1-04 B)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  try {
+    await openProject(page, root)
+    await setWindowWidth(electronApp, 1000)
+    const seg = page.locator('.tbar-seg')
+    await expect(seg).toBeVisible({ timeout: 20_000 })
+    await seg.getByRole('tab', { name: '내 논문' }).click()
+    await expect(page.locator('.paperpane')).toBeVisible()
+
+    await page.getByRole('button', { name: '내 논문 닫기' }).click()
+    await expect(page.locator('.paperpane'), '닫기를 눌렀는데 종이가 남아 있다').toHaveCount(0)
+    await expect(seg.getByRole('tab', { name: '대화' })).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    await electronApp.close()
+  }
 })

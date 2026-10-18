@@ -8,7 +8,7 @@ import { ProgressPanel } from '../components/ProgressPanel'
 import { ResultCard } from '../components/ResultCard'
 import { useMake } from '../components/useMake'
 import { Icon } from '../components/Icon'
-import { ARTIFACTS, CHECK_TARGET_LABEL, CHECKUP, COLLECTION_LABEL, INDEPENDENT_REVIEW_MISSING, LANE_COPY, USER_FINISH_HOW, USER_FINISH_LABEL, checkLabel, type LaneCopy } from '../copy'
+import { ARTIFACTS, CHECK_TARGET_LABEL, CHECKUP, COLLECTION_LABEL, INDEPENDENT_REVIEW_MISSING, LANE_COPY, USER_FINISH_HOW, USER_FINISH_LABEL, checkLabel, fileStatusText, type LaneCopy } from '../copy'
 import { joinPath } from '../paths'
 import type { CheckRow, Status, TaskRow, UserFinishItem } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
@@ -88,6 +88,7 @@ export function Checkup() {
   const { status, peek, refresh, loading, error, root } = useProject(useShallow((s) => ({ status: s.status, peek: s.peek, refresh: s.refresh, loading: s.loading, error: s.error, root: s.root })))
   const { appendDraft } = useChat(useShallow((s) => ({ appendDraft: s.appendDraft })))
   const files = useProject((s) => s.artifacts)
+  const projectLoad = useProject((s) => s.projectLoad)
   const closeSheet = useProject((s) => s.closeSheet)
   const make = useMake()
   const [how, setHow] = useState<UserFinishItem | null>(null)
@@ -141,10 +142,11 @@ export function Checkup() {
                   <div key={f.path} className="file">
                     <Icon name="doc" size={14} />
                     <span>{f.name}</span>
-                    {/* 파일 현재성은 `outputs[*].stale` 만 본다 — 기록 번호를 비교하지 않는다(DESIGN §2).
-                        그 값은 3-A 합류 뒤에 붙는다. 그 전에는 "모른다"고 정직하게 말한다. */}
-                    <span className="m caption">{CHECKUP.fileUnknown}</span>
-                    <button className="quiet" onClick={() => void window.knuaf.openPath(f.path)}>{ARTIFACTS.openExternal}</button>
+                    {/* 파일 팝오버와 **같은** 판정(검토 P3-R1-06) — 등록된 파일은 `outputs[*].stale`,
+                        검토본은 그 파일의 개정 번호, 근거가 없는 파일만 '모름'이다. */}
+                    <span className="m caption">{fileStatusText(f.path, projectLoad)}</span>
+                    {/* 정본 안 상대경로다 — 다른 화면과 **같은** 구분자 규칙(joinPath)을 거친다. */}
+                    <button className="quiet" onClick={() => void window.knuaf.openPath(joinPath(root, f.path))}>{ARTIFACTS.openExternal}</button>
                   </div>
                 ))}
               <div className="row" style={{ marginTop: 'var(--sp-2)' }}>

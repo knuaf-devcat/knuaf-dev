@@ -119,6 +119,8 @@ export function Chat() {
   const openSheet = useProject((s) => s.openSheet)
   const events = useProject((s) => s.events)
   const focusSection = useProject((s) => s.focusSection)
+  const paperClosed = useProject((s) => s.paperClosed)
+  const setPaperClosed = useProject((s) => s.setPaperClosed)
   const setPaneView = useProject((s) => s.setPaneView)
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
   const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
@@ -197,7 +199,16 @@ export function Chat() {
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
-  const goPaper = (sectionId: string): void => { focusSection(sectionId); setPaneView('paper') }
+  /**
+   * 대화 이벤트 줄의 "종이에서 보기" — 학생이 **명시적으로** 누른 이동이다. 그래서 닫아 둔
+   * 종이도 다시 열고(자동으로 열리지 않는 규칙은 저장·감시에만 적용된다), 좁은 창이면 종이로
+   * 넘어간다. 둘 중 하나만 하면 화면이 안 바뀐다(검토 P3-R1-04).
+   */
+  const goPaper = (sectionId: string): void => {
+    focusSection(sectionId)
+    setPaneView('paper')
+    if (paperClosed) setPaperClosed(false)
+  }
 
   if (!projectRoot) return <NoFolder />
 

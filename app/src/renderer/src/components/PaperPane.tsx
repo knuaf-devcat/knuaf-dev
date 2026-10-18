@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow } from './Popover'
-import { FilesPopover } from './FilesPopover'
+import { FilesPopover, MakeFeedbackLine, MakeRunningLine } from './FilesPopover'
 import { MaterialsPopover } from './MaterialsPopover'
 import { useProject } from '../store/project'
 import { useChat } from '../store/chat'
@@ -51,9 +51,9 @@ function sectionForChapter(sections: SectionRow[], hint: string): SectionRow | n
  * `load()` 하나뿐이다).
  */
 export function PaperPane({ overlay }: { overlay?: ReactNode }) {
-  const { root, sections, revision, focusedSection, focusSection, setPaperClosed } = useProject(useShallow((s) => ({
+  const { root, sections, revision, focusedSection, focusSection, setPaperClosed, setPaneView } = useProject(useShallow((s) => ({
     root: s.root, sections: s.sections, revision: s.status?.revision ?? s.peek?.revision ?? null,
-    focusedSection: s.focusedSection, focusSection: s.focusSection, setPaperClosed: s.setPaperClosed
+    focusedSection: s.focusedSection, focusSection: s.focusSection, setPaperClosed: s.setPaperClosed, setPaneView: s.setPaneView
   })))
   const { snapshot, status } = useChat(useShallow((s) => ({ snapshot: s.snapshot, status: s.status })))
   const pStatus = useProject((s) => s.status)
@@ -64,6 +64,8 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   const [docs, setDocs] = useState<Record<string, Doc>>({})
   const [fresh, setFresh] = useState<Record<string, number[]>>({})
   const [toc, setToc] = useState(false)
+  /** 파일 팝오버 — 실행 결과를 어디에 그릴지 정하려고 여기서 소유한다(검토 P3-R1-01). */
+  const [filesOpen, setFilesOpen] = useState(false)
   /**
    * 절마다 **직전에 본 본문**. 메모리에만 둔다 — 저장하지 않는다. 그래서 앱을 켠 직후
    * 첫 읽기에는 비교할 것이 없고, 아무것도 칠하지 않는다.
@@ -151,7 +153,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         </div>
         <span className="sp" />
         <MaterialsPopover />
-        <FilesPopover make={make} />
+        <FilesPopover make={make} open={filesOpen} onOpenChange={setFilesOpen} />
         {/* 권하는 단추 **하나** — "지금"이 고른 행동이다(1·2단계는 없다: 대화가 이끈다).
             만들기 자체는 "파일" 팝오버에서 언제든 되지만, 화면에 권하는 것은 이 하나뿐이다. */}
         {action && (
@@ -162,8 +164,17 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
               else openSheet('checkup')
             }}>{action.label}</button>
         )}
-        <button className="lnk" onClick={() => setPaperClosed(true)} title={TITLEBAR.paperClose} aria-label={TITLEBAR.paperClose}><Icon name="x" size={12} /></button>
+        {/* 좁은 창에서는 표시 여부가 `paneView` 가 정한다 — 둘 다 되돌려야 실제로 대화로 간다. */}
+        <button className="lnk" onClick={() => { setPaperClosed(true); setPaneView('chat') }} title={TITLEBAR.paperClose} aria-label={TITLEBAR.paperClose}><Icon name="x" size={12} /></button>
       </div>
+
+      {/* 팝오버를 닫아도 결과를 잃지 않는다 — 권하는 단추로 만들었거나 팝오버를 닫았으면
+          종이 머리 아래 한 줄로 진행·고지·결과·실패가 보인다(검토 P3-R1-01). */}
+      {!filesOpen && (make.making !== null || make.feedback) && (
+        <div className="paper-fb">
+          {make.making !== null ? <MakeRunningLine make={make} compact /> : make.feedback && <MakeFeedbackLine fb={make.feedback} compact />}
+        </div>
+      )}
 
       <div className="desk" ref={desk}>
         <div className="sheet">

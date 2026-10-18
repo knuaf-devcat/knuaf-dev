@@ -8,8 +8,9 @@
  */
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { launch, openProject, setWindowWidth, synthProject } from './helpers'
+import { mkdirSync as mkdir, readFileSync, writeFileSync } from 'node:fs'
 
 const OUT = process.env.KNUAF_SHOT_DIR ?? resolve(__dirname, '..', 'test-results', 'p3-shots')
 
@@ -31,8 +32,15 @@ for (const scheme of ['light', 'dark'] as const) {
     await shoot(first.page, `solo-1280-${scheme}`)
     await first.electronApp.close()
 
-    // 두 칸 + 팝오버 + 점검 시트.
+    // 두 칸 + 팝오버 + 만들기 피드백 + 점검 시트.
     const root = synthProject()
+    // 점검 시트의 현재성(R1-06)이 실제로 보이게 등록 산출물 하나를 심는다.
+    mkdir(join(root, 'build'), { recursive: true })
+    writeFileSync(join(root, 'build', '검토전_논문.docx'), 'dummy')
+    const projPath = join(root, 'project.json')
+    const proj = JSON.parse(readFileSync(projPath, 'utf-8')) as { outputs?: Record<string, unknown> }
+    proj.outputs = { ...(proj.outputs ?? {}), 'probe-docx': { id: 'probe-docx', path: 'build/검토전_논문.docx', format: 'docx', revision: 1, stale: true } }
+    writeFileSync(projPath, JSON.stringify(proj, null, 2), 'utf-8')
     const { electronApp, page } = await launch({ colorScheme: scheme })
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
@@ -40,6 +48,10 @@ for (const scheme of ['light', 'dark'] as const) {
 
     await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
     await shoot(page, `files-popover-1280-${scheme}`)
+    // 팝오버에서 바로 만들고, 고지·결과가 그 줄 아래에 남은 모습(R1-01).
+    await page.locator('.paper-head .popover .pop-make:has(b:text-is("검토본 만들기"))').getByRole('button').click()
+    await expect(page.locator('.paper-head .popover')).toContainText('검토본을 만들었어요', { timeout: 60_000 })
+    await shoot(page, `make-feedback-1280-${scheme}`)
     await page.keyboard.press('Escape')
 
     // 점검은 정식 진입점(제목줄 "지금 ▾" → 전체 과정 → 제출 점검·마무리)으로 연다.

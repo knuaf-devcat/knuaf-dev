@@ -1,13 +1,33 @@
-import { useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
 import { useProject } from '../store/project'
-import { ARTIFACTS, FILES_POPOVER, PAPER } from '../copy'
+import { ARTIFACTS, FILES_POPOVER, PAPER, fileStatusText } from '../copy'
 import { joinPath } from '../paths'
-import { fileStateOf, isReviewExport } from '../../../shared/files'
-import type { Make } from './useMake'
+import type { Make, MakeFeedback, MakeKind } from './useMake'
 import { useStage } from './useStage'
+import { useShallow } from 'zustand/react/shallow'
+
+/** 만들기 피드백 한 조각 — 팝오버 안 그 줄 아래와 종이 머리 아래가 **같은 것**을 그린다. */
+export function MakeFeedbackLine({ fb, compact }: { fb: MakeFeedback; compact?: boolean }) {
+  return (
+    <div className={`make-fb ${fb.kind}${compact ? ' compact' : ''}`} role={fb.kind === 'error' ? 'alert' : 'status'}>
+      <div className="t">{fb.title}</div>
+      {fb.body && <div className="b">{fb.body}</div>}
+      {fb.details}
+      {fb.actions && <div className="row">{fb.actions}</div>}
+    </div>
+  )
+}
+
+/** 만드는 중 한 줄 — 진행과 취소(자리는 팝오버 그 줄 아래, 종이 머리 아래). */
+export function MakeRunningLine({ make, compact }: { make: Make; compact?: boolean }) {
+  return (
+    <div className={`make-fb running${compact ? ' compact' : ''}`} role="status" aria-busy="true">
+      <div className="t"><span className="spin" />{FILES_POPOVER.making}</div>
+      <div className="row"><button className="quiet" onClick={() => void make.runner.cancel()}>{FILES_POPOVER.cancel}</button></div>
+    </div>
+  )
+}
 
 /**
  * 파일 팝오버 (시안 ⑩⑮) — 종이 머리의 "파일 N".
@@ -15,39 +35,37 @@ import { useStage } from './useStage'
  * 위: **만들기 4줄**(v2 §4-2의 입력 조건 그대로 — "지금"이 권하는 단추와 다르다).
  * 아래: 만든 파일 목록. 파일마다 "지금 논문과 같은지" 한 줄로 말한다.
  *
- * 여기서 `useMake()` 를 쓴다 — 점검 시트·결과물 전체 화면과 같은 코드다(IMPL-PLAN §4-5).
- * 파일 현재성 점은 `project.load` 의 `outputs[*].stale` 만 본다(3-A 합류로 채웠다).
- * 기록 번호를 비교해 점을 만들면 "현재성은 stale 만 본다"는 규칙을 어긴다(DESIGN §2).
+ * 만들기 결과·실패·고지는 **그 줄 바로 아래**에 남는다(검토 P3-R1-01). 실행·진행·결과는
+ * `useMake` 가 모듈 하나로 들고 있어, 팝오버를 닫아도 종이 머리 아래 한 줄과 "결과물 전체 보기"에서
+ * 이어진다. 열림 상태는 종이 칸(`PaperPane`)이 소유한다 — 그래야 중복으로 그리지 않는다.
  */
-export function FilesPopover({ make }: { make: Make }) {
+export function FilesPopover({ make, open, onOpenChange }: { make: Make; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { root, artifacts, projectLoad, openSheet } = useProject(useShallow((s) => ({ root: s.root, artifacts: s.artifacts, projectLoad: s.projectLoad, openSheet: s.openSheet })))
-  const [open, setOpen] = useState(false)
   const { derived } = useStage()
   const files = artifacts ?? []
-  /**
-   * 파일마다 "지금 논문과 같은지" 한 줄 (DESIGN §2).
-   * 검토본은 `outputs` 에 등록되지 않아 개정 번호로만 말하고(시안 ⑩), 나머지는
-   * `outputs[*].stale` **만** 본다 — 기록 번호를 비교하지 않는다.
-   */
-  const statusOf = (path: string): string => {
-    if (isReviewExport(path)) return derived.reviewExport !== null ? FILES_POPOVER.reviewBasis(derived.reviewExport) : FILES_POPOVER.unknown
-    const state = fileStateOf(path, projectLoad)
-    return state === 'same' ? FILES_POPOVER.same : state === 'stale' ? FILES_POPOVER.stale : FILES_POPOVER.unknown
-  }
+  /** 파일마다 한 줄 — 판정은 copy.ts 의 `fileStatusText` 한 곳에 있다(점검 시트도 같은 것을 쓴다). */
+  const statusOf = (path: string): string => fileStatusText(path, projectLoad)
+  const feedbackFor = (kind: MakeKind): MakeFeedback | null => (make.feedbackKind === kind ? make.feedback : null)
 
   return (
     <div className="pop-host">
-      <button className="lnk" aria-expanded={open} title={PAPER.filesCount(files.length)} onClick={() => setOpen(!open)}>
+      <button className="lnk" aria-expanded={open} title={PAPER.filesCount(files.length)} onClick={() => onOpenChange(!open)}>
         {/* 다시 만들어야 할 때만 호박색 점 하나(DESIGN §2) — 문구가 아니라 표시라 낭독 이름을 붙인다. */}
         {derived.stale && <span className="dot attn" title={PAPER.staleTitle} aria-label={PAPER.staleTitle} />}
         <Icon name="box" size={14} />{PAPER.filesCount(files.length)}
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} align="right" width={400} label={PAPER.filesCount(files.length)}>
+      <Popover open={open} onClose={() => onOpenChange(false)} align="right" width={400} label={PAPER.filesCount(files.length)}>
         <PopHead>{FILES_POPOVER.makeTitle}</PopHead>
         {make.rows.map((r) => (
-          <div key={r.kind} className={`pop-make${r.enabled ? '' : ' off'}`}>
-            <span className="c"><b>{r.label}</b><small>{r.body}</small></span>
-            <button className="quiet" disabled={!r.enabled || make.making !== null} onClick={() => void make.run(r.kind)}>{FILES_POPOVER.makeAction}</button>
+          /* 한 줄 + 그 줄의 피드백을 한 묶음으로 — 시험은 `[data-make="<종류>"] .make-fb` 로 집는다. */
+          <div key={r.kind} className="pop-make-block" data-make={r.kind}>
+            <div className={`pop-make${r.enabled ? '' : ' off'}`}>
+              <span className="c"><b>{r.label}</b><small>{r.body}</small></span>
+              <button className="quiet" disabled={!r.enabled || make.making !== null} onClick={() => void make.run(r.kind)}>{FILES_POPOVER.makeAction}</button>
+            </div>
+            {/* 그 줄에서 시작한 실행의 고지·진행·결과·실패 — 시도 전에도 고지가 먼저 뜬다. */}
+            {make.making === r.kind && <MakeRunningLine make={make} compact />}
+            {make.making !== r.kind && feedbackFor(r.kind) && <MakeFeedbackLine fb={feedbackFor(r.kind)!} compact />}
           </div>
         ))}
         <PopSep />
@@ -61,7 +79,7 @@ export function FilesPopover({ make }: { make: Make }) {
             </PopRow>
           ))}
         <PopSep />
-        <PopRow icon={<Icon name="box" size={16} />} onClick={() => { setOpen(false); openSheet('artifacts') }}>{FILES_POPOVER.openAll}</PopRow>
+        <PopRow icon={<Icon name="box" size={16} />} onClick={() => { onOpenChange(false); openSheet('artifacts') }}>{FILES_POPOVER.openAll}</PopRow>
         {files.length > 0 && <PopRow icon={<Icon name="folder" size={16} />} onClick={() => window.knuaf.reveal(joinPath(root, files[0].path))}>{ARTIFACTS.reveal}</PopRow>}
       </Popover>
     </div>

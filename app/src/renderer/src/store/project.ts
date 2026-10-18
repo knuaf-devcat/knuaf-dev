@@ -57,6 +57,12 @@ interface ProjectState {
   /** 정본 전체(`project.load`) — 파일 현재성은 여기 `outputs[*].stale` 뿐이다(v2 §4-1). */
   projectLoad: ProjectLoad | null
   loadLists: () => Promise<void>
+  /**
+   * 새로고침 횟수. 읽기(정본·자료·결과물)는 기록이 오르면 다시 하지만, **파일이 새로 생긴 것**
+   * (예: 표지 입력 `paper-input.json`)은 기록을 바꾸지 않는다 — 만들기 조건이 그것을 보려면
+   * 새로고침도 세어야 한다(검토 P3-R1-05).
+   */
+  refreshSeq: number
   /** 창 **내부** 폭 — 배치 판정(`layoutOf`)의 입력. ResizeObserver가 채운다. */
   windowWidth: number
   setWindowWidth: (w: number) => void
@@ -143,6 +149,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   artifacts: null,
   buildTree: null,
   projectLoad: null,
+  refreshSeq: 0,
   windowWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
   paperClosed: false,
   paneView: 'chat',
@@ -291,7 +298,7 @@ export const useProject = create<ProjectState>((set, get) => ({
       const peek = await window.knuaf.peekProject(root)
       if (get().root !== root) return
       quietFailures = 0
-      set({ status, peek, hasProject: true, loading: false })
+      set({ status, peek, hasProject: true, loading: false, refreshSeq: get().refreshSeq + 1 })
       // 종이 칸·머리가 같은 목록을 본다 — 화면마다 따로 읽으면 한 곳만 갱신된다.
       void get().loadSections()
       void get().loadLists()

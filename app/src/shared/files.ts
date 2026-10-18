@@ -16,12 +16,23 @@ export type FileState =
   /** 정본에 등록된 것이 없다 — 앱이 같은지 모른다. */
   | 'unknown'
 
-/** 검토본 export 가 내놓는 병합 본문 — `build/<개정>/review/검토용.md`. */
-export const REVIEW_EXPORT = /(?:^|\/)review\/[^/]+\.md$/
+/**
+ * 검토본 export 가 내놓는 병합 본문 — `build/<개정>/review/검토용.md`.
+ * **기준 개정도 이 경로에서 읽는다.** 진행 판정의 `reviewExport = max(N)`(어느 검토본이
+ * 있나)과 파일 하나의 기준(이 파일이 몇 번째 기록 기준인가)은 다른 사실이다 — 옛 검토본에
+ * 최신 N 을 붙이면 출처를 잘못 말한다(검토 P3-R1-03).
+ */
+export const REVIEW_BASIS = /(?:^|\/)build\/(\d+)\/review\/[^/]+$/
 
 /** 검토본 파일인가 — 이 파일들은 `outputs` 에 등록되지 않고 개정 번호로만 말한다. */
 export function isReviewExport(path: string): boolean {
-  return REVIEW_EXPORT.test(path)
+  return REVIEW_BASIS.test(path)
+}
+
+/** 이 검토본이 기준으로 삼은 개정 N. 검토본 경로가 아니거나 번호를 못 읽으면 null. */
+export function reviewBasisOf(path: string): number | null {
+  const m = REVIEW_BASIS.exec(path)
+  return m ? Number(m[1]) : null
 }
 
 /**

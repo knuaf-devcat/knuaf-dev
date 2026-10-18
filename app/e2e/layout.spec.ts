@@ -9,8 +9,9 @@
 import { expect, test } from '@playwright/test'
 import { CHAT_MAX, CHAT_MIN, WIDE_MIN, chatWidthOf, layoutOf, showsToggle } from '../src/shared/layout'
 import { newBlockIndexes, splitBlocks } from '../src/shared/paper'
-import { fileStateOf, isReviewExport } from '../src/shared/files'
+import { fileStateOf, isReviewExport, reviewBasisOf } from '../src/shared/files'
 import { renderMarkdown } from '../src/renderer/src/markdown'
+import { fileStatusText } from '../src/renderer/src/copy'
 
 // ------------------------------------------------------------------ 배치·폭
 
@@ -139,6 +140,27 @@ test('검토본 파일은 개정 번호로만 말한다 — outputs 에 등록�
   // 사이드카는 `build/<개정>/review/<파일>.md` 한 겹으로만 만든다 — 그 아래 더 들어간
   // 파일은 검토본으로 보지 않는다(결과물 화면이 쓰던 규칙 그대로다).
   expect(isReviewExport('build/14/review/하위/검토용.md')).toBe(false)
+})
+
+test('검토본 기준은 그 파일의 개정에서 읽는다 (P3-R1-03)', () => {
+  // 진행 판정의 최대 N(`reviewExport`)과 파일 하나의 기준은 다른 사실이다.
+  expect(reviewBasisOf('build/1/review/검토용.md')).toBe(1)
+  expect(reviewBasisOf('build/2/review/검토용.md')).toBe(2)
+  expect(reviewBasisOf('build/14/review/검토용.md')).toBe(14)
+  expect(reviewBasisOf('build/검토전_본문.md')).toBeNull()
+  expect(reviewBasisOf('build/14/docx/검토용.md')).toBeNull()
+  expect(reviewBasisOf('build/14/review/하위/검토용.md')).toBeNull()
+  expect(isReviewExport('build/2/review/검토용.md')).toBe(true)
+})
+
+test('파일 현재성 문구 — 검토본은 자기 개정, 나머지는 stale, 근거 없으면 모름 (P3-R1-03·06)', () => {
+  const load = { project: { outputs: { 'build/known.docx': { path: 'build/known.docx', stale: true } } } }
+  // 검토본 둘이 각자 자기 기준을 말한다(둘 다 최신 N 을 붙이면 여기서 걸린다).
+  expect(fileStatusText('build/2/review/검토용.md', load)).not.toBe(fileStatusText('build/1/review/검토용.md', load))
+  expect(fileStatusText('build/2/review/검토용.md', load)).toContain('2')
+  expect(fileStatusText('build/1/review/검토용.md', load)).toContain('1')
+  expect(fileStatusText('build/known.docx', load)).toContain('빠져')
+  expect(fileStatusText('build/모르는.docx', load)).toContain('몰라요')
 })
 
 test('마크다운 — 빈 원문은 빈 문자열', () => {

@@ -150,6 +150,21 @@ label.opt-card input[type="radio"] { margin-top: 2px; }
 .lanes .ln .disclosure > summary { padding: 0; line-height: 1.55; align-items: flex-start; }
 .lanes .ln .list { margin-top: var(--sp-2); }
 
+/* 만들기 피드백 — 팝오버 그 줄 아래와 종이 머리 아래가 같은 모양을 쓴다(검토 P3-R1-01). */
+.make-fb { border-radius: 9px; padding: 8px 10px; margin: 2px 0 6px; font-size: 12.5px; line-height: 1.5;
+  border: var(--hairline) solid var(--line); background: var(--panel-2); }
+.make-fb.compact { margin: 4px 8px 8px; }
+.make-fb .t { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.make-fb .b { color: var(--ink-2); margin-top: 2px; }
+.make-fb .b code { word-break: break-all; }
+.make-fb .row { margin-top: 6px; }
+.make-fb.warning { background: var(--warn-soft); border-color: transparent; }
+.make-fb.completion { background: var(--ok-soft); border-color: transparent; }
+.make-fb.error { background: var(--bad-soft); border-color: transparent; }
+.make-fb.status { background: var(--panel-2); border-color: transparent; }
+.paper-fb { flex: none; padding: var(--sp-2) var(--sp-4) 0; }
+.paper-fb .make-fb { margin: 0; }
+
 /* 시트 안에서 쓰이는 화면들(자료·결과물·설정) */
 .artifact-grid { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
 .sheet-body h1 { font-size: var(--fs-title); }

@@ -1,4 +1,5 @@
 import { APP_NAME } from '../../shared/name'
+import { fileStateOf, isReviewExport, reviewBasisOf, type LoadLike } from '../../shared/files'
 /**
  * copy.ts — every user-facing string of the companion app in one place.
  *
@@ -1122,11 +1123,30 @@ export const STAGES = {
   }
 } as const
 
+/**
+ * 파일 하나의 현재성 한 줄 (DESIGN §2).
+ * 검토본은 그 파일의 개정 번호로만 말하고(`build/<N>/review/…` → N), 나머지는 정본의
+ * `outputs[*].stale` **만** 본다 — 기록 번호를 비교해 짐작하지 않는다(v2 §4-1).
+ */
+export function fileStatusText(path: string, load: LoadLike | null): string {
+  const basis = reviewBasisOf(path)
+  if (basis !== null) return FILES_POPOVER.reviewBasis(basis)
+  if (isReviewExport(path)) return FILES_POPOVER.unknown   // review 폴더인데 번호를 못 읽는 모양
+  const state = fileStateOf(path, load)
+  return state === 'same' ? FILES_POPOVER.same : state === 'stale' ? FILES_POPOVER.stale : FILES_POPOVER.unknown
+}
+
 /** 파일 팝오버(⑩⑮) — 만들기 4줄 + 만든 파일. */
 export const FILES_POPOVER = {
   makeTitle: '만들기',
   /** 오른쪽 단추는 늘 "만들기" 하나 — 왼쪽 줄 이름을 되풀이하지 않는다(DESIGN §4, 대조 D1-6). */
   makeAction: '만들기',
+  /** 만드는 중 한 줄(팝오버 그 줄 아래·종이 머리 아래). */
+  making: '만드는 중…',
+  /** 결과 줄에서 파일을 여는 단추(절대경로를 붙여 연다). */
+  open: '열기',
+  /** 만드는 중에 멈추는 단추(팝오버 그 줄 아래). */
+  cancel: '취소',
   madeTitle: '만든 파일 — 누르면 열려요',
   madeNone: '아직 없어요',
   revealFolder: '폴더에서 보기',

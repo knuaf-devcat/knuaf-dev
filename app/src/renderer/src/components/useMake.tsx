@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { useProject } from '../store/project'
 import { useChat } from '../store/chat'
-import { rpc } from '../rpc'
-import { useRunner, type Runner } from './useRunner'
+import { rpc, RpcFailure } from '../rpc'
+import type { Envelope } from '../../../shared/types'
+import type { RunnerLine, RunnerPhase } from './useRunner'
 import { versioned } from '../screens/Outputs'
 import { useStage } from './useStage'
 import { ARTIFACTS, CHECKUP, COMPLETION, INDEPENDENT_REVIEW_MISSING, NOT_APPROVAL_NOTE, checkLabel, describeError } from '../copy'
@@ -13,6 +15,7 @@ const PAPER_IN = 'paper-input.json'
 const PAPER_MD = 'build/검토전_본문.md'
 /** 검토본 export 가 내놓는 병합 본문 — `build/<개정>/review/검토용.md`. */
 const REVIEW_MD = /(?:^|\/)review\/[^/]+\.md$/
+const LINE_CAP = 400
 
 export type MakeKind = 'review' | 'docx' | 'submission_candidate' | 'xlsx'
 
@@ -24,54 +27,146 @@ export interface MakeRow { kind: MakeKind; label: string; body: string; enabled:
 
 export interface MakeFeedback { kind: FeedbackKind; title: ReactNode; body?: ReactNode; details?: ReactNode; actions?: ReactNode }
 
+/** 화면이 읽는 진행·결과 — 실행기 자체는 모듈에 있다. */
+export interface MakeRunner {
+  busy: boolean
+  lines: RunnerLine[]
+  env: Envelope | null
+  err: string | null
+  cancelled: boolean
+  phase: RunnerPhase | null
+  elapsedMs: number
+  clientId: string | null
+  cancel: () => Promise<void>
+  reset: () => void
+}
+
 export interface Make {
   rows: MakeRow[]
-  runner: Runner
+  runner: MakeRunner
   /** 지금 실행 중인 줄 — 같은 것을 두 번 누르지 못하게 한다. */
   making: MakeKind | null
   feedback: MakeFeedback | null
+  /** 그 피드백이 어느 줄에서 났는가. */
+  feedbackKind: MakeKind | null
   clearFeedback: () => void
   run: (kind: MakeKind) => Promise<void>
   /** 실패가 가리키는 고급 도구 프리셋(설정 > 고급 도구 딥링크). */
   failedTool: string | null
+  /** 마지막 실행이 남긴 결과 — 종이 머리 한 줄이 연다. */
+  finish: { ok: boolean; path: string | null }
+}
+
+interface MakeState {
+  making: MakeKind | null
+  feedback: MakeFeedback | null
+  /** 그 피드백이 어느 줄에서 났는가 — 팝오버가 그 줄 바로 아래에 그린다. */
+  feedbackKind: MakeKind | null
+  failedTool: string | null
+  hasPaperInput: boolean
+  lastOk: boolean
+  lastPath: string | null
+  busy: boolean
+  lines: RunnerLine[]
+  env: Envelope | null
+  err: string | null
+  cancelled: boolean
+  phase: RunnerPhase | null
+  elapsedMs: number
+  clientId: string | null
+}
+
+const INITIAL: MakeState = {
+  making: null, feedback: null, feedbackKind: null, failedTool: null, hasPaperInput: false, lastOk: false, lastPath: null,
+  busy: false, lines: [], env: null, err: null, cancelled: false, phase: null, elapsedMs: 0, clientId: null
 }
 
 /**
- * 파일 만들기 — 팝오버(⑩⑮)·점검 시트(⑫)·결과물 전체 화면이 **한 코드**를 쓴다
- * (IMPL-PLAN §4-5, 책임자 의견 ④). 세 벌로 두면 어느 하나만 고쳐진다.
+ * 만들기 실행·진행·결과는 **화면이 아니라 모듈 하나**가 들고 있다(검토 P3-R1-01).
+ *
+ * v5 에서 진입점이 셋(종이 머리 권하는 단추·파일 팝오버·결과물 시트)으로 늘었는데, 화면마다
+ * `useMake()` 를 따로 만들면 한 곳에서 시작한 고지·진행·결과가 다른 곳에서 보이지 않는다 —
+ * 검토 재현에서 팝오버로 만든 결과·고지가 어디에도 남지 않았다. 그래서 상태와 실행기를
+ * 모듈 수준에 두고 어느 화면이 열려 있든 같은 것을 본다. 한 번에 하나만 돈다(`making`).
+ */
+const useMakeState = create<MakeState>(() => ({ ...INITIAL }))
+const patch = (p: Partial<MakeState>): void => useMakeState.setState(p)
+
+let clock: ReturnType<typeof setInterval> | null = null
+let startedAt = 0
+let clientRef: string | null = null
+
+/** 사이드카 스크립트 하나를 돌리고 진행을 모듈 상태로 흘린다(useRunner 와 같은 규칙). */
+async function runScript(method: string, params: Record<string, unknown>): Promise<Envelope | null> {
+  const id = rpc.newClientId()
+  clientRef = id
+  startedAt = Date.now()
+  patch({ busy: true, lines: [], env: null, err: null, cancelled: false, phase: null, elapsedMs: 0, clientId: id })
+  clock = setInterval(() => patch({ elapsedMs: Date.now() - startedAt }), 250)
+  try {
+    const env = await rpc.script(method, params, (event, data) => {
+      if (event === 'log') patch({ lines: [...useMakeState.getState().lines.slice(-(LINE_CAP - 1)), data as RunnerLine] })
+      else if (event === 'progress') patch({ phase: data as RunnerPhase })
+    }, id)
+    patch({ env })
+    return env
+  } catch (e) {
+    if (e instanceof RpcFailure && e.code === 'cancelled') patch({ cancelled: true })
+    else { const d = describeError(e); patch({ err: `${d.title}${d.action ? ` ${d.action}` : ''}` }) }
+    return null
+  } finally {
+    if (clientRef === id) clientRef = null
+    if (clock) { clearInterval(clock); clock = null }
+    patch({ busy: false, elapsedMs: Date.now() - startedAt })
+  }
+}
+
+const runner: MakeRunner = {
+  busy: false,
+  lines: [],
+  env: null,
+  err: null,
+  cancelled: false,
+  phase: null,
+  elapsedMs: 0,
+  clientId: null,
+  cancel: async () => { const id = clientRef; if (id) await rpc.cancel(id) },
+  reset: () => { if (!clientRef) patch({ lines: [], env: null, err: null, cancelled: false, phase: null, elapsedMs: 0, clientId: null }) }
+}
+
+/**
+ * 파일 만들기 — 팝오버(⑩⑮)·점검 시트(⑫)·결과물 전체 화면·종이 머리 권하는 단추가 **한 코드**를
+ * 쓴다(IMPL-PLAN §4-5, 책임자 의견 ④). 실행·진행·결과는 모듈 하나가 들고 있어 화면을 옮겨도 이어진다.
  *
  * 실패는 문장으로, 검사 id 는 "자세히" 안에 — 화면에 JSON 이름을 내밀지 않는다(03-화면/09).
- * 여기 조건은 v2 §4-2 그대로라 **인터뷰 중에도** 검토본을 만들 수 있다("지금"이 권하는
- * 단추와는 다른 것이다 — 검토 R1-01).
+ * 여기 조건은 v2 §4-2 그대로라 **인터뷰 중에도** 검토본을 만들 수 있다.
  */
 export function useMake(): Make {
+  const st = useMakeState()
   const { root, status, refresh, openSettings, sections, artifacts, materials } = useProject(useShallow((s) => ({
     root: s.root, status: s.status, refresh: s.refresh, openSettings: s.openSettings,
     sections: s.sections, artifacts: s.artifacts, materials: s.materials
   })))
-  const appendDraft = useChat((s) => s.appendDraft)
   const closeSheet = useProject((s) => s.closeSheet)
-  const runner = useRunner()
-  // 검토본이 있는지는 `fs.build_tree` 의 review 개정으로 판정한다(3-A) — `artifact.list` 의
-  // revision 은 미등록 검토본에서 null 이라 조건으로 쓸 수 없다.
+  const appendDraft = useChat((s) => s.appendDraft)
+  const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
+  const refreshSeq = useProject((s) => s.refreshSeq)
   const { derived } = useStage()
-  const [making, setMaking] = useState<MakeKind | null>(null)
-  const [feedback, setFeedback] = useState<MakeFeedback | null>(null)
-  const [failedTool, setFailedTool] = useState<string | null>(null)
-  const [hasPaperInput, setHasPaperInput] = useState(false)
 
-  // 도우미의 논문 입력이 있는지만 본다 — 내용은 읽지 않는 존재 확인.
+  /**
+   * 표지 입력(paper-input.json)이 있는지 — **정본이 갱신될 때마다** 다시 본다(검토 P3-R1-05).
+   * 예전에는 `[root]` 만 봐서, 도우미가 나중에 입력을 준비해도 만들기 조건이 잠긴 채 남았다.
+   */
   useEffect(() => {
-    if (!root) return
-    void window.knuaf.fileExists(root, PAPER_IN).then((r) => setHasPaperInput('result' in r && r.result === true)).catch(() => setHasPaperInput(false))
-  }, [root])
+    if (!root) { patch({ hasPaperInput: false }); return }
+    let alive = true
+    void window.knuaf.fileExists(root, PAPER_IN)
+      .then((r) => { if (alive) patch({ hasPaperInput: 'result' in r && r.result === true }) })
+      .catch(() => { if (alive) patch({ hasPaperInput: false }) })
+    return () => { alive = false }
+  }, [root, revision, refreshSeq])
 
   const hasMdInput = !!artifacts?.some((i) => i.path === PAPER_MD)
-  /**
-   * 도우미가 실제로 쓰는 길 — 정본의 절을 합친 검토본. 앱이 `build/검토전_본문.md` 한
-   * 이름만 인정하던 때에는 Ⅰ~Ⅶ이 다 쓰이고 검토본까지 나온 뒤에도 버튼이 잠긴 채
-   * "도우미가 아직 본문을 준비하지 않았어요"라고 했다(시험주행 발견 17).
-   */
   const reviewMd = useMemo(() => (artifacts ?? [])
     .filter((i) => i.kind === 'md' && REVIEW_MD.test(i.path))
     .sort((a, b) => (b.revision ?? -1) - (a.revision ?? -1) || b.mtime - a.mtime)[0]?.path ?? null, [artifacts])
@@ -85,8 +180,8 @@ export function useMake(): Make {
     {
       kind: 'docx',
       label: ARTIFACTS.make.docx,
-      body: (hasMdInput || hasPaperInput) ? ARTIFACTS.make.docxBody : reviewMd ? ARTIFACTS.make.docxBodyOnly : ARTIFACTS.make.docxNoInput,
-      enabled: !!status && (hasMdInput || hasPaperInput || derived.hasReview)
+      body: (hasMdInput || st.hasPaperInput) ? ARTIFACTS.make.docxBody : reviewMd ? ARTIFACTS.make.docxBodyOnly : ARTIFACTS.make.docxNoInput,
+      enabled: !!status && (hasMdInput || st.hasPaperInput || derived.hasReview)
     },
     // 제출용은 관문이 막혀도 활성 — 누르는 순간이 고지의 자리다(Q1·#4 기각).
     { kind: 'submission_candidate', label: ARTIFACTS.make.submit, body: ARTIFACTS.make.submitBody, enabled: !!status },
@@ -100,28 +195,31 @@ export function useMake(): Make {
 
   const doExport = useCallback(async (kind: 'review' | 'submission_candidate') => {
     if (!root) return
-    setMaking(kind); setFeedback(null)
+    patch({ making: kind, feedback: null, feedbackKind: null, lastOk: false, lastPath: null })
     // 시도 시점의 첫 줄: 독립검토 미실행 고지(버튼은 항상 활성 — 경고가 관문, 잠금이 아님).
-    if (missingReview) setFeedback({ kind: 'warning', title: noticeTitle, body: noticeRest })
+    if (missingReview) patch({ feedback: { kind: 'warning', title: noticeTitle, body: noticeRest }, feedbackKind: kind })
     try {
       const r = await rpc.export(root, kind)
       const unverified = status ? status.gate.filter((g) => g.status !== 'pass' && g.severity === 'error') : []
-      setFeedback(missingReview
-        ? {
-          kind: 'warning',
-          title: noticeTitle,
-          body: <><div>{noticeRest}</div><div>{COMPLETION.exported}: <code>{r.path}</code></div><div className="caption" style={{ marginTop: 'var(--sp-1)' }}>{NOT_APPROVAL_NOTE}</div></>,
-          actions: <button onClick={() => window.knuaf.reveal(r.path)}>{ARTIFACTS.reveal}</button>
-        }
-        : {
-          kind: 'completion',
-          title: COMPLETION.exported,
-          body: <><code>{r.path}</code><br /><span className="caption">{NOT_APPROVAL_NOTE}</span></>,
-          actions: <button onClick={() => window.knuaf.reveal(r.path)}>{ARTIFACTS.reveal}</button>,
-          details: unverified.length > 0
-            ? <div><div className="caption">{ARTIFACTS.make.unverified(unverified.length)}</div><ul>{unverified.slice(0, 12).map((g, i) => <li key={i}><code>{g.check_id}</code> {g.target}: {g.reason}</li>)}{unverified.length > 12 && <li>…</li>}</ul></div>
-            : undefined
-        })
+      patch({
+        lastOk: true, lastPath: r.path, feedbackKind: kind,
+        feedback: missingReview
+          ? {
+            kind: 'warning',
+            title: noticeTitle,
+            body: <><div>{noticeRest}</div><div>{COMPLETION.exported}: <code>{r.path}</code></div><div className="caption" style={{ marginTop: 'var(--sp-1)' }}>{NOT_APPROVAL_NOTE}</div></>,
+            actions: <button onClick={() => window.knuaf.reveal(r.path)}>{ARTIFACTS.reveal}</button>
+          }
+          : {
+            kind: 'completion',
+            title: COMPLETION.exported,
+            body: <><code>{r.path}</code><br /><span className="caption">{NOT_APPROVAL_NOTE}</span></>,
+            actions: <button onClick={() => window.knuaf.reveal(r.path)}>{ARTIFACTS.reveal}</button>,
+            details: unverified.length > 0
+              ? <div><div className="caption">{ARTIFACTS.make.unverified(unverified.length)}</div><ul>{unverified.slice(0, 12).map((g, i) => <li key={i}><code>{g.check_id}</code> {g.target}: {g.reason}</li>)}{unverified.length > 12 && <li>…</li>}</ul></div>
+              : undefined
+          }
+      })
       await refresh()
     } catch (e) {
       const d = describeError(e)
@@ -129,75 +227,90 @@ export function useMake(): Make {
         // 관문 미충족: 무엇이 필요한지는 문장으로, check id 는 자세히 안에(03-화면/09).
         const unmet = (status?.gate ?? []).filter((g) => g.status !== 'pass' && g.severity === 'error')
         const needs = unmet.length ? unmet.map((g) => checkLabel(g.check_id)).filter((v, i, a) => a.indexOf(v) === i) : []
-        setFeedback({
-          kind: 'warning',
-          title: missingReview ? noticeTitle : ARTIFACTS.make.gateBlocked,
-          body: <>{missingReview && <div>{noticeRest}</div>}
-            <div>{ARTIFACTS.make.gateBlocked}{needs.length ? `: ${needs.join(' · ')}` : '.'}</div></>,
-          details: <div><div className="caption">{unmet.map((g) => g.check_id).join(' · ') || '—'}</div><code>{d.raw}</code></div>,
-          actions: <>
-            <button onClick={() => openSettings('tools:export')}>{ARTIFACTS.make.advancedOpen}</button>
-            <button className="quiet" onClick={() => tellHelper(`${ARTIFACTS.make.gateBlocked}\n\n${unmet.map((g) => `- ${checkLabel(g.check_id)}: ${g.reason}`).join('\n')}`)}>{CHECKUP.actNotify}</button>
-          </>
+        patch({
+          feedbackKind: kind,
+          feedback: {
+            kind: 'warning',
+            title: missingReview ? noticeTitle : ARTIFACTS.make.gateBlocked,
+            body: <>{missingReview && <div>{noticeRest}</div>}
+              <div>{ARTIFACTS.make.gateBlocked}{needs.length ? `: ${needs.join(' · ')}` : '.'}</div></>,
+            details: <div><div className="caption">{unmet.map((g) => g.check_id).join(' · ') || '—'}</div><code>{d.raw}</code></div>,
+            actions: <>
+              <button onClick={() => openSettings('tools:export')}>{ARTIFACTS.make.advancedOpen}</button>
+              <button className="quiet" onClick={() => tellHelper(`${ARTIFACTS.make.gateBlocked}\n\n${unmet.map((g) => `- ${checkLabel(g.check_id)}: ${g.reason}`).join('\n')}`)}>{CHECKUP.actNotify}</button>
+            </>
+          }
         })
       } else {
-        setFailedTool('tools:export')
-        setFeedback({
-          kind: d.kind === 'status' ? 'status' : 'error',
-          title: missingReview ? noticeTitle : d.title,
-          body: <>{missingReview && <div>{noticeRest}</div>}{missingReview ? <div>{d.title}</div> : null}{d.action && <div>{d.action}</div>}</>,
-          details: <code>{d.raw}</code>,
-          actions: <button onClick={() => openSettings('tools:export')}>{ARTIFACTS.make.advancedOpen}</button>
+        patch({
+          failedTool: 'tools:export', feedbackKind: kind,
+          feedback: {
+            kind: d.kind === 'status' ? 'status' : 'error',
+            title: missingReview ? noticeTitle : d.title,
+            body: <>{missingReview && <div>{noticeRest}</div>}{missingReview ? <div>{d.title}</div> : null}{d.action && <div>{d.action}</div>}</>,
+            details: <code>{d.raw}</code>,
+            actions: <button onClick={() => openSettings('tools:export')}>{ARTIFACTS.make.advancedOpen}</button>
+          }
         })
       }
-    } finally { setMaking(null) }
+    } finally { patch({ making: null }) }
   }, [root, status, missingReview, noticeTitle, noticeRest, refresh, openSettings])
 
   const doDocx = useCallback(async () => {
     if (!root) return
-    setMaking('docx'); setFeedback(null)
-    // 스크립트가 계약을 지키면 block_reason 이 찬다. 안 지키면 이유가 stdout 평문으로
-    // 나오는데(build_docx 가 그랬다 — GUI-08), 거기까지 훑어도 없으면 "없다"고 말한다.
+    patch({ making: 'docx', feedback: null, feedbackKind: null, lastOk: false, lastPath: null })
     const lastLine = (t?: string | null): string | undefined => t?.trim().split('\n').filter(Boolean).at(-1) || undefined
     const fail = (env: { block_reason?: string | null; stderr?: string; stdout?: string } | null, tool: string): void => {
       if (!env) return
-      setFailedTool(tool)
-      setFeedback({
-        kind: 'error',
-        title: ARTIFACTS.make.failTitle,
-        body: lastLine(env.block_reason) ?? lastLine(env.stderr) ?? lastLine(env.stdout) ?? ARTIFACTS.make.failNoReason,
-        actions: <button onClick={() => openSettings(tool)}>{ARTIFACTS.make.advancedOpen}</button>
+      patch({
+        failedTool: tool, feedbackKind: 'docx',
+        feedback: {
+          kind: 'error',
+          title: ARTIFACTS.make.failTitle,
+          body: lastLine(env.block_reason) ?? lastLine(env.stderr) ?? lastLine(env.stdout) ?? ARTIFACTS.make.failNoReason,
+          actions: <button onClick={() => openSettings(tool)}>{ARTIFACTS.make.advancedOpen}</button>
+        }
       })
     }
     try {
-      // 본문 md가 있으면 그대로. 없으면 도우미의 paper-input.json 으로 만들고,
-      // 그것도 없으면 검토본을 쓴다 — 학교 양식 입력이 있으면 그쪽이 먼저다.
       let md = PAPER_MD
-      if (!hasMdInput && hasPaperInput) {
-        setFailedTool('tools:paper')
+      if (!hasMdInput && st.hasPaperInput) {
+        patch({ failedTool: 'tools:paper' })
         md = versioned(PAPER_MD, taken)
-        // 검토본이 있으면 그것을 본문으로 넣는다 — 생성기의 골격 대신 학생이 실제로 쓴 장을
-        // 싣고, 겉표지·인준서·목차는 생성기가 붙인다.
-        const env = await runner.run('paper.generate', { root, input: PAPER_IN, out: md, ...(reviewMd ? { body: reviewMd } : {}) })
+        const env = await runScript('paper.generate', { root, input: PAPER_IN, out: md, ...(reviewMd ? { body: reviewMd } : {}) })
         if (!env?.ok) { fail(env, 'tools:paper'); return }
       } else if (!hasMdInput) {
-        if (!reviewMd) return   // 버튼이 잠겨 있어 여기까지 오지 않는다
+        if (!reviewMd) return
         md = reviewMd
       }
-      setFailedTool('tools:docx')
+      patch({ failedTool: 'tools:docx' })
       const out = versioned('build/검토전_논문.docx', taken)
-      const env = await runner.run('docx.build', { root, in: md, out, font: '신명조' })
+      const env = await runScript('docx.build', { root, in: md, out, font: '신명조' })
       if (!env?.ok) { fail(env, 'tools:docx'); return }
+      patch({ lastOk: true, lastPath: env.path ?? out })
       await refresh()
-    } finally { setMaking(null) }
-  }, [root, hasMdInput, hasPaperInput, reviewMd, artifacts, runner, refresh, openSettings])
+    } finally { patch({ making: null }) }
+  }, [root, hasMdInput, st.hasPaperInput, reviewMd, refresh, openSettings])
 
   const run = useCallback(async (kind: MakeKind): Promise<void> => {
-    if (making || runner.busy) return
+    const s = useMakeState.getState()
+    if (s.making || s.busy) return
     if (kind === 'xlsx') { openSettings('tools:excel'); return }
     if (kind === 'docx') { await doDocx(); return }
     await doExport(kind)
-  }, [making, runner.busy, doExport, doDocx, openSettings])
+  }, [doExport, doDocx, openSettings])
 
-  return { rows, runner, making, feedback, clearFeedback: () => setFeedback(null), run, failedTool }
+  // 진행·결과 필드는 모듈 상태에서 읽는다(화면이 바뀌어도 같은 값).
+  const live: MakeRunner = { ...runner, ...st }
+  return {
+    rows,
+    runner: live,
+    making: st.making,
+    feedback: st.feedback,
+    feedbackKind: st.feedbackKind,
+    clearFeedback: () => patch({ feedback: null, feedbackKind: null }),
+    run,
+    failedTool: st.failedTool,
+    finish: { ok: st.lastOk, path: st.lastPath }
+  }
 }
