@@ -266,8 +266,15 @@ export class ClaudeConnection implements AgentConnection {
       if (m) { opened = true; void this.options.openExternal(m[0].replace(/[)\].,;]+$/, '')) }
     }
     child.stdout?.on('data', onData); child.stderr?.on('data', onData)
-    child.on('error', () => { this.loginProcess = undefined })
-    child.on('close', () => { this.loginProcess = undefined })
+    /**
+     * 소유권은 자식마다 자기 것이다. 예전에는 종료·오류 콜백이 무조건 `loginProcess` 를
+     * 비웠는데, 그러면 `login(A) → reopenLogin(B) → A 종료` 순서에서 **살아 있는 B 의
+     * 추적이 지워진다.** 그 뒤 취소·stop 은 B 를 찾지 못해 로그인 프로세스가 그대로 남는다
+     * (P2-R1-02). 지금 소유자일 때만 비운다.
+     */
+    const release = () => { if (this.loginProcess === child) this.loginProcess = undefined }
+    child.on('error', release)
+    child.on('close', release)
     const timer = setTimeout(() => child.kill(), 180_000)
     timer.unref(); child.once('close', () => clearTimeout(timer))
   }

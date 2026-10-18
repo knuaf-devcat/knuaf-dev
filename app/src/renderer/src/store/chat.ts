@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { startPoll, stopPoll } from './connect'
+import { connInfoOf, startPoll, stopPoll, type ConnState } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
@@ -40,6 +40,18 @@ export function draftAfterSend(seqAtSend: number, seqNow: number, current: strin
   return seqNow === seqAtSend ? '' : current
 }
 
+/**
+ * 연결 상태 IPC 응답 하나를 화면 상태로 옮긴다.
+ *
+ * `probe:'failed'`(도구는 있는데 대답을 못 들음)를 "로그인 필요"로 접으면 화면이 잘못된
+ * 재인증을 요구한다(P2-R1-01). 판정은 온보딩과 **같은 함수**(`connInfoOf`)를 쓴다 —
+ * 두 곳에 각자 적어 두면 한쪽만 고쳐진다. IPC 자체가 실패한 것은 `unknown` 이다.
+ */
+function statusInfo(r: Reply<ConnectionStatus>): { status: ConnectionStatus | null; statusFailed: boolean; connState: ConnState } {
+  if (!('result' in r)) return { status: null, statusFailed: true, connState: 'unknown' }
+  return { status: r.result, statusFailed: false, connState: connInfoOf(r.result).state }
+}
+
 interface ChatState {
   root: string | null
   provider: Provider
@@ -47,6 +59,8 @@ interface ChatState {
   status: ConnectionStatus | null
   /** status 호출 자체가 실패 — 확정된 실패지 "확인 중"이 아니다. 가짜 status를 만들지 않고 구분한다. */
   statusFailed: boolean
+  /** 연결 상태 이름 — 화면이 무엇을 보일지 정한다(온보딩과 같은 판정: `connInfoOf`). */
+  connState: ConnState
   draft: string
   /** 초안 편집 번호 — 학생이 초안을 바꾼 모든 경로가 1씩 올린다(`draftAfterSend` 판정용). */
   draftSeq: number
@@ -92,6 +106,7 @@ export const useChat = create<ChatState>((set, get) => ({
   snapshot: null,
   status: null,
   statusFailed: false,
+  connState: 'checking',
   draft: '',
   draftSeq: 0,
   busy: false,
@@ -115,7 +130,7 @@ export const useChat = create<ChatState>((set, get) => ({
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
     // 사이 붙인 첨부 경로나 쓴 글이 말없이 사라진다.
     const switching = get().root !== root
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, error: null, ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {}) })
+    set({ root, provider, snapshot: null, status: null, statusFailed: false, connState: 'checking', error: null, ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {}) })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
@@ -134,8 +149,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const savedDraft = 'result' in saved ? saved.result : ''
     set({
       snapshot: 'result' in snap ? snap.result : null,
-      status: 'result' in st ? st.result : null,
-      statusFailed: !('result' in st),
+      ...statusInfo(st),
       // 디스크 값을 불러오는 것도 초안 편집으로 센다(설계 §4-1).
       ...(typedMeanwhile ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
       error: messageOf(snap) ?? messageOf(st)
@@ -146,7 +160,9 @@ export const useChat = create<ChatState>((set, get) => ({
     if (!root) return
     const st = await window.knuaf.chat.status(root, provider) as Reply<ConnectionStatus>
     if (get().provider !== provider) return
-    set({ status: 'result' in st ? st.result : get().status, statusFailed: !('result' in st), error: messageOf(st) })
+    const info = statusInfo(st)
+    // 확인 요청 자체가 실패했으면 직전에 본 상태를 그대로 두고 'unknown' 만 말한다.
+    set({ status: info.status ?? get().status, statusFailed: info.statusFailed, connState: info.connState, error: messageOf(st) })
   },
   login: async () => {
     const { root, provider } = get()

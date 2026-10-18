@@ -112,7 +112,7 @@ export function Chat() {
   const clearPError = useProject((s) => s.clearError)
   const setScreen = useProject((s) => s.setScreen)
   const revision = pStatus?.revision ?? peek?.revision ?? null
-  const { root, snapshot, status, statusFailed, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
+  const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
   /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
   const startIntent = useChat((s) => s.startIntent)
   const disarmStart = useChat((s) => s.disarmStart)
@@ -227,6 +227,13 @@ export function Chat() {
   }
   const chatErr = error ? describeChatError(error) : null
   const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
+  /**
+   * 끊긴 자리에서 무엇을 말하고 무엇을 권할지 — 연결 상태 이름 하나로 정한다.
+   * 확인 실패(failed·unknown)는 로그인 안내가 아니라 "확인하지 못했어요 + 다시 확인"이다.
+   */
+  const connFailed = connState === 'failed' || connState === 'unknown'
+  const chatConnTitle = connFailed ? CHAT.statusFailTitle : connState === 'no-tool' ? CHAT.needInstallTitle : CHAT.needLoginTitleFor(provider)
+  const chatConnBody = connFailed ? CHAT.statusFailBody : connState === 'no-tool' ? CHAT.needInstallBody : CHAT.needLoginBody
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
@@ -385,24 +392,27 @@ export function Chat() {
         </>
       )}
 
-      {zone.kind === 'disconnected' && (status === null && !statusFailed ? (
+      {zone.kind === 'disconnected' && (connState === 'checking' && status === null ? (
         <p className="caption">{CHAT.checking}</p>
       ) : (
-        // 미연결 또는 상태 확인 실패: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
+        // 미연결·확인 실패·도구 없음: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
         // 사라져도 "답변에 첨부"/"고쳐달라기"가 쓴 draft가 조용히 삼켜지지 않아야 한다.
+        // 확인 실패(`probe:'failed'`)를 "로그인 필요"로 접지 않는다 — 도구는 있는데 대답을
+        // 못 들은 것뿐이라, 로그인부터 요구하면 엉뚱한 재인증을 시킨다(P2-R1-01).
         <>
           <div className="empty">
-            <div className="t">{statusFailed ? CHAT.statusFailTitle : status?.installed ? CHAT.needLoginTitleFor(provider) : CHAT.needInstallTitle}</div>
-            <div>{statusFailed ? CHAT.statusFailBody : status?.installed ? CHAT.needLoginBody : CHAT.needInstallBody}</div>
-            {!statusFailed && status?.detail && <div className="caption">{status.detail}</div>}
+            <div className="t">{chatConnTitle}</div>
+            <div>{chatConnBody}</div>
+            {connState !== 'no-tool' && status?.detail && <div className="caption">{status.detail}</div>}
             <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-              {statusFailed
-                ? <button className="primary" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>
-                : status?.installed
+              {connState === 'no-tool'
+                ? <button className="primary" onClick={() => void window.knuaf.openGuide()}>{CHAT.installGuide}</button>
+                : connState === 'need-login'
                   ? <button className="primary" onClick={() => void login()} disabled={busy}>{CHAT.loginFor(provider)}</button>
-                  : <button className="primary" onClick={() => void window.knuaf.openGuide()}>{CHAT.installGuide}</button>}
+                  : <button className="primary" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
               {claudeFound && provider !== 'claude' && <button onClick={() => startClaude(CHAT.firstTurn)}>{CHAT.claudeStart}</button>}
-              {!statusFailed && <button className="quiet" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
+              {/* 확인 실패에는 위의 주 단추가 이미 "다시 확인"이라 여기 또 두지 않는다. */}
+              {connState !== 'failed' && connState !== 'unknown' && <button className="quiet" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
             </div>
           </div>
           {draft.trim() ? (

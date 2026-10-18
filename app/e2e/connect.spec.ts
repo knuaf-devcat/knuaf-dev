@@ -1,13 +1,13 @@
 // 폴더 없는 AI 연결(단계 2)의 Node 단위 시험 — 가짜 연결·가짜 CLI만 쓴다.
 // 실제 로그인도 실제 AI 호출도 하지 않는다. `codex app-server`·`claude` 는 여기서 띄우지 않는다.
 import { expect, test } from '@playwright/test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
-import { connInfoOf, displayState, type ConnInfo } from '../src/renderer/src/store/connect'
+import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
 import type { ConnectionStatus } from '../src/shared/chat'
 
@@ -42,6 +42,15 @@ test('로그인을 기다리는 동안에는 확인이 로그인 필요를 돌�
   expect(displayState({ ...need, state: 'connected' }, true)).toBe('connected')
   expect(displayState({ ...need, state: 'failed' }, true)).toBe('failed')
   expect(displayState({ ...need, state: 'no-tool' }, true)).toBe('no-tool')
+})
+
+test('첫 실행의 전진 조건은 고른 것이 지금 연결돼 있을 때만 참이다 (P2-R1-03)', () => {
+  // 저장된 선택은 "고른 적 있음"일 뿐이다 — 연결을 못 마쳤으면 [다음] 으로 넘어갈 수 없다.
+  for (const s of ['checking', 'no-tool', 'need-login', 'logging-in', 'failed', 'unknown'] as const) {
+    expect(canAdvance('claude', () => s), s).toBe(false)
+  }
+  expect(canAdvance('claude', () => 'connected')).toBe(true)
+  expect(canAdvance(null, () => 'connected'), '고른 것이 없으면 넘어갈 수 없다').toBe(false)
 })
 
 // ---------------------------------------------------------------- 실행 파일 찾기
@@ -235,4 +244,95 @@ test('다시 열기는 로그인 주소를 다시 연다', async () => {
   await svc.reopenLogin('codex')
   expect(opened).toEqual(['reopened'])
   await svc.close()
+})
+
+// ---------------------------------------------------------------- 로그인 프로세스 소유권
+
+/** 살아 있는지 — 신호 0 은 죽이지 않고 존재만 본다. */
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+/** 가짜 CLI 가 남긴 마지막 PID. */
+function lastPid(file: string): number {
+  const lines = readFileSync(file, 'utf-8').trim().split('\n')
+  return Number(lines[lines.length - 1])
+}
+async function until(ok: () => boolean, ms = 5_000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) { if (ok()) return true; await new Promise((r) => setTimeout(r, 20)) }
+  return ok()
+}
+
+test('다시 열기 뒤 취소는 새 로그인 프로세스까지 끝낸다 (P2-R1-02)', async () => {
+  // 아무 계정도 쓰지 않는 가짜 실행 파일이 자기의 PID 를 남긴다 — 그 PID 의 생사만 본다.
+  const dir = mkdtempSync(join(tmpdir(), 'kd-claude-'))
+  const pidFile = join(dir, 'pids')
+  const cli = join(dir, 'claude')
+  writeFileSync(cli, `#!/bin/sh\necho $$ >> ${JSON.stringify(pidFile)}\nexec sleep 300\n`, 'utf-8')
+  chmodSync(cli, 0o755)
+  const options: AgentOptions = { binary: cli, root: dir, skill: source, env: {}, openExternal: async () => {} }
+  const conn = new ClaudeConnection(options)
+  try {
+    await conn.login()                                   // A
+    expect(await until(() => existsSync(pidFile))).toBe(true)
+    const a = lastPid(pidFile)
+    await conn.reopenLogin()                             // A 를 끝내고 B 를 띄운다
+    expect(await until(() => !alive(a)), '이전 프로세스가 끝나지 않았다').toBe(true)
+    const b = lastPid(pidFile)
+    expect(b).not.toBe(a)
+    // 이전 자식(A)의 종료가 **살아 있는 새 자식(B)** 의 추적을 지우면 안 된다.
+    const tracked = (conn as unknown as { loginProcess?: { pid?: number } }).loginProcess
+    expect(tracked?.pid, '살아 있는 새 프로세스의 추적이 사라졌다').toBe(b)
+    await conn.cancelLogin()
+    expect(await until(() => !alive(b)), '취소가 새 로그인 프로세스를 죽이지 않았다').toBe(true)
+    expect((conn as unknown as { loginProcess?: unknown }).loginProcess).toBeUndefined()
+  } finally {
+    await conn.stop()
+    if (existsSync(pidFile)) for (const line of readFileSync(pidFile, 'utf-8').trim().split('\n')) {
+      const pid = Number(line)
+      if (pid && alive(pid)) { try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ } }
+    }
+  }
+})
+
+// ---------------------------------------------------------------- 취소한 로그인 시도
+
+test('취소 뒤 늦은 로그인 응답은 폴링을 되살리지 않는다 (P2-R1-04)', async () => {
+  // 타이머를 세는 가짜 시계 — 취소 뒤에도 폴링이 남는지 본다.
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  const timers = new Set<unknown>()
+  globalThis.setInterval = ((fn: () => void, ms?: number) => { const t = realSetInterval(fn, ms); timers.add(t); return t }) as unknown as typeof setInterval
+  globalThis.clearInterval = ((t?: unknown) => { timers.delete(t); return realClearInterval(t as never) }) as unknown as typeof clearInterval
+
+  let release: (v: unknown) => void = () => {}
+  const pending = new Promise<unknown>((resolve) => { release = resolve })
+  const realWindow = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: { connect: {
+      status: async () => ({ result: { installed: true, connected: false, version: null, detail: '', probe: 'ok' } }),
+      login: () => pending,                                   // 보류 — 취소 뒤에 성공으로 온다
+      cancel: async () => ({ result: true }),
+      reopen: async () => ({ result: true })
+    } }
+  }
+  try {
+    const store = useConnect.getState()
+    store.stopPolling()
+    const started = store.login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useConnect.getState().loggingIn.codex, '로그인 시작이 표시되지 않았다').toBe(true)
+    await store.cancel('codex')
+    expect(timers.size, '취소 직후 타이머가 남았다').toBe(0)
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+    release({ result: true })                                  // 늦은 성공 응답
+    await started
+    expect(timers.size, '취소한 시도의 늦은 응답이 폴링을 되살렸다').toBe(0)
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+  } finally {
+    for (const t of timers) realClearInterval(t as never)
+    globalThis.setInterval = realSetInterval
+    globalThis.clearInterval = realClearInterval
+    ;(globalThis as { window?: unknown }).window = realWindow
+  }
 })

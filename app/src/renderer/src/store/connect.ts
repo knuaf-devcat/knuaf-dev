@@ -69,11 +69,28 @@ export function startPoll(tick: () => Promise<boolean>): void {
 }
 
 /**
+ * 로그인 시도 번호. 취소가 이 번호를 올리면, **이미 진행 중이던** 로그인 IPC 의 늦은 응답은
+ * 무효다(P2-R1-04). 취소는 그 순간 살아 있는 타이머만 없앨 수 있어서, 응답이 뒤늦게
+ * 도착해 폴링을 다시 만들면 취소가 화면에서만 일어난 것처럼 보인다 — Codex 의 로그인
+ * 응답은 브라우저 열기까지 기다리므로 이 순서가 실제로 난다.
+ */
+let attempt = 0
+
+/**
  * 지금 대화할 공급자 — 학생이 고른 것(`provider_choice`, 세션에서 고른 것)이 먼저다.
  * 고른 적이 없으면 null 이고, 화면은 옛 기본값(`helper_mode`)으로 되돌아간다.
  */
 export function chosenProvider(selected: Provider | null, settings: { provider_choice?: { provider: Provider } | null } | null): Provider | null {
   return selected ?? settings?.provider_choice?.provider ?? null
+}
+
+/**
+ * 첫 실행 1단계를 지날 수 있는가 — **고른 것이 지금 연결돼 있어야** 한다(P2-R1-03).
+ * 저장된 선택만 보고 넘어가면 연결을 못 마친 첫 실행이 "AI 연결 완료"로 보인다.
+ * [다음] 단추, 자동 건너뛰기, 2단계의 `AI 연결 ✓` 가 모두 이 한 함수를 쓴다.
+ */
+export function canAdvance(selected: Provider | null, state: (provider: Provider) => ConnState): boolean {
+  return selected !== null && state(selected) === 'connected'
 }
 
 interface ConnectState {
@@ -116,9 +133,13 @@ export const useConnect = create<ConnectState>((set, get) => ({
   },
   refreshAll: async () => { await Promise.all([get().refresh('codex'), get().refresh('claude')]) },
   login: async (provider) => {
+    const mine = ++attempt
     stopPoll()
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: true } }))
     const r = await window.knuaf.connect.login(provider) as Reply<true>
+    // 그 사이에 취소했거나 새 시도가 시작됐으면 이 응답은 지금 화면의 것이 아니다 —
+    // 상태를 바꾸지도, 폴링을 다시 만들지도 않는다(P2-R1-04).
+    if (mine !== attempt) return
     if ('error' in r) {
       set({ loggingIn: { ...get().loggingIn, [provider]: false } })
       set(one(provider, { state: 'failed', detail: r.error?.message ?? '', version: null }))
@@ -133,6 +154,7 @@ export const useConnect = create<ConnectState>((set, get) => ({
     })
   },
   cancel: async (provider) => {
+    attempt++   // 진행 중이던 로그인 응답을 무효로 만든다
     stopPoll()
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
     await window.knuaf.connect.cancel(provider)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
-import { displayState, useConnect, type ConnInfo, type ConnState } from '../store/connect'
+import { displayState, useConnect, canAdvance, type ConnInfo, type ConnState } from '../store/connect'
 import { useChat, type ChatMode } from '../store/chat'
 import { Badge } from '../components/Badge'
 import { FolderPicker } from '../components/FolderPicker'
@@ -64,10 +64,9 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     const stored = storedChoice.current
     if (settled.current || !stored) return
-    const st = stateOf(stored)
-    if (st === 'checking') return
+    if (stateOf(stored) === 'checking') return
     settled.current = true
-    if (st === 'connected') { select(stored); setStep('folder') }
+    if (canAdvance(stored, stateOf)) { select(stored); setStep('folder') }
   }, [codex, claude, loggingIn])
 
   // 로그인이 끝나면 그 공급자를 고른 것으로 기록한다.
@@ -92,6 +91,13 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
 
   const recheck = async (p: Provider) => { setRechecking(p); await refresh(p); setRechecking(null) }
   const startLogin = async (p: Provider) => { loginTarget.current = p; await login(p) }
+  /**
+   * 전진 조건은 하나다 — **고른 것이 지금 연결돼 있다**(P2-R1-03). 저장된 선택만 보고 넘어가면
+   * 연결을 못 마친 첫 실행이 "AI 연결 완료"로 폴더 단계에 서게 된다.
+   * [다음] 단추·자동 건너뛰기·2단계의 `AI 연결 ✓` 가 모두 이 값을 쓴다.
+   */
+  const advance = canAdvance(selected, stateOf)
+  const connectDone = step === 'folder' && canAdvance(selected ?? storedChoice.current, stateOf)
   /** 지금 하는 단계만 진하게(나머지는 흐리게) — 길잡이 한 줄에서 "여기"를 표시한다. */
   const here = (part: 'connect' | 'folder' | 'start'): string => (part === step ? 'on' : '')
 
@@ -101,7 +107,7 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
       <div className="onb-inner">
         {/* 길잡이 — 번호 원 없이 한 줄(DESIGN §6). 지난 단계는 ✓ 로 끝난 것을 말한다. */}
         <div className="caption onb-way">
-          <strong className={here('connect')}>{step === 'folder' ? ONBOARD.guideConnectDone : ONBOARD.guideConnect}</strong>
+          <strong className={here('connect')}>{connectDone ? ONBOARD.guideConnectDone : ONBOARD.guideConnect}</strong>
           <span> → </span>
           <strong className={here('folder')}>{ONBOARD.guideFolder}</strong>
           <span> → </span>
@@ -150,8 +156,8 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
             </div>
 
             <div className="row" style={{ marginTop: 'var(--sp-5)' }}>
-              <button className="primary" disabled={!selected} onClick={() => setStep('folder')}>{ONBOARD.connectNext}</button>
-              {!selected && <span className="caption">{ONBOARD.connectWaiting}</span>}
+              <button className="primary" disabled={!advance} onClick={() => setStep('folder')}>{ONBOARD.connectNext}</button>
+              {!advance && <span className="caption">{ONBOARD.connectWaiting}</span>}
             </div>
             <p className="caption" style={{ marginTop: 'var(--sp-5)' }}>{PRIVACY_NOTE}</p>
             {/* 개인정보 줄 바로 아래 한 줄 — "둘 다 있나요?"는 보통 글자, 뒤만 링크다(시안 A). */}

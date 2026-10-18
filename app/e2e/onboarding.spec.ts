@@ -201,6 +201,55 @@ test('고른 AI 가 연결돼 있으면 1단계를 건너뛴다', async () => {
   }
 })
 
+test('저장된 선택만으로는 다음 단계로 가지 못한다 (P2-R1-03)', async () => {
+  // 검토 재현: 빈 PATH·PATH 한정 탐색 + 저장된 선택만 있는 설정. 어떤 도구도 발견되지 않는다.
+  const dir = scratch()
+  const userData = join(dir, 'userdata')
+  mkdirSync(userData, { recursive: true })
+  writeFileSync(join(userData, 'settings.json'), JSON.stringify({
+    show_intro: false, provider_choice: { provider: 'claude', at: '2026-10-18T00:00:00.000Z' }
+  }), 'utf-8')
+  const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
+  const { electronApp, page } = await launch({
+    userData, onboarded: false, waitFor: INTRO,
+    env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '', HOME: home }
+  })
+  try {
+    await expect(page.locator('text=연결 도구(Claude Code)를 먼저 설치해요')).toBeVisible()
+    // 고른 적이 있다는 사실만으로는 넘어가지 못한다 — 지금 연결돼 있어야 한다.
+    await expect(page.getByRole('button', { name: ONBOARD.connectNext })).toBeDisabled()
+    await expect(page.locator(FOLDER_STEP)).toHaveCount(0)
+    await expect(page.locator('text=AI 연결 ✓')).toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('확인 실패는 폴더 화면에서도 로그인 필요가 아니다 (P2-R1-01)', async () => {
+  // 검토 재현: `claude auth status` 가 JSON 이 아닌 것을 뱉는 가짜 CLI. 도구는 있는데
+  // 대답을 못 들은 상태다 — 로그인을 요구하면 엉뚱한 재인증을 시킨다.
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  mkdirSync(bin, { recursive: true })
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho invalid-json\n', { mode: 0o755 })
+  const env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, KNUAF_AGENT_PATH_ONLY: '1' }
+  const root = synthProjectNoContent()
+  const userData = userDataWithRecent(dir, root, {
+    provider_choice: { provider: 'claude', at: '2026-10-18T00:00:00.000Z' }, helper_mode: 'claude-chat'
+  })
+  const { electronApp, page } = await launch({ userData, env })
+  try {
+    await page.locator('.project').first().click()   // 폴더를 연다(온보딩은 이미 지났다)
+    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
+    // 로그인부터 요구하지 않는다 — 다시 확인만 권한다.
+    await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '다시 확인' })).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
 test('여는 화면은 첫 실행 화면 **위에** 뜬다 (순서가 뒤집히지 않는다)', async () => {
   // 여는 화면(크레딧)은 앱 전체 위에 얹힌다 — 그 뒤에 첫 실행 화면이 이미 서 있어야
   // 크레딧이 걷힌 뒤 빈 화면이 한 번 보이는 일이 없다(App.tsx 의 렌더 순서).
