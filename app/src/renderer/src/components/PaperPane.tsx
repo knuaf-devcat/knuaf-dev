@@ -172,7 +172,9 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
           종이 머리 아래 한 줄로 진행·고지·결과·실패가 보인다(검토 P3-R1-01). */}
       {!filesOpen && (make.making !== null || make.feedback) && (
         <div className="paper-fb">
-          {make.making !== null ? <MakeRunningLine make={make} compact /> : make.feedback && <MakeFeedbackLine fb={make.feedback} compact />}
+          {make.making !== null
+            ? <MakeRunningLine make={make} fb={make.feedback} compact />
+            : make.feedback && <MakeFeedbackLine fb={make.feedback} compact />}
         </div>
       )}
 

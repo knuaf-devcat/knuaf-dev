@@ -7,9 +7,10 @@
  */
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, navTo, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
+import { launch, markSectionReady, navTo, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 
 /** `shell:open` 이 받은 값을 메모리에만 적어 둔다(문서 앱을 실제로 열지 않는다). */
@@ -190,6 +191,130 @@ test('파일 현재성 문구는 근거 없는 파일에만 "모름"을 남긴�
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
     await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
     await expect(page.locator('.paper-head .popover .pop-row').filter({ hasText: 'unknown.docx' })).toContainText('앱이 몰라요')
+  } finally {
+    await electronApp.close()
+  }
+})
+
+/**
+ * 사이드카 프로세스를 잠시 멈춘다 — "만드는 중" 창을 결정적으로 만든다.
+ * `ipcMain`·preload 는 동결돼 있어 시험에서 호출을 가로챌 수 없다(`window.knuaf` 는 frozen).
+ * POSIX 전용(SIGSTOP)이고, 윈도우에서는 이 시험을 건너뛴다 — REPORT 의 윈도우 영향 절에 적었다.
+ */
+function sidecarPid(appPid: number): number {
+  const out = execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-ax'], { encoding: 'utf-8' })
+  for (const line of out.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)
+    if (m && Number(m[2]) === appPid && /knuaf_sidecar/.test(m[3])) return Number(m[1])
+  }
+  throw new Error('사이드카 프로세스를 찾지 못했다')
+}
+
+async function holdSidecar(app: ElectronApplication, signal: 'SIGSTOP' | 'SIGCONT'): Promise<void> {
+  const pid = sidecarPid(app.process().pid ?? 0)
+  process.kill(pid, signal)
+}
+
+/** 준비(deps.ensure)를 실제로 끝낸다 — DOCX 성공 장면에 필요하다(가짜가 아니다). */
+async function ensureDeps(page: import('@playwright/test').Page, root: string): Promise<void> {
+  const r = await page.evaluate((p: string) => window.knuaf.depsEnsure(p), root)
+  const env = (r as { result?: { ok?: boolean } }).result
+  if (!env?.ok) throw new Error(`deps.ensure failed: ${JSON.stringify(r).slice(0, 300)}`)
+}
+
+test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반례 ①)', async () => {
+  test.skip(process.platform === 'win32', 'SIGSTOP 은 POSIX 전용 시험 도구다(맥·리눅스에서만 돈다)')
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+    // "지금"이 3단계(검토본)여야 종이 머리에 권하는 단추가 선다 — 장을 다 쓴 상태로 올린다.
+    markSectionReady(root)
+    await expect(page.locator('.titlebar .tbtn.now')).toContainText('검토본', { timeout: 20_000 })
+
+    // 사이드카를 멈춰 export 응답을 보류한다 — 그 동안이 "시도 중"이다.
+    await holdSidecar(electronApp, 'SIGSTOP')
+    await expect(page.locator('.paper-head').getByRole('button', { name: '검토본 만들기' })).toBeVisible()
+    await page.locator('.paper-head').getByRole('button', { name: '검토본 만들기' }).click()
+
+    // 종이 머리 아래: 고지가 **보이고**, 그 아래에 만드는 중 줄이 있다.
+    const strip = page.locator('.paper-fb')
+    await expect(strip.locator('.make-fb.warning')).toBeVisible({ timeout: 15_000 })
+    await expect(strip.locator('.make-fb.warning')).toContainText('독립검토')
+    await expect(strip.locator('.make-fb.running')).toContainText('만드는 중')
+
+    // 같은 실행의 팝오버 줄에도 고지가 보인다.
+    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    const pop = page.locator('.paper-head .popover')
+    const fb = pop.locator('[data-make="review"] .make-fb')
+    await expect(fb.filter({ hasText: '독립검토' })).toBeVisible()
+    await expect(fb.filter({ hasText: '만드는 중' })).toBeVisible()
+
+    // 응답을 재개하면 같은 자리들이 결과로 바뀐다(시도 시점과 결과 시점이 구별된다).
+    await holdSidecar(electronApp, 'SIGCONT')
+    await expect(pop).toContainText('검토본을 만들었어요', { timeout: 60_000 })
+  } finally {
+    try { await holdSidecar(electronApp, 'SIGCONT') } catch { /* 이미 끝났다 */ }
+    await electronApp.close()
+  }
+})
+
+test('DOCX 실패 이유가 두 자리에 보인다 (반례 ②)', async () => {
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const root = synthProject()
+  markSectionReady(root)                    // 장을 다 씀 → 3단계
+  exportReview(root)                        // 검토본이 있으면 4단계라 종이 머리에 DOCX 단추가 선다
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+    // 실제 실패를 쓴다: 이 임시 폴더에는 프로젝트 .venv 가 없어 docx.build 가 준비 안 됨으로 끝난다.
+    const head = page.locator('.paper-head').getByRole('button', { name: /논문 파일/ })
+    await expect(head).toBeVisible({ timeout: 20_000 })
+    await head.click()
+
+    const strip = page.locator('.paper-fb')
+    await expect(strip.locator('.make-fb.error'), '종이 머리 아래에 실패 이유가 없다').toBeVisible({ timeout: 90_000 })
+    await expect(strip.locator('.make-fb.error')).toContainText('만들기가 끝나지 않았어요')
+
+    await page.locator('.paper-head button.lnk:has-text("파일")').click()
+    await expect(page.locator('.paper-head .popover [data-make="docx"] .make-fb.error')).toContainText('만들기가 끝나지 않았어요')
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('DOCX 성공 결과가 두 자리에 보인다 (반례 ③)', async () => {
+  test.setTimeout(300_000)   // deps.ensure 는 프로젝트 .venv 를 만든다(다른 spec 과 같은 비용)
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const root = synthProject()
+  mkdirSync(join(root, 'build'), { recursive: true })
+  writeFileSync(join(root, 'build', '검토전_본문.md'), '# Ⅰ. 머리말\n\n농장A의 재배 면적은 600평이다.\n', 'utf-8')
+  markSectionReady(root)
+  exportReview(root)
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+    await ensureDeps(page, root)
+    const head = page.locator('.paper-head').getByRole('button', { name: /논문 파일/ })
+    await expect(head).toBeVisible({ timeout: 20_000 })
+    await head.click()
+
+    const strip = page.locator('.paper-fb')
+    await expect(strip.locator('.make-fb.completion'), '종이 머리 아래에 결과가 없다').toBeVisible({ timeout: 120_000 })
+    await expect(strip.locator('.make-fb.completion')).toContainText('DOCX를 만들었어요')
+    await expect(strip.getByRole('button', { name: '폴더에서 보기' })).toBeVisible()
+
+    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    const pop = page.locator('.paper-head .popover')
+    await expect(pop.locator('[data-make="docx"] .make-fb.completion')).toContainText('DOCX를 만들었어요')
+    await expect(pop.locator('[data-make="docx"] .make-fb.completion').getByRole('button', { name: '폴더에서 보기' })).toBeVisible()
   } finally {
     await electronApp.close()
   }

@@ -169,9 +169,11 @@ test('hard rules hold across screens', async () => {
   for (const t of ['자동 점검', '다른 사람 검토', '파일 확인', '교수님 승인']) await expect(page.getByText(t, { exact: true })).toBeVisible()
   expect(await page.locator('[role=progressbar], progress').count()).toBe(0)
   expect(await page.locator('main').innerText()).not.toMatch(/\d+\s*%/)
-  // 그 문구는 이제 여러 자리(만들기 고지·결과물 시트·점검 행)에 나온다 — 점검 행으로 좁혀서 본다.
-  await expect(page.locator('[data-screen="checkup"] .lanes .ln').filter({ hasText: '다른 사람 검토' }))
-    .toContainText('아직 독립검토 기록이 없어요')
+  // 그 문구는 이제 여러 자리(만들기 고지·결과물 시트·점검 행)에 나온다 — 점검 행으로 좁히되,
+  // **고지 요소 자체가 보이는지**를 본다(확인 1회째: toContainText 는 숨은 요소도 통과한다).
+  const notice = page.locator('[data-screen="checkup"] .lanes .ln').filter({ hasText: '다른 사람 검토' })
+    .getByText('아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.')
+  await expect(notice, '점검 행의 고지가 보이지 않는다').toBeVisible()
   expect(await page.locator('button:has-text("완료")').count()).toBe(0)
 
   // no skip / N-A controls anywhere on 점검

@@ -19,13 +19,19 @@ export function MakeFeedbackLine({ fb, compact }: { fb: MakeFeedback; compact?: 
   )
 }
 
-/** 만드는 중 한 줄 — 진행과 취소(자리는 팝오버 그 줄 아래, 종이 머리 아래). */
-export function MakeRunningLine({ make, compact }: { make: Make; compact?: boolean }) {
+/**
+ * 만드는 중 — 진행·취소 **그리고 시도 시점 고지**(검토 확인 1회째 반례 ①).
+ * 고지(독립검토 미실행)는 실행이 끝난 뒤가 아니라 **누르는 순간**부터 보여야 한다.
+ */
+export function MakeRunningLine({ make, fb, compact }: { make: Make; fb?: MakeFeedback | null; compact?: boolean }) {
   return (
-    <div className={`make-fb running${compact ? ' compact' : ''}`} role="status" aria-busy="true">
-      <div className="t"><span className="spin" />{FILES_POPOVER.making}</div>
-      <div className="row"><button className="quiet" onClick={() => void make.runner.cancel()}>{FILES_POPOVER.cancel}</button></div>
-    </div>
+    <>
+      {fb && <MakeFeedbackLine fb={fb} compact={compact} />}
+      <div className={`make-fb running${compact ? ' compact' : ''}`} role="status" aria-busy="true">
+        <div className="t"><span className="spin" />{FILES_POPOVER.making}</div>
+        <div className="row"><button className="quiet" onClick={() => void make.runner.cancel()}>{FILES_POPOVER.cancel}</button></div>
+      </div>
+    </>
   )
 }
 
@@ -64,7 +70,7 @@ export function FilesPopover({ make, open, onOpenChange }: { make: Make; open: b
               <button className="quiet" disabled={!r.enabled || make.making !== null} onClick={() => void make.run(r.kind)}>{FILES_POPOVER.makeAction}</button>
             </div>
             {/* 그 줄에서 시작한 실행의 고지·진행·결과·실패 — 시도 전에도 고지가 먼저 뜬다. */}
-            {make.making === r.kind && <MakeRunningLine make={make} compact />}
+            {make.making === r.kind && <MakeRunningLine make={make} fb={feedbackFor(r.kind)} compact />}
             {make.making !== r.kind && feedbackFor(r.kind) && <MakeFeedbackLine fb={feedbackFor(r.kind)!} compact />}
           </div>
         ))}

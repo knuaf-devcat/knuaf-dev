@@ -22,7 +22,8 @@ test('open a project, see four lanes, export a draft, unlock a stale lock', asyn
   // 결과물 > 파일 만들기 — 검토본은 관문 없이 만든다.
   await navTo(page, '결과물')
   await page.click('.make-row:has-text("검토본 만들기") button')
-  await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 30_000 })
+  // 같은 문구가 이제 두 자리(결과물 시트 + 종이 머리 아래 만들기 한 줄)에 뜬다 — 시트로 좁힌다.
+  await expect(page.locator('[data-screen="artifacts"]')).toContainText('검토본을 만들었어요', { timeout: 30_000 })
   // plant a stale lock and release it from 설정 > 문제 해결
   plantStaleLock(root)
   await navTo(page, '설정')

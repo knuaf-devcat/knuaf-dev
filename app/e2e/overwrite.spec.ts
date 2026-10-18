@@ -14,7 +14,8 @@ test('이미 만든 결과물을 다시 만들 때 없는 버튼을 찾게 하�
     await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '결과물')
     await page.click('.make-row:has-text("검토본 만들기") button')
-    await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 60_000 })
+    // 같은 문구가 결과물 시트와 종이 머리 아래 만들기 한 줄 두 곳에 뜬다 — 시트로 좁힌다.
+    await expect(page.locator('[data-screen="artifacts"]')).toContainText('검토본을 만들었어요', { timeout: 60_000 })
 
     // 같은 개정에서 한 번 더 — 앱은 덮어쓰지 않는다. 옳은 거절이니 안내가 문제다.
     await page.click('.make-row:has-text("검토본 만들기") button')

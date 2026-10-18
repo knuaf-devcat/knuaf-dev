@@ -260,14 +260,22 @@ export function useMake(): Make {
     if (!root) return
     patch({ making: 'docx', feedback: null, feedbackKind: null, lastOk: false, lastPath: null })
     const lastLine = (t?: string | null): string | undefined => t?.trim().split('\n').filter(Boolean).at(-1) || undefined
+    /**
+     * 실패를 화면에 남긴다. `env` 가 null 인 경우(스크립트 호출 자체가 실패: 준비 안 됨·시간 초과 등)도
+     * **이유를 말한다** — 예전에는 null 을 그냥 돌려보내 두 새 자리에 아무것도 남지 않았다
+     * (검토 확인 1회째 반례 ②). 취소는 실패가 아니므로 삼킨다.
+     */
     const fail = (env: { block_reason?: string | null; stderr?: string; stdout?: string } | null, tool: string): void => {
-      if (!env) return
+      const reason = env
+        ? (lastLine(env.block_reason) ?? lastLine(env.stderr) ?? lastLine(env.stdout) ?? ARTIFACTS.make.failNoReason)
+        : useMakeState.getState().err
+      if (!reason) return
       patch({
         failedTool: tool, feedbackKind: 'docx',
         feedback: {
           kind: 'error',
           title: ARTIFACTS.make.failTitle,
-          body: lastLine(env.block_reason) ?? lastLine(env.stderr) ?? lastLine(env.stdout) ?? ARTIFACTS.make.failNoReason,
+          body: reason,
           actions: <button onClick={() => openSettings(tool)}>{ARTIFACTS.make.advancedOpen}</button>
         }
       })
@@ -287,7 +295,17 @@ export function useMake(): Make {
       const out = versioned('build/검토전_논문.docx', taken)
       const env = await runScript('docx.build', { root, in: md, out, font: '신명조' })
       if (!env?.ok) { fail(env, 'tools:docx'); return }
-      patch({ lastOk: true, lastPath: env.path ?? out })
+      // 성공도 같은 자리에 남긴다 — 결과 한 줄 + 폴더에서 보기(검토 확인 1회째 반례 ③).
+      const path = env.path ?? out
+      patch({
+        lastOk: true, lastPath: path, feedbackKind: 'docx',
+        feedback: {
+          kind: 'completion',
+          title: COMPLETION.docx_built,
+          body: <code>{path}</code>,
+          actions: <button onClick={() => window.knuaf.reveal(path)}>{ARTIFACTS.reveal}</button>
+        }
+      })
       await refresh()
     } finally { patch({ making: null }) }
   }, [root, hasMdInput, st.hasPaperInput, reviewMd, refresh, openSettings])
