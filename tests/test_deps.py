@@ -7,7 +7,6 @@ import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -108,14 +107,32 @@ def test_ensure_hands_pip_utf8_env(empty_folder, monkeypatch):
     assert result["pip_exit"] == 0
 
 
+def _locale_decoding_subprocess(codec):
+    """`text=True` 에 encoding 을 주지 않은 호출을, 그 로케일로 해독하는 대역으로 만든다.
+
+    파이썬 3.10 에는 `subprocess._text_encoding`(3.11 이상에만 있는 사설 함수)이 없어 그것을
+    패치할 수 없다. 대신 제품 코드가 **로케일에 맡긴** 경우(encoding 을 지정하지 않았을 때)만
+    그 로케일 인코딩을 끼워 넣어 실제 cp1252·cp949 부모와 같은 조건을 만든다 — 3.10·3.11+ 에서
+    같은 방식으로 동작하고, 검사력도 그대로다(제품 코드가 encoding 을 지키면 아무것도 바꾸지
+    않으므로 통과, 지우면 로케일 해독으로 되돌아가 실패).
+    """
+    real_run = subprocess.run
+
+    def run(cmd, **kw):
+        if "encoding" not in kw and kw.get("text"):
+            kw["encoding"] = codec
+        return real_run(cmd, **kw)
+
+    return SimpleNamespace(run=run, SubprocessError=subprocess.SubprocessError)
+
+
 def test_ensure_survives_non_utf8_parent_decoding(tmp_path, monkeypatch):
     """검토 W2-ENC-R1-01: 부모가 로케일(cp1252·cp949)로 읽어도 준비가 깨지면 안 된다.
 
     실제 pip 자식을 돌린다 — 빈 ASCII 요구 파일 + 빈 한글 wheelhouse + `--no-index` 라
-    설치·다운로드가 없다(`Looking in links: <한글 경로>` 가 나온다). 부모 해독기만 바꿔 끼운다:
-    macOS 에서는 cp1252·cp949 로케일을 만들 수 없어 `text=True` 가 쓰는
-    `subprocess._text_encoding` 을 대신한다(검토 재현 코드와 같은 방식).
-    대역으로 kwargs 만 보는 시험은 이 바이트 해독 문제를 잡지 못하므로 실제 자식을 돌린다.
+    설치·다운로드가 없다(`Looking in links: <한글 경로>` 가 나온다). 부모 쪽 해독기만
+    `gg_deps` 안의 `subprocess.run` 대역으로 바꾼다(macOS 에서는 cp1252·cp949 로케일을 만들 수
+    없다). 대역으로 kwargs 만 보는 시험은 이 바이트 해독 문제를 잡지 못하므로 실제 자식을 돌린다.
     """
     import gg_deps
 
@@ -130,8 +147,9 @@ def test_ensure_survives_non_utf8_parent_decoding(tmp_path, monkeypatch):
     monkeypatch.setattr(gg_deps, "venv_python", lambda *a, **k: Path(sys.executable))
 
     for codec in ("utf-8", "cp1252", "cp949"):
+        monkeypatch.setattr(gg_deps, "subprocess", _locale_decoding_subprocess(codec))
         out = io.StringIO()
-        with patch.object(subprocess, "_text_encoding", return_value=codec), redirect_stdout(out):
+        with redirect_stdout(out):
             code = gg_deps.main(["ensure", str(root), "--no-index", "--find-links", str(wheels)])
         data = json.loads(out.getvalue())
         assert code == 0, (codec, data)
