@@ -46,16 +46,22 @@ app.setAboutPanelOptions({
   applicationName: APP_NAME,
   applicationVersion: app.getVersion(),
   version: '',
-  credits: 'KNUAF-Dev · 창업논문 작성 도우미\nprod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재\n\n논문은 AI 도우미(Claude Code)가 채팅으로 쓰고, 이 앱은 저장 상태·검사·산출물·복구를 맡습니다.',
+  credits: 'KNUAF-Dev · 창업논문 작성 도우미\nprod. 특용작물전공 24학번 김대욱 · 산업곤충전공 24학번 이준재\n\n논문은 연결한 AI 도우미가 채팅으로 쓰고, 이 앱은 저장 상태·검사·산출물·복구를 맡습니다.',
   copyright: 'MIT'
 })
 
 // Folders dropped on the Dock icon or opened from Finder.
 app.on('open-file', (e, path) => { e.preventDefault(); sendMenu({ type: 'open-recent', root: path }) })
 
+/**
+ * 창 바탕·제목줄 덮개 색 — **v5 토큰(tokens.css)과 같은 값**이어야 한다.
+ * 옛 초록 시절 값(#f5f5f4/#1c1d1c)이 남아 있어 창 가장자리와 macOS 제목줄에 다른 색 띠가
+ * 보였다(REPORT-P1 §6-5). 앱 화면의 `--bg` 와 같게 맞춘다: `--bg` = light #f7f9fc / dark #0e131c,
+ * 글자색은 `--ink` = light #0f172a / dark #eef2f7.
+ */
 function chromeColors() {
   const dark = nativeTheme.shouldUseDarkColors
-  return { bg: dark ? '#1c1d1c' : '#f5f5f4', bar: dark ? '#242625' : '#ecece9', symbol: dark ? '#ececea' : '#1c1f1b' }
+  return { bg: dark ? '#0e131c' : '#f7f9fc', bar: dark ? '#0e131c' : '#f7f9fc', symbol: dark ? '#eef2f7' : '#0f172a' }
 }
 
 function createWindow(): void {

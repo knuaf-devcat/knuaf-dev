@@ -11,14 +11,13 @@
  */
 import { expect, test } from '@playwright/test'
 import { join } from 'node:path'
-import { launch, synthProject } from './helpers'
-import { addSectionBody, markSectionReady, openProjectP3, setWindowWidth } from './p3-helpers'
+import { addSectionBody, launch, markSectionReady, openProject, setWindowWidth, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 
 test('본문이 없으면 한 칸, 첫 장이 저장되면 두 칸이 된다', async () => {
   const root = synthProject({ withContent: false })
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
 
   // 아직 쓴 글이 없다 — 빈 종이로 옆 칸을 채우지 않는다(DESIGN §1-1).
   await expect(page.locator('.paperpane')).toHaveCount(0)
@@ -38,7 +37,7 @@ test('본문이 없으면 한 칸, 첫 장이 저장되면 두 칸이 된다', a
 test('두 칸이 되면 대화 칸 폭이 규칙대로다 (1,140 → 460)', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await setWindowWidth(electronApp, 1140)
@@ -53,7 +52,7 @@ test('두 칸이 되면 대화 칸 폭이 규칙대로다 (1,140 → 460)', asyn
 test('좁은 창(1,139)에서는 한 칸 + 제목줄 바꾸기', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await setWindowWidth(electronApp, 1000)
@@ -76,7 +75,7 @@ test('좁은 창(1,139)에서는 한 칸 + 제목줄 바꾸기', async () => {
 test('종이를 닫으면 다시 저절로 열리지 않는다', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.getByRole('button', { name: '내 논문 닫기' }).click()
@@ -97,7 +96,7 @@ test('종이를 닫으면 다시 저절로 열리지 않는다', async () => {
 test('제출 전 점검 한 장이 논문 칸을 덮고, 확인 행이 네 개다', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   // 정식 진입점: 제목줄 "지금 ▾" → 전체 과정 → 제출 점검·마무리 줄(설계자 답 Q6).
@@ -124,7 +123,7 @@ test('제출 전 점검 한 장이 논문 칸을 덮고, 확인 행이 네 개�
 test('"지금"은 닫혀 있을 때도 열려 있을 때도 한 곳뿐이다 (3-A 완료 기준)', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   const now = page.locator('.titlebar .tbtn.now')
@@ -149,7 +148,7 @@ test('종이 머리 권하는 단추 — 3단계에서 "검토본 만들기" 하
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
   const root = synthProject()
   const { electronApp, page } = await launch({ env })
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   // 처음에는 인터뷰 단계(2)라 권하는 단추가 없다 — 대화가 이끈다(DESIGN §2).
@@ -166,7 +165,7 @@ test('종이 머리 권하는 단추 — 3단계에서 "검토본 만들기" 하
 test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 열린다', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
@@ -186,7 +185,7 @@ test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 �
 test('차례 팝오버 — 등록된 절만, 상태 말과 함께', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.locator('.paper-head .chap').click()
@@ -203,7 +202,7 @@ test('차례 팝오버 — 등록된 절만, 상태 말과 함께', async () => 
 test('제목줄 논문 팝오버 — 최근 논문과 새 폴더·다른 폴더 두 줄 (설계자 답 Q1)', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.locator('.titlebar .tbtn.title').click()
@@ -222,7 +221,7 @@ test('제목줄 논문 팝오버 — 최근 논문과 새 폴더·다른 폴더 
 test('제목줄 계정 팝오버 — 두 AI 줄이 첫 실행과 같은 상태 문구를 쓴다 (설계자 답 Q2)', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.locator('.titlebar .tbtn.acct').click()
@@ -243,7 +242,7 @@ test('제목줄 계정 팝오버 — 두 AI 줄이 첫 실행과 같은 상태 �
 test('자료 팝오버 — 보기 전용: 현재 작성물 + 자료 전체 보기 (설계자 답 Q3)', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  await openProjectP3(page, root)
+  await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await page.locator('.paper-head').getByRole('button', { name: /자료/ }).click()

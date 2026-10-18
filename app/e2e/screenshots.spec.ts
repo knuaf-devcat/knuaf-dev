@@ -33,9 +33,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.waitForTimeout(400)
     await page.screenshot({ path: `${OUT}/01-home${suffix}.png` })
     await openProject(page, root)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '점검')
-    await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
+    await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
     for (const [file, nav] of SCREENS) {
       await navTo(page, nav)
       await page.waitForTimeout(600)

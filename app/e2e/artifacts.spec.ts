@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, openProject, python, repo, synthProject } from './helpers'
+import { launch, navTo, openProject, python, repo, synthProject } from './helpers'
 
 const OUT = resolve(__dirname, 'artifacts')
 
@@ -36,9 +36,9 @@ test('결과물 화면: 목록, xlsx 표, pdf 페이지, docx 안내', async () 
   writeFileSync(join(root, 'build', '빈.docx'), '')
   const { electronApp, page } = await launch()
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
-  await page.click('nav >> text=결과물')
-  await page.waitForSelector('h1:has-text("결과물")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
+  await navTo(page, '결과물')
+  await page.waitForSelector('[data-screen="artifacts"]', { timeout: 30_000 })
 
   // all three files are listed with kind badges
   for (const n of ['재무.xlsx', '안내.pdf', '빈.docx']) {

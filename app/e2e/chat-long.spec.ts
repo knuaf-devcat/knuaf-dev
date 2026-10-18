@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, openProject, synthProject } from './helpers'
+import { launch, openProject, rewriteSection, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 
 const BANNER = '> KNUAF-Dev · 창업논문 작성 도우미'
@@ -35,7 +35,7 @@ test('긴 답변은 접히고, 펼치면 전문이 그대로 있다 (발견 10)'
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+    await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
 
     const bubble = page.locator('.chat-msg.assistant').first()
     await expect(bubble).toBeVisible({ timeout: 30_000 })
@@ -54,19 +54,24 @@ test('긴 답변은 접히고, 펼치면 전문이 그대로 있다 (발견 10)'
   }
 })
 
-test('"방금 한 일"이 답변 머리글을 되뇌지 않는다 (발견 4)', async () => {
+test('답변 머리글을 되뇌지 않는다 — 대화 이벤트 줄은 절 제목을 쓴다 (발견 4)', async () => {
   const root = synthProject()
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+    await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
 
-    const title = page.locator('.activity .title')
-    await expect(title).toBeVisible({ timeout: 30_000 })
-    const text = (await title.innerText()).trim()
-    expect(text, '머리글(배너) 줄을 그대로 집었다').not.toContain('knuaf-dev ·')
-    expect(text.startsWith('>'), '인용 줄을 제목으로 삼았다').toBe(false)
+    // "방금 한 일" 카드는 설계상 지웠다(DESIGN §1-3). 그 자리를 대신하는 것은 **대화 이벤트 줄**
+    // 이고, 그 줄은 도우미 답변에서 글자를 집어 오지 않는다 — `project.sections` 의 절 제목을 쓴다.
+    await expect(page.locator('.activity'), '지운 카드가 아직 그려진다').toHaveCount(0)
+
+    // 도우미가 절 본문을 저장하면(본문 지문이 바뀐다) 앱이 한 줄을 그린다.
+    rewriteSection(root, { body: '농장A의 재배 면적은 600평이다. 고친 문장이다.', expected: 1 })
+    const ev = page.locator('.chat-event')
+    await expect(ev, '절을 저장했는데 이벤트 줄이 없다').toBeVisible({ timeout: 30_000 })
+    await expect(ev).toContainText('Ⅰ. 머리말')
+    await expect(ev, '머리글(배너)을 제목으로 삼았다').not.toContainText('knuaf-dev')
   } finally {
     await electronApp.close()
   }

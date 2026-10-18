@@ -27,9 +27,9 @@ for (const scheme of ['light', 'dark'] as const) {
     const root = synthProject()
     const { electronApp, page } = await launch({ colorScheme: scheme, env: { KNUAF_E2E_VISIBLE: '1' } })
     await openProject(page, root)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '점검')
-    await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
+    await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
     await page.waitForTimeout(800)
     // w.focus() 만으로는 macOS 에서 앱이 앞으로 나오지 않는다 — 다른 앱이 활성이면
     // 창만 자기 앱 안에서 올라온다. app.focus({steal:true}) 가 앱 자체를 활성화한다.

@@ -8,7 +8,7 @@ test('live shots: codex chat + claude chat', async () => {
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await expect.poll(async () => {
       const s = await page.evaluate(async (r) => {
         const r_ = await window.knuaf.chat.status(r, 'codex')

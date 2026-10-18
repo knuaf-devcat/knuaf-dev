@@ -25,7 +25,7 @@ test('codex chat: interview, busy gate, quit+resume', async () => {
   const { electronApp, page } = app1
   try {
     await openProject(page, root)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     const st = await page.evaluate(async (r) => {
       const x = await window.knuaf.chat.status(r, 'codex'); return 'result' in x ? x.result : null
     }, root)

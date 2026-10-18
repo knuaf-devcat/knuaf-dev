@@ -77,7 +77,7 @@ test('the built app is named what the app calls itself', () => {
 
 test('reduced motion collapses transitions but keeps the spinner', async () => {
   const { electronApp, page } = await launch({ reducedMotion: 'reduce' })
-  const dur = await page.locator('nav .nav-item').first().evaluate((el) => getComputedStyle(el).transitionDuration)
+  const dur = await page.locator('.titlebar .tbtn').first().evaluate((el) => getComputedStyle(el).transitionDuration)
   expect(dur.split(',').map((s) => parseFloat(s)).every((d) => d <= 0.00001)).toBe(true)
   await electronApp.close()
 })
@@ -125,20 +125,24 @@ test('hard rules hold across screens', async () => {
   const { electronApp, page } = await launch()
   // The folder-less state is 내 논문 itself: one folder CTA, and no path entry anywhere on
   // the student-facing screen (the only path input lives in 설정 > 고급).
-  await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+  await expect(page.locator('.chat-pane')).toBeVisible()
   await expect(page.locator('text=논문 작업 폴더를 골라 주세요')).toBeVisible()
   expect(await page.locator('main input[aria-label="폴더 경로"]').count()).toBe(0)
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
-  // The primary nav is exactly the five approved destinations — no 그룹 내비, no footer helper.
-  const navLabels = await page.locator('nav .nav-item').allInnerTexts()
-  expect(navLabels.map((t) => t.trim())).toEqual(['내 논문', '자료', '결과물', '점검', '설정'])
+  // v5: 왼쪽 사이드바 다섯 목적지가 사라졌다 — 목적지 목록(nav) 자체가 없다.
+  expect(await page.locator('nav').count()).toBe(0)
+  // 제목줄은 논문 이름 · 지금(단계) · AI 계정 · 설정 넷뿐이다(DESIGN §1-3).
+  const bar = (await page.locator('.titlebar .tbtn').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).join(' | ')
+  expect(bar).toContain('지금')
+  expect(bar, '계정 자리가 무엇을 쓰는 AI 인지 말해야 한다').toMatch(/ChatGPT 연결됨|Claude 연결됨|AI 연결 안 됨/)
+  expect(await page.locator('.titlebar .tbtn.icon').count()).toBe(1)
 
-  // 내 논문 controls must not ask for JSON/model/path input either (same rule as 도구).
-  expect(await page.locator('.chat-seg').count()).toBe(0)
+  // 대화 화면 controls must not ask for JSON/model/path input either (same rule as 도구).
+  expect(await page.locator('.chat-pane .tbar-seg, .chat-pane .segmented').count()).toBe(0)
   expect(await page.locator('main input[aria-label="폴더 경로"]').count()).toBe(0)
-  const chatCtrls = (await page.locator('main label, main .field > span, main button').allInnerTexts()).join('\n')
+  const chatCtrls = (await page.locator('.chat-pane label, .chat-pane .field > span, .chat-pane button').allInnerTexts()).join('\n')
   expect(chatCtrls).not.toMatch(/JSON|모델/)
 
   // The independent-review notice must reach the publish/save points even when the student
@@ -159,7 +163,7 @@ test('hard rules hold across screens', async () => {
   expect(labels).not.toMatch(/JSON|모델/)
 
   await navTo(page, '점검')
-  await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
+  await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
 
   // four lanes by name, no percentage progress, no single done badge
   for (const t of ['자동 점검', '다른 사람 검토', '파일 확인', '교수님 승인']) await expect(page.getByText(t, { exact: true })).toBeVisible()
@@ -171,16 +175,18 @@ test('hard rules hold across screens', async () => {
   // no skip / N-A controls anywhere on 점검
   expect(await page.locator('button:has-text("건너뛰기"), button:has-text("해당 없음")').count()).toBe(0)
 
-  // 논문 차례: read-only — the 사이드바 TOC opens the section in a Sheet, never an editor.
-  await expect(page.locator('nav .toc-head')).toHaveText('논문 차례')
-  await page.locator('nav .toc-item').first().click()
-  await expect(page.locator('dialog').getByText('읽기 전용').first()).toBeVisible()
-  expect(await page.locator('dialog textarea, dialog [contenteditable="true"], main textarea, main [contenteditable="true"]').count()).toBe(0)
+  // 논문 차례: read-only — 종이 칸이 저장된 글을 그대로 보여 주고, 편집기가 어디에도 없다.
+  // (v4 는 사이드바 차례 → 읽기 전용 Sheet 였다. 그 자리를 종이 칸이 대신한다.)
+  await navTo(page, '내 논문')
+  await expect(page.locator('.paperpane .sheet')).toContainText('농장A의 재배 면적은 600평이다')
+  expect(await page.locator('.paperpane textarea, .paperpane [contenteditable="true"]').count()).toBe(0)
   // GUI-09 — 본문 텍스트가 a11y 트리에 노드로 들어 있는지 고정한다. 스냅샷은
   // VoiceOver 가 아니므로 실기 읽기 확인은 사람 몫으로 남는다.
-  // (닫힌 Sheet 도 <dialog>로 DOM 에 남으므로 open 인 것만 본다.)
-  expect(await page.locator('dialog[open]').ariaSnapshot()).toContain('농장A의 재배 면적은 600평이다')
-  await page.click('dialog >> button[aria-label="닫기"]')
+  expect(await page.locator('.paperpane').ariaSnapshot()).toContain('농장A의 재배 면적은 600평이다')
+  // 차례는 종이 머리의 장 이름 ▾ 팝오버가 연다.
+  await page.locator('.paper-head .chap').click()
+  await expect(page.locator('.paper-head .popover .pop-row').first()).toContainText('머리말')
+  await page.keyboard.press('Escape')
 
   // troubleshoot (설정 > 문제 해결): release only for a stale same-host lock; sanctioned Kordoc sentence only
   await navTo(page, '설정')

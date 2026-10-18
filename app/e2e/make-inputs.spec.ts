@@ -24,7 +24,7 @@ test('검토본이 나오면 논문 DOCX 버튼이 열린다 (발견 17)', async
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '결과물')
 
     const docx = page.getByRole('button', { name: ARTIFACTS.make.docx, exact: true })
@@ -52,7 +52,7 @@ test('재무 엑셀이 잠긴 이유를 도우미 탓으로 말하지 않는다 
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '결과물')
 
     const xlsxRow = page.locator('.make-row').filter({ hasText: ARTIFACTS.make.xlsx })

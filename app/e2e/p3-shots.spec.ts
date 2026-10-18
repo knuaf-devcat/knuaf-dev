@@ -9,8 +9,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { launch, synthProject } from './helpers'
-import { openProjectP3, setWindowWidth } from './p3-helpers'
+import { launch, openProject, setWindowWidth, synthProject } from './helpers'
 
 const OUT = process.env.KNUAF_SHOT_DIR ?? resolve(__dirname, '..', 'test-results', 'p3-shots')
 
@@ -25,14 +24,14 @@ for (const scheme of ['light', 'dark'] as const) {
     // 한 칸: 아직 쓴 글이 없는 폴더.
     const fresh = synthProject({ withContent: false })
     const first = await launch({ colorScheme: scheme })
-    await openProjectP3(first.page, fresh)
+    await openProject(first.page, fresh)
     await shoot(first.page, `solo-1280-${scheme}`)
     await first.electronApp.close()
 
     // 두 칸 + 팝오버 + 점검 시트.
     const root = synthProject()
     const { electronApp, page } = await launch({ colorScheme: scheme })
-    await openProjectP3(page, root)
+    await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
     await shoot(page, `split-1280-${scheme}`)
 
@@ -52,7 +51,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // 1,024 < 1,140 이라 두 칸이 안 들어간다 — 여기서도 좁은 창(바꾸기)이다.
     const root = synthProject()
     const { electronApp, page } = await launch({ colorScheme: scheme })
-    await openProjectP3(page, root)
+    await openProject(page, root)
     await setWindowWidth(electronApp, 1024)
     await expect(page.locator('.tbar-seg')).toBeVisible({ timeout: 20_000 })
     await shoot(page, `switch-chat-1024-${scheme}`)
@@ -66,7 +65,7 @@ for (const scheme of ['light', 'dark'] as const) {
     mkdirSync(OUT, { recursive: true })
     const root = synthProject()
     const { electronApp, page } = await launch({ colorScheme: scheme })
-    await openProjectP3(page, root)
+    await openProject(page, root)
     await setWindowWidth(electronApp, 900)
     await expect(page.locator('.tbar-seg')).toBeVisible({ timeout: 20_000 })
     await shoot(page, `switch-chat-900-${scheme}`)

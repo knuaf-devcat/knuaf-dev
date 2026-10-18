@@ -21,7 +21,7 @@ test('도우미 답변의 파일 링크가 마크다운 원문으로 보이지 �
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     const msg = page.locator('.chat-msg.assistant .prose').first()
     await expect(msg).toBeVisible({ timeout: 30_000 })
 
@@ -58,7 +58,7 @@ test('폴더 밖·주소를 가리키는 링크는 누를 수 있게 만들지 �
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     const msg = page.locator('.chat-msg.assistant .prose').first()
     await expect(msg).toBeVisible({ timeout: 30_000 })
     for (const label of ['받으세요', '열쇠', '위로'])

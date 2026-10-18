@@ -15,7 +15,7 @@ test('a running chat turn rejects sidecar writes with agent_busy, then recovers'
   const { electronApp, page } = await launch({ env: { PATH: `${bindir}:/usr/bin:/bin` } })
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
     // send() 는 가짜 서버의 initialize 응답을 영원히 기다린다 — 그동안 owner 를 쥔다.
     void page.evaluate((r) => window.knuaf.chat.send(r, 'codex', '홀드', crypto.randomUUID()), root).catch(() => {})

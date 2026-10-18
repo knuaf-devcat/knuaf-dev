@@ -96,7 +96,7 @@ export function App() {
 
   const paperOnScreen = showsPaper(layout, paneView)
   const checkup = sheet === 'checkup' && paperOnScreen
-    ? <SheetOver open title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></SheetOver>
+    ? <SheetOver open screen="checkup" title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></SheetOver>
     : null
 
   return (
@@ -106,10 +106,10 @@ export function App() {
         <Shell
           titleBar={<TitleBar />}
           sheets={<>
-            {sheet === 'materials' && <Sheet open side title={MATERIALS.title} onClose={closeSheet}><Materials /></Sheet>}
-            {sheet === 'artifacts' && <Sheet open side title={ARTIFACTS.title} onClose={closeSheet}><Artifacts /></Sheet>}
-            {sheet === 'settings' && <Sheet open side title={SETTINGS.title} onClose={closeSheet}><SettingsScreen /></Sheet>}
-            {sheet === 'checkup' && !paperOnScreen && <Sheet open side title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></Sheet>}
+            {sheet === 'materials' && <Sheet open side screen="materials" title={MATERIALS.title} onClose={closeSheet}><Materials /></Sheet>}
+            {sheet === 'artifacts' && <Sheet open side screen="artifacts" title={ARTIFACTS.title} onClose={closeSheet}><Artifacts /></Sheet>}
+            {sheet === 'settings' && <Sheet open side screen="settings" title={SETTINGS.title} onClose={closeSheet}><SettingsScreen /></Sheet>}
+            {sheet === 'checkup' && !paperOnScreen && <Sheet open side screen="checkup" title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></Sheet>}
           </>}
         >
           <Workspace chat={<Chat />} paper={<PaperPane overlay={checkup} />} />

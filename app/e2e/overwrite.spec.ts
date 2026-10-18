@@ -11,7 +11,7 @@ test('이미 만든 결과물을 다시 만들 때 없는 버튼을 찾게 하�
   const { electronApp, page } = await launch()
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await navTo(page, '결과물')
     await page.click('button:has-text("검토본 만들기")')
     await expect(page.locator('text=검토본을 만들었어요')).toBeVisible({ timeout: 60_000 })

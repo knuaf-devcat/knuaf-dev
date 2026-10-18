@@ -12,18 +12,21 @@ test('reopen a project from the recent-folder card (second visit)', async () => 
   const root = synthProject()
   const first = await launch({ userData })
   await openProject(first.page, root)
-  await first.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await first.page.waitForSelector('.chat-pane', { timeout: 30_000 })
   await first.electronApp.close()
 
   const second = await launch({ userData })
   // folder-less 내 논문 — the card is the real second-visit entry path (picker cannot be driven).
   await expect(second.page.locator('text=논문 작업 폴더를 골라 주세요')).toBeVisible()
   await second.page.locator('.project').first().click()
-  await second.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
-  await expect(second.page.locator('nav .project-chip .name')).toContainText(basename(root))
-  // 칩에는 경로가 노출되지 않는다 — basename만 (전체 경로는 title 속성)
-  await expect(second.page.locator('nav .project-chip .name')).not.toContainText(dirname(root))
-  await expect(second.page.locator('nav .toc-head')).toHaveText('논문 차례')
+  await second.page.waitForSelector('.chat-pane', { timeout: 30_000 })
+  // 논문 이름은 이제 제목줄 왼쪽(논문 ▾)에 있다 — 폴더 이름만 보이고 경로는 노출되지 않는다.
+  const paper = second.page.locator('.titlebar .tbtn.title')
+  await expect(paper).toContainText(basename(root))
+  await expect(paper).not.toContainText(dirname(root))
+  // 차례는 종이 머리의 장 이름 ▾ 가 연다(사이드바 차례는 설계대로 사라졌다).
+  await second.page.locator('.paper-head .chap').click()
+  await expect(second.page.locator('.paper-head .popover')).toContainText('차례')
   await second.electronApp.close()
 })
 
@@ -122,7 +125,7 @@ test('an existing folder can be removed from the recent list', async () => {
   const root = synthProject()
   const first = await launch({ userData })
   await openProject(first.page, root)
-  await first.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await first.page.waitForSelector('.chat-pane', { timeout: 30_000 })
   await first.electronApp.close()
 
   const second = await launch({ userData })
@@ -144,7 +147,7 @@ test('a bad folder path reports on settings and says the open folder stays', asy
   const root = synthProject()
   const { electronApp, page } = await launch({ userData })
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
   await navTo(page, '설정')
   await openPreset(page, 'folder:path')

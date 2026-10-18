@@ -150,7 +150,7 @@ test('가짜 서버로 로그인하면 연결되고, 2단계에서 고른 폴더
     await page.locator('.project').first().click()
 
     // ③ 앱 화면으로 넘어가고, 대화가 비어 있었으니 첫 마디가 저절로 한 번 나간다.
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await expect(page.locator('.chat-msg.user')).toHaveCount(1, { timeout: 30_000 })
     await expect(page.locator('.chat-msg.user').first()).toContainText('시작하기')
     // 첫 실행 화면을 지났음이 기록된다 — 다음 실행에는 다시 묻지 않는다.
@@ -240,7 +240,7 @@ test('확인 실패는 폴더 화면에서도 로그인 필요가 아니다 (P2-
   const { electronApp, page } = await launch({ userData, env })
   try {
     await page.locator('.project').first().click()   // 폴더를 연다(온보딩은 이미 지났다)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
     // 로그인부터 요구하지 않는다 — 다시 확인만 권한다.
     await expect(page.getByRole('button', { name: 'Claude 로그인' })).toHaveCount(0)
@@ -274,7 +274,7 @@ test('이미 지난 학생이 최근 논문을 열 때는 온보딩을 거치지
     await expect(page.locator(NO_FOLDER)).toBeVisible()
     await expect(page.locator(INTRO)).toHaveCount(0)
     await page.locator('.project').first().click()
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
   } finally {
     await electronApp.close()
   }
