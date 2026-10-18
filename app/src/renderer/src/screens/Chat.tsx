@@ -3,11 +3,14 @@ import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
 import { FirstRun } from '../components/FirstRun'
+import { PopHead, Popover, PopSep } from '../components/Popover'
+import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
+import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Feedback } from '../components/Feedback'
 import { Icon } from '../components/Icon'
 import { Badge } from '../components/Badge'
-import { CHAT, CHAT_EVENT, CLOSE_LABEL, describeChatError, relativeTime } from '../copy'
+import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, describeChatError } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -62,14 +65,9 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
   const text = folding && fold ? [...lines.slice(0, fold.span.start), ...lines.slice(fold.span.end + 1)].join('\n') : m.text
   const long = text.length > LONG_MESSAGE
   const shown = long && !open ? text.slice(0, LONG_MESSAGE) : text
+  // 도우미는 **테두리·상자·발화자/시간 머리 없는 본문**, 학생만 오른쪽 말풍선(시안 D/E/G, N-I01).
   return (
     <div className={`chat-msg ${m.role}`}>
-      <div className="chat-msg-head">
-        <span className="chat-who">{m.role === 'user' ? CHAT.me : CHAT.assistant}</span>
-        <span className="caption">{relativeTime(m.at)}</span>
-        {m.role === 'user' && m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
-        {m.role === 'user' && m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
-      </div>
       <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(shown, onGoArtifacts) : shown}</div>
       {folding && fold && (
         <div className="q-fold">
@@ -79,7 +77,13 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
         </div>
       )}
       {long && <button className="lk" onClick={() => setOpen(!open)}>{open ? CHAT.showLess : CHAT.showMore(m.text.length - LONG_MESSAGE)}</button>}
-      {m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
+      {m.role === 'user' && (m.delivery === 'pending' || m.delivery === 'uncertain') && (
+        <div className="chat-delivery">
+          {m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
+          {m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
+        </div>
+      )}
+      {m.role === 'user' && m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
   )
 }
@@ -115,9 +119,31 @@ function NoFolder() {
 }
 
 /**
- * 입력칸 `+` 오른쪽의 **모델·깊이 입구**(발주 I-02)는 형님 승인 대기다 — 지금은 만들지 않는다.
- * 연결 기제를 건드려야 하는 단계 4 분리 기능이라, 승인이 나면 그때 되살린다(REPORT-QA 참고).
+ * 입력칸 `+` 오른쪽의 칩 — 지금 연결된 AI 이름 + `생각 깊이 기본`(발주 I-02 ①, **표시만**).
+ * 누르면 작은 팝오버가 열린다: 위는 AI 바꾸기(제목줄 계정 팝오버와 같은 `AccountChooser`),
+ * 아래는 생각 깊이 한 줄을 **흐린 비활성**으로 — 값은 지어내지 않고 "곧 고를 수 있어요"만 말한다.
+ * 실제 모델·추론 값을 넘기는 코드는 건드리지 않는다(안 주면 CLI 기본값이 쓰이는 지금 동작 그대로).
  */
+function ComposerModelChip() {
+  const [open, setOpen] = useState(false)
+  const { provider } = useAccountProvider()
+  return (
+    <div className="pop-host">
+      <button type="button" className="model" title={CHAT.modelChipTitle} aria-expanded={open} onClick={() => setOpen(!open)}>
+        {PROVIDER_NAME[provider]} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} align="left" width={400} label={CHAT.modelChipTitle}>
+        <AccountChooser onPicked={() => setOpen(false)} />
+        <PopSep />
+        <PopHead>{CHAT.depthTitle}</PopHead>
+        <div className="pop-row off" aria-disabled="true">
+          <span className="c"><b>{CHAT.depthDefault}</b><small>{CHAT.depthFollows(PROVIDER_NAME[provider])}</small></span>
+          <span className="m">{CHAT.depthSoon}</span>
+        </div>
+      </Popover>
+    </div>
+  )
+}
 
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
@@ -295,22 +321,32 @@ export function Chat() {
       {/* 아래 칸 — 질문 카드 · 허락 카드 · 작업 중 한 줄 · 입력칸이 이 한 자리를 번갈아 쓴다.
           무엇이 쓸지는 zone.ts 한 함수가 정한다(설계 §4-1). */}
       <div className="chat-zone">
-        {zone.kind === 'permission' && (
-          <div className="askcard" role="alert">
-            <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
-            <div className="askcard-t">{zone.request.title}</div>
-            <div className="prose">{zone.request.detail}</div>
-            <div className="caption">{CHAT.allowAlwaysHint}</div>
-            <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-              <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
-              {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
-                  폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
-                  그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
-              <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(zone.request.id, true) }}>{CHAT.allowAlways}</button>
-              <button onClick={() => void respond(zone.request.id, false)}>{CHAT.deny}</button>
+        {zone.kind === 'permission' && (() => {
+          // 상세를 나눈다 — 첫 줄은 명령·경로(작게), 나머지는 쉬운 말 이유(앞에). 상세는 접어 둔다(N-I05).
+          const lines = (zone.request.detail ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
+          const command = lines[0] ?? ''
+          const reason = lines.slice(1).join(' ')
+          return (
+            <div className="askcard" role="alert">
+              <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
+              <div className="askcard-t">{zone.request.title}</div>
+              {reason && <div className="askcard-why">{reason}</div>}
+              {command && <div className="askcard-cmd">{command}</div>}
+              <div className="caption">{CHAT.allowAlwaysHint}</div>
+              <Disclosure label={CHAT.askDetail}>
+                <div className="prose">{zone.request.detail}</div>
+              </Disclosure>
+              <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
+                <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
+                {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
+                    폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
+                    그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
+                <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(zone.request.id, true) }}>{CHAT.allowAlways}</button>
+                <button onClick={() => void respond(zone.request.id, false)}>{CHAT.deny}</button>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {zone.kind === 'question' && (
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
@@ -344,7 +380,7 @@ export function Chat() {
               <div className="crow">
                 {/* 왼쪽 아래 32×32 원형 `+` — 파일 첨부(기존 동작 그대로). */}
                 <button type="button" className="circ" title={CHAT.attach} aria-label={CHAT.attach} onClick={() => void attach()}><Icon name="plus" size={16} /></button>
-                {/* I-02 모델·깊이 입구는 승인 대기 — 여기 들어올 자리다(REPORT-QA). */}
+                <ComposerModelChip />
                 <span className="sp" />
                 {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
@@ -362,7 +398,7 @@ export function Chat() {
           // 미연결·확인 실패·도구 없음: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
           // 사라져도 "답변에 첨부"/"고쳐달라기"가 쓴 draft가 조용히 삼켜지지 않아야 한다.
           <>
-            <div className="empty">
+            <div className="zone-note">
               <div className="t">{chatConnTitle}</div>
               <div>{chatConnBody}</div>
               {connState !== 'no-tool' && status?.detail && <div className="caption">{status.detail}</div>}
