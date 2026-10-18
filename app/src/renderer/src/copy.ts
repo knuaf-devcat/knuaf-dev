@@ -579,6 +579,74 @@ export const COMPLETION: Record<string, string> = {
 /** Data boundary: the agent providers see the project; the app itself phones nowhere. */
 export const PRIVACY_NOTE = 'AI 도우미를 연결하면 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요. 앱 자체는 그 외 어디에도 자료를 보내지 않아요.'
 
+// ---------------------------------------------------------------------------
+// 첫 실행 (AI 연결 → 논문 폴더) · 폴더 고르기
+// ---------------------------------------------------------------------------
+
+/**
+ * 폴더 고르기 — 첫 실행 2단계와 재방문(폴더 없음) 화면이 같은 줄을 쓴다(`FolderPicker`).
+ * 두 화면에서 다른 것은 제목·부제뿐이다.
+ */
+export const FOLDER = {
+  newName: '새로 시작',
+  newBody: '빈 폴더를 만들어요',
+  newAction: '새 폴더 만들기',
+  recentName: '쓰던 논문 이어 쓰기',
+  recentBody: '전에 쓰던 폴더를 열어요',
+  recentAction: '폴더 열기',
+  recents: '최근'
+} as const
+
+/**
+ * 첫 실행 화면(DESIGN §6). 순서는 AI 연결 ① → 논문 폴더 ② 이고, 기술 이름(Codex·Claude Code)은
+ * 설치가 필요할 때만 괄호로 붙인다(§5 — 기본 화면에는 쓰지 않는다).
+ */
+export const ONBOARD = {
+  guideConnect: 'AI 연결',
+  guideConnectDone: 'AI 연결 ✓',
+  guideFolder: '논문 폴더',
+  guideStart: '시작',
+  connectTitle: '먼저, 쓰고 있는 AI를 연결해요',
+  connectIntro: '평소 쓰는 ChatGPT나 Claude 계정 하나면 돼요. 이 앱은 AI 이용권을 따로 팔지 않아요 — 도우미는 내 계정으로 일해요.',
+  recommended: '권장',
+  claudeExperimental: '아직 실험 중인 연결이에요',
+  chosenSuffix: ' · 고른 AI예요',
+  installGuide: '설치 안내',
+  loginAs: (name: string) => `${name}로 로그인`,
+  reopenBrowser: '브라우저 다시 열기',
+  cancel: '취소',
+  startWith: '이걸로 시작',
+  connectNext: '다음 — 논문 폴더 고르기',
+  connectWaiting: '연결이 확인되면 다음으로 갈 수 있어요.',
+  howToChoose: '둘 다 있나요? 어느 쪽이 좋은지 보기',
+  toolHint: '연결 도구를 설치한 뒤 이 화면으로 돌아와 "다시 확인"을 눌러 주세요.',
+  folderTitle: '논문을 담을 폴더를 골라요',
+  folderIntro: '논문 글과 자료가 이 폴더에 모여요. 이미 가진 원고나 엑셀이 있는 폴더도 괜찮아요 — 원래 파일은 건드리지 않아요.',
+  folderBack: '← AI 연결',
+  folderFoot: '폴더를 이 창에 끌어다 놓아도 열려요. 연결한 AI는 나중에 설정에서 바꿀 수 있어요.'
+} as const
+
+/** 연결 도구 이름 — 설치가 필요할 때만, 그리고 어느 도구인지 구분할 때만 화면에 나온다. */
+export const CONNECT_TOOL: Record<'codex' | 'claude', string> = { codex: 'Codex', claude: 'Claude Code' }
+export const PROVIDER_NAME: Record<'codex' | 'claude', string> = { codex: 'ChatGPT', claude: 'Claude' }
+
+/**
+ * 연결 상태 한 줄 — 관찰한 것만 말한다. 확인하지 못한 것을 연결됨·끊김으로 꾸미지 않는다(R5 §6.3).
+ * `failed`(도구는 있는데 대답을 못 들음)와 `unknown`(요청 자체가 실패)을 "로그인이 필요해요"로
+ * 접지 않는다 — 그 구분이 `ConnectionStatus.probe` 다.
+ */
+export function connectStateLine(provider: 'codex' | 'claude', state: string): string {
+  switch (state) {
+    case 'checking': return '연결 상태를 확인하고 있어요'
+    case 'no-tool': return `연결 도구(${CONNECT_TOOL[provider]})를 먼저 설치해요`
+    case 'need-login': return `${PROVIDER_NAME[provider]} 계정 로그인이 필요해요`
+    case 'logging-in': return '브라우저에서 로그인한 뒤 이 창으로 돌아와 주세요'
+    case 'connected': return '연결됐어요'
+    case 'failed': return '연결 상태를 확인하지 못했어요'
+    default: return '연결 상태를 알 수 없어요'
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Fixed sentences (SKILL.md:8, :15, :24, :34; parser-setup.md:12)
@@ -758,6 +826,12 @@ export const CHAT = {
   // 빈 대화 시작 버튼 — "시작하기"/"이어서 하기" 문자열을 학생 대신 보낸다(agent.ts firstPrompt와 같은 문자열).
   startNew: '새로 시작하기',
   resume: '쓰던 논문 이어하기',
+  /**
+   * 도우미에게 실제로 보내는 첫 마디. 버튼 글자(`startNew`·`resume`)와 다르다 — 그쪽은
+   * "무엇을 하는지"를 말하고, 이쪽은 스킬이 받는 문장이다(`firstPromptFor` 와 같은 문자열).
+   */
+  firstTurn: '시작하기',
+  firstTurnNext: '이어서 하기',
   pickHelperTitle: '어느 도우미로 시작할까요?',
   pickHelperBody: '한 번 고르면 기억해요. 바꾸려면 설정에서 바꿀 수 있어요.',
   pickCodexTitle: 'ChatGPT 채팅으로 시작',
@@ -783,6 +857,8 @@ export const CHAT = {
   activityFile: (name: string) => `최근 파일 ${name}`,
   activityFix: (n: number) => `자동 점검 고칠 곳 ${n}건 — 점검에서 확인할 수 있어요`,
   noFolderTitle: '논문 작업 폴더를 골라 주세요',
+  /** 폴더 없음 화면의 "최근" 목록 제목 — 첫 실행 화면과 같은 부품이 쓴다(FolderPicker). */
+  recentTitle: '최근 폴더',
   noFolderIntro: '새 빈 폴더도 괜찮고, 이미 쓰던 폴더도 괜찮아요. 고른 폴더에 도우미용 파일이 자동으로 준비돼요.',
   noFolderBody: '폴더를 끌어다 놓아도 돼요.',
   openFolder: '폴더 열기…',

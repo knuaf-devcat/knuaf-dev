@@ -355,3 +355,12 @@ button.lk:hover { border-bottom-color: var(--ink); }
 /* ---- 아래 칸: 작업 중 한 줄 (DESIGN §3) — 입력칸은 쓸 수 있고 보내기만 멈추기 ---- */
 .zone-status { display: flex; align-items: center; gap: var(--sp-2); font-size: 13.5px; color: var(--ink-2); margin-top: var(--sp-4); padding: 0 var(--sp-2); }
 .zone-status .spin { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }
+
+/* ---- 첫 실행 화면 (DESIGN §6) — AI 연결 → 논문 폴더. 사이드바·칸 없이 가운데 한 줄기.
+   내용이 짧으면 세로 가운데, 길어지면(폴더 목록) margin:auto 가 그대로 스크롤을 만든다. */
+.onb { height: 100%; overflow: auto; display: flex; flex-direction: column; }
+.onb-inner { width: 100%; max-width: 620px; margin: auto; padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-5) var(--sp-10); }
+/* 위쪽 길잡이 한 줄 — 번호 원 없이. 지금 단계만 진하다. */
+.onb-way { margin-bottom: var(--sp-5); }
+.onb-way strong { font-weight: 500; }
+.onb-way strong.on { color: var(--ink); font-weight: 600; }

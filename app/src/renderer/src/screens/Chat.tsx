@@ -1,17 +1,17 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
+import { chosenProvider, useConnect } from '../store/connect'
 import { rpc } from '../rpc'
 import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
-import { EmptyState } from '../components/EmptyState'
 import { Feedback } from '../components/Feedback'
-import { ProjectCard } from '../components/ProjectCard'
+import { FolderPicker } from '../components/FolderPicker'
 import { QuestionCard } from '../components/QuestionCard'
-import { CHAT, EMPTY, describeChatError, relativeTime } from '../copy'
+import { CHAT, FOLDER, describeChatError, relativeTime } from '../copy'
 import { waitingQuestionCount, zoneOf } from '../../../shared/zone'
-import type { ChatMessage } from '../../../shared/chat'
-import type { ArtifactItem, ProjectPeek, RecentEntry, SectionRow } from '../../../shared/types'
+import type { ChatMessage, Provider } from '../../../shared/chat'
+import type { ArtifactItem, SectionRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
 
 /** [이름](경로) 한 쌍. 줄바꿈을 넘지 않는다 — 산문 한가운데의 링크만 집는다. */
@@ -88,46 +88,15 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
 }
 
 /**
- * 폴더 없음 — "홈"이 아니라 내 논문의 한 상태(03-화면/01). 첫 행동은 폴더 고르기 하나뿐;
+ * 폴더 없음 — "홈"이 아니라 내 논문의 한 상태(03-화면/01). 첫 실행은 온보딩 2단계가
+ * **같은 부품**(`FolderPicker`)으로 폴더를 고르고, 여기는 재방문의 자리다(App.tsx 의 분기).
  * 경로 입력칸은 없고(설정 > 고급에만), 준비는 여는 순간 백그라운드로 돌아 실패만 표면화된다.
  */
 function NoFolder() {
-  const { open, settings, error, loading, loadSettings } = useProject(useShallow((s) => ({ open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings })))
-  const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})
-  useEffect(() => {
-    let alive = true
-    void (async () => {
-      const out: Record<string, ProjectPeek> = {}
-      for (const r of settings?.recent ?? []) out[r.root] = await window.knuaf.peekProject(r.root)
-      if (alive) setPeeks(out)
-    })()
-    return () => { alive = false }
-  }, [settings?.recent])
-  const pick = async () => { const dir = await window.knuaf.pickFolder(); if (dir) await open(dir) }
-  const remove = async (r: string) => { await window.knuaf.setSettings({ recent: (settings?.recent ?? []).filter((x) => x.root !== r) }); await loadSettings() }
   return (
     <div>
       <Toolbar title={CHAT.title} />
-      {error && <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>} />}
-      <div className="empty" style={{ padding: 'var(--sp-8)' }}>
-        <div className="t" style={{ fontSize: 'var(--fs-heading)' }}>{CHAT.noFolderTitle}</div>
-        <div>{CHAT.noFolderIntro}</div>
-        <div className="row" style={{ marginTop: 'var(--sp-2)' }}>
-          <button className="primary" onClick={pick} disabled={loading}>{CHAT.openFolder}</button>
-        </div>
-        <div className="caption">{loading ? CHAT.opening : CHAT.noFolderBody}</div>
-      </div>
-      <h2>최근 폴더</h2>
-      {(settings?.recent ?? []).length === 0 ? (
-        <EmptyState icon="folder" title={EMPTY.recent.title} body={EMPTY.recent.body} />
-      ) : (
-        <div className="projects stagger">
-          {(settings?.recent ?? []).map((r: RecentEntry, i) => {
-            const p = peeks[r.root]
-            return <ProjectCard key={r.root} index={i} root={r.root} openedAt={relativeTime(r.opened_at)} revision={p?.revision ?? null} exists={p ? p.exists : true} hasProject={p?.hasProject ?? false} onOpen={() => open(r.root)} onRemove={() => remove(r.root)} />
-          })}
-        </div>
-      )}
+      <FolderPicker copy={{ title: CHAT.noFolderTitle, intro: CHAT.noFolderIntro, ...FOLDER, recents: CHAT.recentTitle, foot: CHAT.noFolderBody }} />
     </div>
   )
 }
@@ -144,6 +113,16 @@ export function Chat() {
   const setScreen = useProject((s) => s.setScreen)
   const revision = pStatus?.revision ?? peek?.revision ?? null
   const { root, snapshot, status, statusFailed, draft, busy, error, mode, setMode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setMode: s.setMode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
+  /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
+  const startIntent = useChat((s) => s.startIntent)
+  const disarmStart = useChat((s) => s.disarmStart)
+  /**
+   * 지금 대화할 공급자. 우선순위: 학생이 고른 것(온보딩 1단계·설정·계정 변경) → 세션에서
+   * 고른 것 → 옛 설정(`helper_mode`). 연결 상태도 같은 공급자를 본다.
+   */
+  const connectSelected = useConnect((s) => s.selected)
+  const seg: ChatMode = resolveChatMode(mode, settings)
+  const provider: Provider = chosenProvider(connectSelected, settings) ?? chatProvider(seg)
   const endRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [dragging, setDragging] = useState(false)
@@ -151,9 +130,6 @@ export function Chat() {
   const [sections, setSections] = useState<SectionRow[] | null>(null)
   const [lastArtifact, setLastArtifact] = useState<ArtifactItem | null>(null)
   const [copied, setCopied] = useState(false)
-
-  const seg: ChatMode = resolveChatMode(mode, settings)
-  const provider = chatProvider(seg)
 
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
   // codex 대화가 claude 화면에 남는 식의 혼합은 없어야 한다.
@@ -205,8 +181,29 @@ export function Chat() {
   const emptyChat = !!snapshot && snapshot.messages.length === 0
   const hasRevision = (revision ?? 0) >= 1
 
-  /** 시작 버튼이 모드 선택을 겸한다 — 고른 도우미는 helper_mode에 기록(이후 설정에서 변경). */
-  const remember = (m: ChatMode) => { setMode(m); void window.knuaf.setSettings({ helper_mode: m }).then(() => loadSettings()) }
+  /**
+   * 첫 대화 한 번 — 온보딩에서 폴더를 고른 순간이 학생의 시작 의사다(설계 §4-3 "첫 대화 시작").
+   * 그 폴더의 대화가 비어 있고 연결돼 있으면 `시작하기`(기록이 있으면 `이어서 하기`)를 한 번
+   * 보낸다. 의사는 보내는 순간 소비되므로 다시 보내지 않고, **다시 열었을 때**는 아무 일도
+   * 일어나지 않는다 — 그때는 빈 대화의 단추를 학생이 직접 누른다.
+   */
+  useEffect(() => {
+    if (!startIntent || !projectRoot || startIntent !== projectRoot) return
+    if (!snapshot || snapshot.provider !== provider || status?.connected !== true) return
+    disarmStart()
+    if (snapshot.messages.length === 0) void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)
+  }, [startIntent, projectRoot, snapshot, status, provider, hasRevision, send, disarmStart])
+
+  /**
+   * 도우미를 고르는 순간은 **선택의 기록**이다 — 온보딩 1단계·설정 라디오와 같은 자격으로
+   * `provider_choice` 를 남긴다(`helper_mode` 는 기본값이라 그것만으로는 "골랐음"이 안 된다).
+   */
+  const remember = (m: ChatMode) => {
+    setMode(m)
+    const p = chatProvider(m)
+    useConnect.getState().select(p)
+    void window.knuaf.setSettings({ helper_mode: m, provider_choice: { provider: p, at: new Date().toISOString() } }).then(() => loadSettings())
+  }
   /**
    * 공급자를 고르고 첫 마디를 보낸다. 고르기만 하면 화면이 그대로 멈춘다 —
    * claude 쪽이 remember 만 하고 send 를 안 해서 "눌러도 아무 일이 없는" 상태였다.
@@ -291,18 +288,18 @@ export function Chat() {
             <div>{CHAT.emptyBodyStart}{claudeFound ? ` ${CHAT.pickHelperTitle}` : ''}</div>
             {claudeFound ? (<>
               <div className="row" style={{ marginTop: 'var(--sp-3)', alignItems: 'stretch' }}>
-                <button className="opt-card" onClick={() => startCodex('시작하기')}>
+                <button className="opt-card" onClick={() => startCodex(CHAT.firstTurn)}>
                   <span className="t">{CHAT.pickCodexTitle}</span><span className="b">{CHAT.pickCodexBody}</span>
                 </button>
-                <button className="opt-card" onClick={() => startClaude('시작하기')}>
+                <button className="opt-card" onClick={() => startClaude(CHAT.firstTurn)}>
                   <span className="t">{CHAT.pickClaudeTitle}</span><span className="b">{CHAT.pickClaudeBody}</span>
                 </button>
               </div>
-              <div className="caption" style={{ marginTop: 'var(--sp-3)' }}>{CHAT.pickHelperBody}{hasRevision && <> — <button className="lk" onClick={() => startCodex('이어서 하기')}>{CHAT.resume}</button></>}</div>
+              <div className="caption" style={{ marginTop: 'var(--sp-3)' }}>{CHAT.pickHelperBody}{hasRevision && <> — <button className="lk" onClick={() => startCodex(CHAT.firstTurnNext)}>{CHAT.resume}</button></>}</div>
             </>) : (
               <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-                <button className="primary" onClick={() => startCodex('시작하기')}>{CHAT.startNew}</button>
-                {hasRevision && <button onClick={() => startCodex('이어서 하기')}>{CHAT.resume}</button>}
+                <button className="primary" onClick={() => startCodex(CHAT.firstTurn)}>{CHAT.startNew}</button>
+                {hasRevision && <button onClick={() => startCodex(CHAT.firstTurnNext)}>{CHAT.resume}</button>}
               </div>
             )}
           </>) : <div>{CHAT.emptyBody}</div>}
@@ -404,7 +401,7 @@ export function Chat() {
                 : status?.installed
                   ? <button className="primary" onClick={() => void login()} disabled={busy}>{CHAT.loginFor(provider)}</button>
                   : <button className="primary" onClick={() => void window.knuaf.openGuide()}>{CHAT.installGuide}</button>}
-              {claudeFound && provider !== 'claude' && <button onClick={() => startClaude('시작하기')}>{CHAT.claudeStart}</button>}
+              {claudeFound && provider !== 'claude' && <button onClick={() => startClaude(CHAT.firstTurn)}>{CHAT.claudeStart}</button>}
               {!statusFailed && <button className="quiet" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
             </div>
           </div>

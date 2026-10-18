@@ -111,7 +111,11 @@ export class CodexConnection implements AgentConnection {
   async login() {
     const r = await (await this.connect()).request('account/login/start', { type: 'chatgpt' })
     this.loginInfo = { id: typeof r.loginId === 'string' ? r.loginId : '', url: typeof r.authUrl === 'string' ? r.authUrl : '' }
-    if (this.loginInfo.url) await this.options.openExternal(this.loginInfo.url)
+    // 브라우저를 못 열었다고 로그인 자체를 실패로 만들지 않는다. 서버 쪽 로그인은 이미
+    // 시작됐고, 학생에게는 "브라우저 다시 열기"가 있다. 여기서 던지면 화면이 '확인 실패'가
+    // 되어 방금 시작한 로그인을 취소한 것처럼 보인다(실제로 그 문구가 떴다 —
+    // openExternal('about:blank') 이 거절하는 환경에서 e2e 가 잡았다).
+    if (this.loginInfo.url) { try { await this.options.openExternal(this.loginInfo.url) } catch { /* 다시 열기로 재시도할 수 있다 */ } }
   }
   /** 브라우저를 닫아 버린 학생을 위해 같은 주소를 다시 연다. */
   async reopenLogin() {

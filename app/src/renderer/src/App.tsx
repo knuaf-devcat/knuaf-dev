@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { useProject, type Screen } from './store/project'
+import { useConnect } from './store/connect'
 import { useChat } from './store/chat'
 import { Chat } from './screens/Chat'
 import { Materials } from './screens/Materials'
@@ -74,13 +75,17 @@ export function App() {
   const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? root : null
   /**
    * 첫 실행 화면은 폴더를 고르기 전에 AI 연결부터 묻는다(DESIGN §6). 폴더가 열려 있으면
-   * 언제나 앱 화면이다 — 재방문은 논문을 그대로 열고, 연결이 끊겼으면 그 자리에서
-   * 다시 로그인만 묻는다(로그인 벽으로 전체를 막지 않는다).
+   * 언제나 앱 화면이다 — 재방문은 논문 화면(폴더 없음)을 그대로 열고, 연결이 끊겼으면
+   * 그 자리에서 다시 로그인만 묻는다(로그인 벽으로 전체를 막지 않는다).
    *
    * 설정을 아직 못 읽은 동안에는 아무것도 그리지 않는다. 먼저 그리면 폴더 고르기 화면이
    * 한 번 번쩍인 뒤 첫 실행 화면으로 바뀐다 — 첫인상이 그 화면이면 순서를 바꾼 뜻이 없다.
    */
   const onboarding = !!settings && !root && !settings.onboarded_at
+  // 학생이 고른 공급자는 설정에 남는다 — 세션 상태(store/connect)를 그 값과 맞춰 둔다.
+  // 대화 화면은 이 값을 먼저 보고, 없으면 옛 기본값(helper_mode)으로 되돌아간다.
+  const choice = settings?.provider_choice?.provider ?? null
+  useEffect(() => { useConnect.getState().select(choice) }, [choice])
   return (
     <div style={{ height: '100%' }} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop} data-dragging={dragging || undefined}>
     {intro && <Intro onDone={() => setIntro(false)} />}

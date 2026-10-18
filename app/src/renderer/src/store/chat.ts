@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { startPoll, stopPoll } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
@@ -53,6 +54,14 @@ interface ChatState {
   error: string | null
   /** Session override; null = follow settings.helper_mode / codex_terminal. */
   mode: ChatMode | null
+  /**
+   * 온보딩 2단계에서 폴더를 고른 순간의 **시작 의사**(그 폴더 경로). 그 폴더의 대화가
+   * 비어 있으면 Chat 이 한 번만 첫 마디를 보낸다 — 학생이 "여기서 시작하겠다"고 고른 것이
+   * 곧 시작 의사다. 다시 열었을 때는 걸리지 않는다(빈 대화 단추를 남긴다).
+   */
+  startIntent: string | null
+  armStart: (root: string) => void
+  disarmStart: () => void
   setMode: (mode: ChatMode | null) => void
   setDraft: (draft: string) => void
   /** Append a picked/dropped file path to the draft as plain text — nothing else happens. */
@@ -77,10 +86,6 @@ interface ChatState {
   onSnapshot: (snapshot: ChatSnapshot) => void
 }
 
-/** Login opens an external browser; poll status until the account connects (max 3 min). */
-let loginPoll: ReturnType<typeof setInterval> | null = null
-
-
 export const useChat = create<ChatState>((set, get) => ({
   root: null,
   provider: 'codex',
@@ -92,6 +97,9 @@ export const useChat = create<ChatState>((set, get) => ({
   busy: false,
   error: null,
   mode: null,
+  startIntent: null,
+  armStart: (root) => set({ startIntent: root }),
+  disarmStart: () => set({ startIntent: null }),
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
   setDraft: (draft) => { set((s) => ({ draft, draftSeq: s.draftSeq + 1 })); const r = get().root; if (r) void window.knuaf.chat.setDraft(r, draft) },
   insertPath: (path) => {
@@ -101,7 +109,7 @@ export const useChat = create<ChatState>((set, get) => ({
   appendDraft: (text) => get().insertPath(text),
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
-    if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
+    stopPoll()   // 폴더가 바뀌면 이전 로그인 기다림은 끝난다(규칙은 store/connect 한 곳에 있다)
     // 초안을 비우는 것은 폴더가 바뀔 때뿐이다 — A 에 쓰다 만 답변이 B 에 그대로
     // 보이는 것을 막는 게 목적이다(GUI-01). 같은 폴더의 재로드(공급자 전환, 첫 로드가
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
@@ -143,21 +151,17 @@ export const useChat = create<ChatState>((set, get) => ({
   login: async () => {
     const { root, provider } = get()
     if (!root) return
-    if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
+    stopPoll()
     set({ busy: true, error: null })
     const r = await window.knuaf.chat.login(root, provider) as Reply<true>
     set({ busy: false, error: messageOf(r) })
     if ('error' in r && r.error) return
-    // The browser login takes a while: re-check every 3 s for up to 3 minutes.
-    const deadline = Date.now() + 180_000
-    loginPoll = setInterval(() => {
-      void (async () => {
-        await get().refreshStatus()
-        if (get().status?.connected || Date.now() > deadline) {
-          if (loginPoll) { clearInterval(loginPoll); loginPoll = null }
-        }
-      })()
-    }, 3000)
+    // 브라우저 로그인은 오래 걸린다 — 3초마다, 3분까지. 이 폴더의 연결 상태를 다시 본다.
+    startPoll(async () => {
+      if (get().provider !== provider) return true   // 공급자가 바뀌었으면 이 기다림은 끝난 것이다
+      await get().refreshStatus()
+      return get().status?.connected === true
+    })
   },
   send: async (text) => {
     const { root, provider, draft } = get()

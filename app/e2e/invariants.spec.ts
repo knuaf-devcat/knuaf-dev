@@ -37,10 +37,13 @@ function koreanStrings(file: string): string[] {
   return hits
 }
 
-// 기존 위반이 270건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
+// 기존 위반이 263건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
 // 건다. 하나라도 줄이면 이 숫자도 같이 줄일 것(0이면 toEqual([])로 바꾼다).
 // 271 → 270: 사이드바에 박혀 있던 앱 이름을 src/shared/name.ts 로 옮겼다.
-const KNOWN_USER_STRING_VIOLATIONS = 270
+// 270 → 263(단계 2 합류): Chat.tsx 의 "시작하기"·"이어서 하기"(6)를 copy.ts 의
+// `CHAT.firstTurn`·`firstTurnNext` 로, 폴더 없음 화면의 "최근 폴더"(1)를 `CHAT.recentTitle`
+// 로 옮겼다 — 두 화면(첫 실행 2단계·재방문)이 같은 부품(FolderPicker)을 쓰게 되면서다.
+const KNOWN_USER_STRING_VIOLATIONS = 263
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []

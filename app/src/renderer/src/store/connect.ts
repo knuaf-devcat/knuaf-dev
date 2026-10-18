@@ -49,9 +49,32 @@ export function displayState(info: ConnInfo, loggingIn: boolean): ConnState {
 
 type Reply<T> = { result: T } | { error: { code: string; message: string } }
 
-/** 로그인 왕복은 브라우저에서 오래 걸린다 — 3초마다, 3분까지. (useChat.login 이 쓰던 규칙) */
+/** 로그인 왕복은 브라우저에서 오래 걸린다 — 3초마다, 3분까지. */
 const POLL_MS = 3_000
 const POLL_LIMIT_MS = 180_000
+
+/**
+ * 로그인을 지켜보는 폴링 **하나**. 첫 화면(전역 연결)과 폴더 화면(`useChat.login`)이 같은
+ * 규칙을 쓴다 — 두 곳에 타이머를 두면 한쪽만 바뀐다(설계 §4-3: "폴링은 이리로 옮긴다").
+ * `tick` 이 true 를 돌려주면(연결됨) 멈춘다. 폴더를 바꾸면 `stopPoll()` 로 끊는다.
+ */
+let poll: ReturnType<typeof setInterval> | null = null
+export function stopPoll(): void { if (poll) { clearInterval(poll); poll = null } }
+export function startPoll(tick: () => Promise<boolean>): void {
+  stopPoll()
+  const deadline = Date.now() + POLL_LIMIT_MS
+  poll = setInterval(() => {
+    void (async () => { if (await tick() || Date.now() > deadline) stopPoll() })()
+  }, POLL_MS)
+}
+
+/**
+ * 지금 대화할 공급자 — 학생이 고른 것(`provider_choice`, 세션에서 고른 것)이 먼저다.
+ * 고른 적이 없으면 null 이고, 화면은 옛 기본값(`helper_mode`)으로 되돌아간다.
+ */
+export function chosenProvider(selected: Provider | null, settings: { provider_choice?: { provider: Provider } | null } | null): Provider | null {
+  return selected ?? settings?.provider_choice?.provider ?? null
+}
 
 interface ConnectState {
   codex: ConnInfo
@@ -71,11 +94,6 @@ interface ConnectState {
   /** 폴링을 멈춘다 — 첫 화면을 떠날 때 부른다. */
   stopPolling: () => void
 }
-
-/** 폴링은 하나뿐이다(store 밖) — 두 공급자를 동시에 기다리지 않는다. */
-let poll: ReturnType<typeof setInterval> | null = null
-let pollDeadline = 0
-function stopPoll(): void { if (poll) { clearInterval(poll); poll = null } }
 
 /** 계산된 키로 한 공급자만 갈아 끼우는 patch — zustand 의 set 에 넘긴다. */
 function one(provider: Provider, info: ConnInfo): Partial<ConnectState> {
@@ -106,15 +124,13 @@ export const useConnect = create<ConnectState>((set, get) => ({
       set(one(provider, { state: 'failed', detail: r.error?.message ?? '', version: null }))
       return
     }
-    pollDeadline = Date.now() + POLL_LIMIT_MS
-    poll = setInterval(() => {
-      void (async () => {
-        await get().refresh(provider)
-        const now = get()
-        const done = displayState(now[provider], now.loggingIn[provider]) === 'connected'
-        if (done || Date.now() > pollDeadline) { stopPoll(); set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } })) }
-      })()
-    }, POLL_MS)
+    // 로그인이 끝나면 기다림 표시도 내린다.
+    startPoll(async () => {
+      await get().refresh(provider)
+      const done = displayState(get()[provider], get().loggingIn[provider]) === 'connected'
+      if (done) set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
+      return done
+    })
   },
   cancel: async (provider) => {
     stopPoll()

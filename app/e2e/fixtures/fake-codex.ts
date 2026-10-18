@@ -37,13 +37,19 @@ export const QUESTION_2 = `[Q5-2] Ⅵ장 비용 계산에 쓰여요
 /**
  * PATH 앞자리에 가짜 `codex` 를 둔 환경변수를 만든다. 셔뱅은 /bin/sh 이고 node 는
  * 절대경로로 부르므로, 시험이 좁힌 PATH 에서도 결정적으로 돈다.
+ *
+ * `KNUAF_AGENT_PATH_ONLY=1` 을 함께 켠다 — 이것이 없으면 `findExecutable` 이 이어서 보는
+ * 사용자 설치 위치(`/opt/homebrew/bin` 등)에서 **개발 기계의 진짜 `codex`·`claude`** 가
+ * 잡힌다. 그러면 "가짜만 있는 세계"를 만들려던 시험이 기계 상태에 따라 다른 장면을 본다
+ * (검토 IMPL-R1-05 가 지적한 그대로 — 빈 PATH 는 도구 없음이 아니다). 가짜만 PATH 로
+ * 주고 그 PATH 만 보게 한다.
  */
 export function fakeCodexEnv(dir: string, extra: Record<string, string> = {}): Record<string, string> {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'codex'),
     `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_SERVER)} "$@"\n`,
     { mode: 0o755 })
-  return { PATH: `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`, ...extra }
+  return { PATH: `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`, KNUAF_AGENT_PATH_ONLY: '1', ...extra }
 }
 
 /**
@@ -89,7 +95,21 @@ export function scratch(): string {
 }
 
 /**
- * 설정을 미리 써 둔 userData 폴더. `helpers.launch` 는 settings.json 이 이미 있으면 덮지 않는다.
+ * 같은 PATH 자리에 가짜 `claude` 를 둔다 — 첫 화면의 "둘 다 연결됨" 장면을 만들기 위해서다.
+ * 흉내 내는 것은 `claude auth status` 뿐이다(claude.ts status() 가 읽는 전부). 실제 Claude
+ * 연결(SDK·작업 실행)은 여기서 띄우지 않는다.
+ */
+export function writeFakeClaude(dir: string, loggedIn = true): void {
+  mkdirSync(dir, { recursive: true })
+  const body = loggedIn
+    ? { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }
+    : { loggedIn: false, authMethod: null, apiProvider: null }
+  writeFileSync(join(dir, 'claude'), `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(body)}'\n`, { mode: 0o755 })
+}
+
+/**
+ * 설정을 미리 써 둔 userData 폴더. `helpers.launch` 는 있는 settings.json 을 **이어 쓴다**
+ * (여기 적은 값은 그대로 남고, `show_intro`·`onboarded_at` 만 채워진다).
  * 허락 카드는 전역 기본(`permission_mode`)이 `trust` 면 뜨지 않는다 — 그건 설계대로다
  * (묻지 않기로 한 학생에게 카드를 다시 들이밀지 않는다). 카드 장면을 보려면 `ask` 여야 한다.
  */
