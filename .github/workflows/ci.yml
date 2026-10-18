@@ -90,16 +90,35 @@ jobs:
       # macOS' stock 3.9.6 and fail project:open. On Windows the interpreter is python.exe.
       - name: e2e (macOS)
         if: runner.os == 'macOS'
-        run: pnpm exec playwright test --grep-invert "real window capture"
+        run: pnpm exec playwright test --grep-invert "real window capture" --output test-results/e2e-artifacts
         env:
           KNUAF_PYTHON: ${{ env.pythonLocation }}/bin/python
           KNUAF_SHOT_DIR: test-results/ui-shots
       - name: e2e (Windows)
         if: runner.os == 'Windows'
-        run: pnpm exec playwright test --grep-invert "real window capture"
+        run: pnpm exec playwright test --grep-invert "real window capture" --output test-results/e2e-artifacts
         env:
           KNUAF_PYTHON: ${{ env.pythonLocation }}\python.exe
           KNUAF_SHOT_DIR: test-results/ui-shots
+      # 실패했을 때만 Playwright 의 흔적(trace·스크린샷·error-context)을 남긴다. 기본은 러너와 함께
+      # 사라져서 CI 전용 실패를 나중에 볼 수 없었다(맥에서만 깨진 실제 드래그 시험이 그랬다 —
+      # 스크린샷·trace 가 러너 안에만 있었다). 통과한 실행에서는 아무것도 올리지 않는다.
+      - name: e2e failure traces (macOS)
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-macos
+          path: app/test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: e2e failure traces (Windows)
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-windows
+          path: app/test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       # 시안 대조용 캡처 — 시험이 실패해도 남긴다(`always()`). 이름에 OS 를 넣어 구분한다.
       - name: UI captures (macOS)
         if: always() && runner.os == 'macOS'
