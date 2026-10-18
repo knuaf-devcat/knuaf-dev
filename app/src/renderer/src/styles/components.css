@@ -46,7 +46,7 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 
 /* ---- 작업 공간 ---- */
 .stage { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.workspace { flex: 1; display: grid; min-width: 0; }
+.workspace { flex: 1; display: grid; min-width: 0; min-height: 0; }
 /* 두 칸: 대화는 clamp(460, W−680, 540), 종이가 나머지를 가져간다(IMPL-PLAN §4-2). */
 .workspace.split { grid-template-columns: var(--chat-w, 540px) minmax(680px, 1fr); }
 .workspace.solo { grid-template-columns: minmax(0, 1fr); }
@@ -56,15 +56,18 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 @media (prefers-reduced-motion: reduce) { .workspace.split.entering .paperpane { animation: none; } }
 
 /* ---- 대화 칸 (왼쪽) ---- */
-.chat-pane { display: flex; flex-direction: column; min-width: 0; border-right: var(--hairline) solid var(--line); background: var(--panel); }
+/* `min-height:0` — 그리드 항목이라 auto 최소 높이가 내용만큼 커져 작은 창(900×600)에서
+   아래 칸(질문·허락 카드)이 화면 밖으로 밀렸다(N-I02). 줄어들 수 있어야 스크롤이 된다. */
+.chat-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: var(--hairline) solid var(--line); background: var(--panel); }
 .chat-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .workspace.solo .chat-inner { width: 100%; max-width: 760px; margin: 0 auto; }
-/* 대화 본문 좌우 30px, 입력칸 바깥 좌우 22px — 본문이 입력칸보다 안쪽에서 시작한다(발주 R-02). */
-.chat-thread { flex: 1; overflow: auto; padding: var(--sp-6) 30px var(--sp-2); }
+/* 대화 본문 좌우 30px, 입력칸 바깥 좌우 22px — 본문이 입력칸보다 안쪽에서 시작한다(발주 R-02).
+   `display:flex` 는 발화자 정렬(`align-self`)이 먹게 하려는 것이다(N-I01) — 메시지 간격 18px. */
+.chat-thread { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: var(--sp-6) 30px var(--sp-2); }
 .workspace.solo .chat-thread { padding-top: var(--sp-10); }
 .chat-inner > .feedback, .chat-inner > .chat-empty { margin-left: 30px; margin-right: 30px; }
 .chat-zone { flex: none; padding: var(--sp-3) 22px var(--sp-4); background: var(--panel); }
-.chat-event { display: flex; align-items: center; gap: var(--sp-2); font-size: 13px; color: var(--muted); margin-bottom: var(--sp-4); }
+.chat-event { display: flex; align-items: center; gap: var(--sp-2); font-size: 13px; color: var(--muted); }
 .chat-event svg { color: var(--faint); }
 
 /* ---- 내 논문 칸 (오른쪽) ---- */
@@ -103,7 +106,12 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 /* ---- 팝오버 (단추 아래에 잠깐 열리는 목록) ---- */
 .pop-host { position: relative; display: inline-flex; }
 .popover { position: absolute; top: calc(100% + 6px); z-index: 20; width: 340px; background: var(--panel);
-  border: var(--hairline) solid var(--line); border-radius: 14px; box-shadow: var(--shadow-sheet); padding: 6px; }
+  border: var(--hairline) solid var(--line); border-radius: 14px; box-shadow: var(--shadow-sheet); padding: 6px;
+  /* 창 높이를 넘지 않게 — 목록은 `.pop-scroll` 이 안에서 스크롤하고 아래 이동 줄은 항상 보인다(N-I07).
+     팝오버는 제목줄(≈52)이나 종이 머리(≈108) **아래**에 붙으므로 그만큼(≈160) 빼고 잡는다. */
+  display: flex; flex-direction: column; max-height: calc(100vh - 160px); overflow: hidden; }
+/* 팝오버 안에서 스크롤하는 목록 — 이 자식만 줄어들어 안에서 흐른다. */
+.pop-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .popover.align-left { left: 0; }
 .popover.align-right { right: 0; }
 .popover.align-center { left: 50%; transform: translateX(-50%); }
@@ -113,7 +121,9 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .pop-row:hover { background: var(--hover); }
 .pop-row.cur { background: var(--sel-bg); }
 .pop-row .m { margin-left: auto; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.pop-row .c { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pop-row .c { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+/* 긴 파일 이름은 한 줄 말줄임 — 전체 이름은 title 로(N-I06). */
+.pop-row .c b, .pop-row .c small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pop-row .c b { font-weight: 600; }
 .pop-row .c small { color: var(--muted); font-size: 12.5px; }
 .pop-row .rn { width: 22px; flex: none; color: var(--muted); font-family: var(--serif); text-align: center; }
@@ -232,6 +242,13 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .segmented button[aria-selected="true"] { color: var(--ink); font-weight: 500; }
 .segmented .thumb { position: absolute; top: 3px; bottom: 3px; left: 0; background: var(--panel); border-radius: 7px; box-shadow: 0 1px 2px rgba(0,0,0,.08); transition: transform var(--spring-dur) ease-out, width var(--spring-dur) ease-out; transition-timing-function: var(--spring), var(--spring); }
 
+/* 미연결·설치 안내 자리(대화 아래 칸) — 점선 카드 대신 허락 카드와 같은 아이스 그레이 상자
+   (DESIGN §4 '점선 카드 없음'). 문구·버튼 동작은 그대로다. */
+.zone-note { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2);
+  border: var(--hairline) solid var(--alert-border); border-radius: var(--r-xl); background: var(--alert-bg);
+  padding: var(--sp-4) 18px 14px; margin-top: var(--sp-4); }
+.zone-note .t { color: var(--ink); font-weight: 650; }
+
 /* ---- Empty / Progress / Result / Onboarding / Project cards ---- */
 .empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-6) var(--sp-5); border: var(--hairline) dashed var(--line-strong); border-radius: var(--r-lg); color: var(--muted); }
 .empty svg { width: 22px; height: 22px; color: var(--muted); }
@@ -245,11 +262,13 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .progress-log .stderr, .log .stderr { color: #f0b6ac; }
 .result { border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); margin-top: var(--sp-4); border: var(--hairline) solid transparent; }
 .result-ok { background: var(--ok-soft); } .result-blocked { background: var(--blocked-soft); } .result-fail { background: var(--bad-soft); }
-.projects { display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
-.project { text-align: left; display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-4); border-radius: var(--r-lg); background: var(--panel); border: var(--hairline) solid var(--line); cursor: pointer; }
-.project:hover { border-color: var(--line-strong); }
-.project .name { font-weight: 600; display: flex; justify-content: space-between; gap: var(--sp-2); align-items: baseline; }
-.project .path { font-size: var(--fs-micro); letter-spacing: var(--ls-micro); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+/* 최근 논문은 한 줄씩 세로 목록(시안 B) — 이름 + 최근 시점, 제거는 줄 끝 작게(N-R02). */
+.projects { display: flex; flex-direction: column; gap: 2px; }
+.project { text-align: left; display: flex; align-items: center; gap: var(--sp-3); padding: 11px 12px; border-radius: 10px; background: none; border: 0; cursor: pointer; }
+.project:hover { background: var(--hover); }
+.project .name { font-weight: 600; flex: 1; min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project .m { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.project .path { display: none; }
 .project.gone { opacity: .55; }
 .credit { border: var(--hairline) dashed var(--line-strong); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-caption); margin-bottom: var(--sp-4); }
 
@@ -406,12 +425,13 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-log { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-4) 0; }
 /* 대화 바닥이 화면 밖일 때만 뜨는 고정 버튼 — 권한 카드와 입력칸이 거기에 있다. */
 .to-bottom { position: fixed; right: var(--sp-8); bottom: var(--sp-6); z-index: 5; box-shadow: var(--shadow-2, 0 2px 10px rgb(0 0 0 / 18%)); }
-.chat-msg { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); max-width: 88%; }
-.chat-msg.user { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
-.chat-msg.assistant { align-self: flex-start; }
-.chat-msg.system { align-self: center; background: transparent; border-color: transparent; text-align: center; }
-.chat-msg-head { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-1); }
-.chat-who { font-size: var(--fs-caption); font-weight: 600; color: var(--muted); }
+/* 도우미 답은 **테두리·상자·발화자/시간 머리 없는 본문**이다(시안 D/E/G, N-I01).
+   학생 답만 오른쪽의 내용 길이 말풍선(최대 78%). 간격은 `.chat-thread` 의 18px 하나가 맡는다. */
+.chat-msg { font-size: 15px; line-height: 1.7; }
+.chat-msg.assistant { align-self: flex-start; max-width: 100%; }
+.chat-msg.user { align-self: flex-end; max-width: 78%; background: var(--sel-bg); border-radius: 20px; padding: 9px 15px; }
+.chat-msg.system { align-self: center; text-align: center; }
+.chat-delivery { display: flex; gap: 6px; margin-top: 4px; }
 .chat-msg button { margin-top: var(--sp-2); }
 .chat-composer { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: 24px; box-shadow: var(--shadow-1); padding: 12px 12px 10px 16px; margin-top: var(--sp-4); }
 .chat-composer[data-dragging] { outline: 2px dashed var(--accent); outline-offset: -4px; }
@@ -426,6 +446,12 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 /* 보내기 원형(먹색 채움) — 작업 중이면 같은 자리 멈추기(같은 34×34). */
 .crow .send { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 0; background: var(--send-bg); color: var(--send-ink); padding: 0; }
 .crow .send:disabled { opacity: .28; }
+/* I-02 ① 표시만 — `+` 오른쪽 칩(예: `ChatGPT · 생각 깊이 기본 ▾`). 누르면 AI 바꾸기 + 깊이(비활성). */
+.crow .model { border: 0; background: none; font-size: 13px; color: var(--muted); padding: 6px 8px; border-radius: 8px; display: inline-flex; gap: 4px; align-items: center; }
+.crow .model:hover { background: var(--hover); color: var(--ink-2); }
+/* 아직 고를 수 없는 줄 — 흐리게, 눌리지 않게. */
+.pop-row.off { opacity: .6; cursor: default; }
+.pop-row.off:hover { background: none; }
 /* 입력칸 아래 한 줄 — 8px 아래, 11.5px 가운데(발주 R-01). */
 .disc { text-align: center; font-size: 11.5px; color: var(--faint); margin-top: 8px; }
 /* 내 논문 — 지금 상태 한 줄(행동 단위 사실만; 진척 암시·N/M 금지, 03-화면/02) */
@@ -479,7 +505,12 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .askcard { border: var(--hairline) solid var(--alert-border); border-radius: var(--r-xl); background: var(--alert-bg); padding: var(--sp-4) 18px 14px; margin-top: var(--sp-4); }
 .askcard-h { display: flex; align-items: center; gap: var(--sp-2); font-size: 15px; font-weight: 650; }
 .ask-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attn); flex: none; }
-.askcard-t { font-size: 14.5px; color: var(--ink-2); line-height: 1.6; margin: 6px 0 4px; }
+.askcard-t { font-size: 14.5px; color: var(--ink); line-height: 1.6; margin: 6px 0 4px; font-weight: 550; }
+/* 쉬운 말 이유(N-I05) — 명령·경로보다 앞에, 보통 글자로. */
+.askcard-why { font-size: 14.5px; color: var(--ink-2); line-height: 1.6; margin: 0 0 6px; }
+/* 명령·경로는 작게(시안 G 의 `.path`). */
+.askcard-cmd { font-family: var(--mono); font-size: 12.5px; color: var(--muted); word-break: break-all; white-space: pre-wrap;
+  background: color-mix(in srgb, var(--ink) 5%, transparent); border-radius: 8px; padding: 6px 9px; margin: 4px 0 8px; }
 .askcard .prose { font-size: 0.8125rem; color: var(--ink-2); }
 
 /* ---- 아래 칸: 작업 중 한 줄 (DESIGN §3) — 입력칸은 쓸 수 있고 보내기만 멈추기 ---- */
@@ -487,11 +518,15 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .zone-status .spin { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }
 
 /* ---- 첫 실행 화면 (DESIGN §6) — AI 연결 → 논문 폴더. 사이드바·칸 없이 가운데 한 줄기.
-   내용이 짧으면 세로 가운데, 길어지면(폴더 목록) margin:auto 가 그대로 스크롤을 만든다.
+   시안 A/B 대로 **폭 540 한 열, 위 고정 패딩 92px**(margin:auto 로 내용 높이에 따라 움직이지 않는다, N-R01).
    배경은 불투명하게 깐다 — macOS vibrancy 로 body 가 투명하면 시안(아이스 그레이) 대신
    창 뒤가 비쳐 따뜻한 회색으로 보인다(설계자 대조 지적). */
 .onb { height: 100%; overflow: auto; display: flex; flex-direction: column; background: var(--bg); }
-.onb-inner { width: 100%; max-width: 620px; margin: auto; padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-5) var(--sp-10); }
+.onb-inner { width: 540px; max-width: 100%; margin: 0 auto; padding: 92px 0 40px; }
+/* 선택 두 행은 **한 테두리 안 + 가운데 구분선**(시안 A/B) — 별도 둥근 상자를 겹치지 않는다(N-R01). */
+.choices { border: var(--hairline) solid var(--line); border-radius: 16px; background: var(--panel); overflow: hidden; }
+.choices > .item { border: 0; border-radius: 0; background: none; padding: 18px 18px 18px 20px; }
+.choices > .item + .item { border-top: var(--hairline) solid var(--line); }
 /* 위쪽 길잡이 한 줄 — 번호 원 없이. 지금 단계만 진하다. */
 .onb-way { margin-bottom: var(--sp-5); }
 .onb-way strong { font-weight: 500; }
