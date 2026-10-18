@@ -20,8 +20,11 @@ a { color: var(--accent); }
 button { font: inherit; letter-spacing: inherit; color: var(--ink); background: var(--panel); border: var(--hairline) solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 12px; cursor: pointer; transition: transform 100ms ease-out, background-color var(--fade), border-color var(--fade), opacity var(--fade); }
 button:hover { background: var(--panel-2); }
 button:active { transform: scale(.97); }
-button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 500; }
-button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
+/* 주 행동은 소프트 코발트. 화면에서 채운 단추는 보내기 하나뿐이다(DESIGN §7). */
+button.primary { background: var(--btn-bg); color: var(--btn-ink); border-color: var(--btn-border); font-weight: 500; }
+button.primary:hover { background: color-mix(in srgb, var(--btn-bg) 88%, var(--ink)); }
+button.send { background: var(--send-bg); color: var(--send-ink); border-color: transparent; font-weight: 500; }
+button.send:hover:not(:disabled) { background: color-mix(in srgb, var(--send-bg) 88%, var(--ink)); }
 button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 button.quiet { background: transparent; border-color: transparent; color: var(--ink-2); }
 button.quiet:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }

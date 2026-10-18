@@ -293,7 +293,7 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-msg-head { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-1); }
 .chat-who { font-size: var(--fs-caption); font-weight: 600; color: var(--muted); }
 .chat-msg button { margin-top: var(--sp-2); }
-.chat-composer { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); margin-top: var(--sp-4); }
+.chat-composer { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: var(--r-xl); padding: var(--sp-3) var(--sp-4); margin-top: var(--sp-4); }
 .chat-composer[data-dragging] { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .chat-composer textarea { width: 100%; resize: vertical; margin-bottom: var(--sp-2); }
 /* 내 논문 — 지금 상태 한 줄(행동 단위 사실만; 진척 암시·N/M 금지, 03-화면/02) */
@@ -314,3 +314,44 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .opt-card:hover { border-color: var(--accent); }
 .opt-card .t { display: block; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
 .opt-card .b { display: block; font-size: var(--fs-caption); color: var(--muted); line-height: var(--lh-caption); }
+
+/* 화면 낭독 전용 — 눈에는 안 보이고 읽기만 된다. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---- 아래 칸: 질문 카드 (DESIGN §3-1) ------------------------------------
+   입력칸 자리를 대신 차지한다. 보기 끝에는 앱이 붙이는 "직접 입력" 한 줄이 늘 있다. */
+.qcard { border: var(--hairline) solid var(--line); border-radius: var(--r-xl); background: var(--panel); box-shadow: var(--shadow-1); padding: var(--sp-4) 10px var(--sp-2); margin-top: var(--sp-4); }
+.qcard:focus-visible { outline: none; }
+.qcard-use { display: flex; align-items: baseline; gap: var(--sp-2); padding: 0 10px; font-size: 12.5px; color: var(--muted); }
+.qcard-q { font-size: 17px; font-weight: 650; line-height: 1.45; padding: 4px 10px 10px; letter-spacing: -.005em; }
+.qcard-opts { display: flex; flex-direction: column; }
+.qopt { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 46px; padding: var(--sp-2) 10px; border: 0; background: none; border-radius: var(--r-lg); font-size: 15px; text-align: left; line-height: 1.4; }
+.qopt:hover { background: var(--hover); }
+.qopt.on { background: var(--sel-bg); }
+.qopt-k { width: 26px; height: 26px; flex: none; border-radius: 8px; border: var(--hairline) solid var(--line-strong); display: grid; place-items: center; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; background: var(--panel); }
+.qopt.on .qopt-k { background: var(--send-bg); color: var(--send-ink); border-color: var(--send-bg); }
+.qopt-t { min-width: 0; }
+.qopt-x { margin-left: auto; font-size: 12.5px; color: var(--muted); padding-left: 10px; white-space: nowrap; }
+.qopt.free { color: var(--ink-2); }
+.qopt.free .qopt-k { color: var(--muted); }
+.freebox { display: flex; align-items: flex-end; gap: var(--sp-2); margin: 2px 4px 4px; border: var(--hairline) solid var(--accent-border); border-radius: var(--r-lg); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); background: var(--panel); }
+.freebox textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; font: inherit; font-size: 15px; line-height: 1.55; color: var(--ink); min-height: 48px; }
+.freebox textarea:focus-visible { outline: none; }
+.qcard-foot { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--faint); padding: var(--sp-2) 10px 2px; flex-wrap: wrap; }
+.qcard-foot .sp { flex: 1; }
+.qhint { border: 0; background: none; padding: 0; font-size: 12px; color: var(--muted); }
+.qhint:hover { background: none; color: var(--ink-2); }
+.qcard kbd { font: inherit; font-size: 11px; border: var(--hairline) solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; color: var(--muted); background: var(--panel); }
+/* 카드가 떠 있는 동안 대화 원문에서 접은 보기 자리. */
+.q-fold { display: flex; align-items: center; gap: 6px; margin-top: var(--sp-2); }
+
+/* ---- 아래 칸: 허락 카드 (DESIGN §3-2) — 같은 자리를 아이스 그레이가 덮는다 ---- */
+.askcard { border: var(--hairline) solid var(--alert-border); border-radius: var(--r-xl); background: var(--alert-bg); padding: var(--sp-4) 18px 14px; margin-top: var(--sp-4); }
+.askcard-h { display: flex; align-items: center; gap: var(--sp-2); font-size: 15px; font-weight: 650; }
+.ask-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attn); flex: none; }
+.askcard-t { font-size: 14.5px; color: var(--ink-2); line-height: 1.6; margin: 6px 0 4px; }
+.askcard .prose { font-size: 0.8125rem; color: var(--ink-2); }
+
+/* ---- 아래 칸: 작업 중 한 줄 (DESIGN §3) — 입력칸은 쓸 수 있고 보내기만 멈추기 ---- */
+.zone-status { display: flex; align-items: center; gap: var(--sp-2); font-size: 13.5px; color: var(--ink-2); margin-top: var(--sp-4); padding: 0 var(--sp-2); }
+.zone-status .spin { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }

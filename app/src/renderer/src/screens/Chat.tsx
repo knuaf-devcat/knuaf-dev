@@ -7,7 +7,9 @@ import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
 import { Feedback } from '../components/Feedback'
 import { ProjectCard } from '../components/ProjectCard'
+import { QuestionCard } from '../components/QuestionCard'
 import { CHAT, EMPTY, describeChatError, relativeTime } from '../copy'
+import { waitingQuestionCount, zoneOf } from '../../../shared/zone'
 import type { ChatMessage } from '../../../shared/chat'
 import type { ArtifactItem, ProjectPeek, RecentEntry, SectionRow } from '../../../shared/types'
 import { useShallow } from 'zustand/react/shallow'
@@ -48,11 +50,21 @@ function withLinks(text: string, onGo: () => void): ReactNode {
  */
 const LONG_MESSAGE = 2000
 
-function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void }) {
+/**
+ * 카드가 떠 있는 동안 대화 원문에서 접을 보기 줄 범위. 같은 보기가 카드와 원문에 두 번
+ * 보이면 어디를 눌러야 할지 헷갈린다 — 글자를 버리지는 않는다("여기에 펼치기").
+ */
+export interface FoldOptions { span: { start: number; end: number }; count: number }
+
+function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void; fold?: FoldOptions }) {
   const [open, setOpen] = useState(false)
+  const [unfolded, setUnfolded] = useState(false)
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
-  const long = m.text.length > LONG_MESSAGE
-  const shown = long && !open ? m.text.slice(0, LONG_MESSAGE) : m.text
+  const folding = !!fold && !unfolded
+  const lines = m.text.split('\n')
+  const text = folding && fold ? [...lines.slice(0, fold.span.start), ...lines.slice(fold.span.end + 1)].join('\n') : m.text
+  const long = text.length > LONG_MESSAGE
+  const shown = long && !open ? text.slice(0, LONG_MESSAGE) : text
   return (
     <div className={`chat-msg ${m.role}`}>
       <div className="chat-msg-head">
@@ -62,6 +74,13 @@ function Message({ m, onResend, onGoArtifacts }: { m: ChatMessage; onResend?: ()
         {m.role === 'user' && m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
       </div>
       <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(shown, onGoArtifacts) : shown}</div>
+      {folding && fold && (
+        <div className="q-fold">
+          <span className="caption">{CHAT.foldHint(fold.count)}</span>
+          <span className="caption">·</span>
+          <button className="lk" onClick={() => setUnfolded(true)}>{CHAT.unfold}</button>
+        </div>
+      )}
       {long && <button className="lk" onClick={() => setOpen(!open)}>{open ? CHAT.showLess : CHAT.showMore(m.text.length - LONG_MESSAGE)}</button>}
       {m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
@@ -212,13 +231,16 @@ export function Chat() {
   const chatErr = error ? describeChatError(error) : null
   const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
 
+  // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
+  const zone = zoneOf(snapshot, status, pStatus ?? null)
+
   if (!projectRoot) return <NoFolder />
 
   // 지금 상태 한 줄 — 행동 단위 사실만. 말할 사실이 없으면 그리지 않는다(03-화면/03 결정).
   const failCount = pStatus?.checks.filter((c) => c.status === 'fail').length ?? 0
-  // Checkup 과 같은 기준으로 마무리 항목을 빼야 "답변" 수가 진짜 질문 수가 된다.
-  const finishIds = new Set(pStatus?.user_finish_pending.map((u) => u.id) ?? [])
-  const waitCount = pStatus?.tasks.filter((t) => t.status === 'needs_user' && !finishIds.has(t.id)).length ?? 0
+  // Checkup 과 같은 기준으로 마무리 항목을 빼야 "답변" 수가 진짜 질문 수가 된다 — 그 기준은
+  // 카드 조건과 같은 함수(zone.ts)에 있다.
+  const waitCount = waitingQuestionCount(pStatus ?? null)
   const finishCount = pStatus?.user_finish_pending.length ?? 0
   const drafting = sections?.find((s) => s.status === 'drafting')
   const statePieces: string[] = []
@@ -288,36 +310,10 @@ export function Chat() {
       )}
       <div className="chat-log">
         {snapshot?.messages.map((m) => (
-          <Message key={m.id} m={m} onGoArtifacts={() => setScreen('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined} />
+          <Message key={m.id} m={m} onGoArtifacts={() => setScreen('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined}
+            fold={zone.kind === 'question' && zone.messageId === m.id ? { span: zone.card.span, count: zone.card.options.length } : undefined} />
         ))}
       </div>
-
-      {snapshot?.permission && (
-        <div className="card">
-          <div className="card-head"><h2>{snapshot.permission.title}</h2></div>
-          <div className="prose">{snapshot.permission.detail}</div>
-          <div className="caption" style={{ marginTop: 'var(--sp-2)' }}>{CHAT.allowAlwaysHint}</div>
-          <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-            <button className="primary" onClick={() => void respond(snapshot.permission!.id, true)}>{CHAT.allow}</button>
-            {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
-                폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
-                그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
-            <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(snapshot.permission!.id, true) }}>{CHAT.allowAlways}</button>
-            <button onClick={() => void respond(snapshot.permission!.id, false)}>{CHAT.deny}</button>
-          </div>
-        </div>
-      )}
-
-      {running && (
-        <div className="progress">
-          <div className="progress-head">
-            <span className="spin" />
-            <span className="caption">{CHAT.runningBody}</span>
-            <span style={{ flex: 1 }} />
-            <button onClick={() => void stop()}>{CHAT.stop}</button>
-          </div>
-        </div>
-      )}
 
       {/* "방금 한 일" — 대화 로그와 입력창 사이. 도우미 미연결에서도 같은 모양(프로젝트 데이터라서). */}
       {actTitle && (
@@ -331,9 +327,63 @@ export function Chat() {
         </div>
       )}
 
-      {status === null && !statusFailed ? (
+      {/* 아래 칸 — 질문 카드 · 허락 카드 · 작업 중 한 줄 · 입력칸이 이 한 자리를 번갈아 쓴다.
+          무엇이 쓸지는 zone.ts 한 함수가 정한다(설계 §4-1). */}
+      {zone.kind === 'permission' && (
+        <div className="askcard" role="alert">
+          <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
+          <div className="askcard-t">{zone.request.title}</div>
+          <div className="prose">{zone.request.detail}</div>
+          <div className="caption">{CHAT.allowAlwaysHint}</div>
+          <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
+            <button className="primary" onClick={() => void respond(zone.request.id, true)}>{CHAT.allow}</button>
+            {/* 판정할 수 없는 명령(heredoc 으로 밀어 넣는 프로그램 등)을 반복해서 묻는 대신
+                폴더 단위로 한 번 정하게 한다. 읽을 수 없는 것을 계속 클릭하게 만들면
+                그건 보호가 아니라 습관적 승인을 기르는 일이다. */}
+            <button onClick={() => { if (projectRoot) void window.knuaf.trustProject(projectRoot, true); void respond(zone.request.id, true) }}>{CHAT.allowAlways}</button>
+            <button onClick={() => void respond(zone.request.id, false)}>{CHAT.deny}</button>
+          </div>
+        </div>
+      )}
+
+      {zone.kind === 'question' && (
+        <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
+      )}
+
+      {(zone.kind === 'running' || zone.kind === 'composer') && (
+        <>
+          {/* 작업 중 한 줄 — 입력칸 위. 입력칸은 쓸 수 있게 두고 보내기만 막는다. */}
+          {zone.kind === 'running' && (
+            <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
+          )}
+          <div className="chat-composer" data-dragging={dragging || undefined}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation(); setDragging(false)
+              const f = e.dataTransfer.files[0]
+              if (f) insertPath(window.knuaf.pathForFile(f))
+            }}>
+            <textarea value={draft} rows={3} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
+            <div className="row between">
+              <div className="row">
+                <button onClick={() => void attach()}>{CHAT.attach}</button>
+                <span className="caption">{CHAT.attachHint}</span>
+              </div>
+              {/* 보내기 자리가 작업 중에는 멈추기가 된다. */}
+              {zone.kind === 'running'
+                ? <button className="send" onClick={() => void stop()}>{CHAT.stop}</button>
+                : <button className="send" onClick={() => void send()} disabled={busy || !draft.trim()}>{CHAT.send}</button>}
+            </div>
+          </div>
+        </>
+      )}
+
+      {zone.kind === 'disconnected' && (status === null && !statusFailed ? (
         <p className="caption">{CHAT.checking}</p>
-      ) : statusFailed || !status!.connected ? (
+      ) : (
         // 미연결 또는 상태 확인 실패: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
         // 사라져도 "답변에 첨부"/"고쳐달라기"가 쓴 draft가 조용히 삼켜지지 않아야 한다.
         <>
@@ -362,27 +412,7 @@ export function Chat() {
             </div>
           ) : null}
         </>
-      ) : (
-        <div className="chat-composer" data-dragging={dragging || undefined}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault(); e.stopPropagation(); setDragging(false)
-            const f = e.dataTransfer.files[0]
-            if (f) insertPath(window.knuaf.pathForFile(f))
-          }}>
-          <textarea value={draft} rows={3} placeholder={CHAT.placeholder} title={CHAT.placeholderHint} disabled={running}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
-          <div className="row between">
-            <div className="row">
-              <button onClick={() => void attach()}>{CHAT.attach}</button>
-              <span className="caption">{CHAT.attachHint}</span>
-            </div>
-            <button className="primary" onClick={() => void send()} disabled={running || busy || !draft.trim()}>{CHAT.send}</button>
-          </div>
-        </div>
-      )}
+      ))}
       <div ref={endRef} aria-hidden="true" />
       {!atBottom && snapshot && snapshot.messages.length > 0 && (
         <button className="to-bottom" onClick={() => toBottom(true)}>{CHAT.toBottom}</button>

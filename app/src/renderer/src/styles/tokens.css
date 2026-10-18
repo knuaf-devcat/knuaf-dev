@@ -1,14 +1,24 @@
-/* Design tokens — one accent, muted status tints, system type, 4pt spacing. */
+/* Design tokens — v5 색(설계 §7). 값은 여기 한 곳에서만 바꾼다 — 컴포넌트는 토큰 이름으로 쓴다.
+   코발트 바탕 · 안내 상자(허락) 아이스 그레이 · 채운 버튼은 보내기 하나(먹색), 주 행동은 소프트 코발트. */
 :root {
   color-scheme: light dark;
-  --accent: #2f6b3a; --accent-ink: #ffffff; --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
-  --bg: #f5f5f4; --bg-2: #ecece9; --panel: #ffffff; --panel-2: #fafaf9;
-  --ink: #1c1f1b; --ink-2: #4d534a; --muted: #6e756a;
-  --line: rgba(28, 31, 27, .12); --line-strong: rgba(28, 31, 27, .22); --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
-  --ok: #2f6b3a; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
+  --accent: #3a5a9f; --accent-ink: #ffffff; --accent-soft: #edf2fa; --accent-border: #cfdaee;
+  --bg: #f7f9fc; --bg-2: #eef2f7; --panel: #ffffff; --panel-2: #f3f5f9;
+  --ink: #0f172a; --ink-2: #334155; --muted: #5b6b80; --faint: #627186;
+  --line: #e3e8f0; --line-strong: #c8d2e1; --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
+  /* 소프트 코발트 — 주 행동 단추. 채운 단추(보내기)와 구별한다. */
+  --btn-bg: #e9eef8; --btn-ink: #1e3a6e; --btn-border: #cdd8ec;
+  --send-bg: #1f2937; --send-ink: #ffffff;
+  --sel-bg: #edf0f5; --hover: #f3f5f9;
+  --ok: #2f7a4f; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
   --bad: #a13a2e; --bad-soft: color-mix(in srgb, var(--bad) 10%, transparent);
-  --warn: #8a5a12; --warn-soft: color-mix(in srgb, var(--warn) 12%, transparent);
+  --warn: #a87318; --warn-soft: color-mix(in srgb, var(--warn) 12%, transparent);
   --blocked: #56598f; --blocked-soft: color-mix(in srgb, var(--blocked) 10%, transparent);
+  /* 안내 상자(허락 카드) = 아이스 그레이. 호박색 점(--attn)은 글자가 아니라 3:1 기준이다. */
+  --attn: #a87318;
+  --alert-bg: #f4f6f9; --alert-border: #dfe4ec;
+  /* 종이 칸(3단계)과 방금 저장된 문장. 지금은 종이 칸이 없어도 토큰은 여기 있다. */
+  --paper-faint: #67768b; --new: #eaf1fb;
   --material-sidebar: var(--bg-2);
   --material-toolbar: color-mix(in srgb, var(--bg) 78%, transparent);
   --blur: 20px; --saturate: 160%;
@@ -20,21 +30,29 @@
   --font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", "Pretendard Variable", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
   --sp-1: .25rem; --sp-2: .5rem; --sp-3: .75rem; --sp-4: 1rem; --sp-5: 1.25rem; --sp-6: 1.5rem; --sp-8: 2rem; --sp-10: 2.5rem; --sp-12: 3rem;
-  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-pill: 999px;
   --hairline: 1px;
   --sidebar-w: 224px; --titlebar-h: 52px; --toolbar-h: 52px;
   --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .18);
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, .05), 0 6px 20px rgba(15, 23, 42, .07);
 }
 @media (-webkit-min-device-pixel-ratio: 2) { :root { --hairline: 0.5px; } }
 @media (prefers-color-scheme: dark) {
   :root {
-    --accent: #79b784; --accent-ink: #0f1a11;
-    --bg: #1c1d1c; --bg-2: #242625; --panel: #2a2c2a; --panel-2: #303331;
-    --ink: #ececea; --ink-2: #c3c6c0; --muted: #969b93;
-    --line: rgba(255, 255, 255, .10); --line-strong: rgba(255, 255, 255, .2); --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
-    --ok: #79b784; --bad: #e08a7d; --warn: #d9a75a; --blocked: #a5a8e0;
+    --accent: #9db4e6; --accent-ink: #0b0f17; --accent-soft: #1c2840; --accent-border: #2f4166;
+    --bg: #0e131c; --bg-2: #121925; --panel: #161d2a; --panel-2: #1b2433;
+    --ink: #eef2f7; --ink-2: #c6d0dd; --muted: #8e9cb0; --faint: #8190a5;
+    --line: #243046; --line-strong: #34445f; --ring: color-mix(in srgb, var(--ink-2) 55%, transparent);
+    --btn-bg: #25324a; --btn-ink: #dbe5f7; --btn-border: #34445f;
+    --send-bg: #e5e7eb; --send-ink: #0b0f17;
+    --sel-bg: #1f2a3c; --hover: #1b2433;
+    --ok: #6cc093; --bad: #e08a7d; --warn: #d9a443; --blocked: #a5a8e0;
+    --attn: #d9a443;
+    --alert-bg: #1a2232; --alert-border: #2a3650;
+    --paper-faint: #7f8ca2; --new: #1d2a42;
     --material-toolbar: color-mix(in srgb, var(--bg) 72%, transparent);
     --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .5);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .35);
   }
 }
 [data-platform="darwin"][data-vibrancy="on"] { --material-sidebar: transparent; }
