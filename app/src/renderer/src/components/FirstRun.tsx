@@ -100,7 +100,8 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
           <h1>{ONBOARD.connectTitle}</h1>
           <p className="caption" style={{ margin: 'var(--sp-2) 0 var(--sp-5)' }}>{ONBOARD.connectIntro}</p>
 
-          <div className="list">
+          {/* 선택 두 행은 한 테두리 안 + 가운데 구분선(시안 A, N-R01). */}
+          <div className="choices">
             {ROWS.map((p) => (
               /* 상태 문구·행동 단추는 계정 팝오버와 **같은 부품**이다(ConnectRow). 여기서만
                  "권장/실험 중" 표시와 "이걸로 시작"이 붙는다. */
