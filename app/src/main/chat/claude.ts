@@ -5,6 +5,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { query, type Query, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
+import { winSpawn } from '../win'
 import type { ConnectionStatus } from '../../shared/chat'
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
@@ -261,7 +262,10 @@ export class ClaudeConnection implements AgentConnection {
    */
   async status(): Promise<ConnectionStatus> {
     let output = ''
-    try { output = (await promisify(execFile)(this.options.binary, ['auth', 'status'], { env: this.options.env, timeout: this.options.statusTimeoutMs ?? 12_000 })).stdout }
+    // 윈도우에서 npm 이 깐 claude 는 `.cmd` 다 — Node 가 셸 없이 띄우지 못해 cmd.exe 로 감싼다
+    // (맥·리눅스와 `.exe` 는 그대로 — winSpawn 이 빈 옵션을 돌려준다).
+    const probe = winSpawn(this.options.binary, ['auth', 'status'])
+    try { output = (await promisify(execFile)(probe.command, probe.args, { env: this.options.env, timeout: this.options.statusTimeoutMs ?? 12_000, ...probe.options })).stdout }
     catch (e) { output = (e as { stdout?: string }).stdout ?? '' }
     let r: Record<string, unknown> | null = null
     try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object') r = parsed as Record<string, unknown> } catch { /* 실행 실패·시간 초과·깨진 JSON → 확인 실패 */ }
@@ -273,7 +277,9 @@ export class ClaudeConnection implements AgentConnection {
     if (this.loginProcess) throw new Error('브라우저에서 진행 중인 로그인을 완료해 주세요.')
     // Official CLI owns credential storage and prints an auth URL — surface it in the
     // student's browser instead of letting it die on a pipe nobody reads.
-    const child = this.loginProcess = spawn(this.options.binary, ['auth', 'login', '--claudeai'], { env: this.options.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    // 윈도우의 `.cmd` 는 cmd.exe 로 감싼다(status 와 같은 이유 — winSpawn).
+    const spec = winSpawn(this.options.binary, ['auth', 'login', '--claudeai'])
+    const child = this.loginProcess = spawn(spec.command, spec.args, { env: this.options.env, stdio: ['ignore', 'pipe', 'pipe'], ...spec.options })
     let buf = ''
     let opened = false
     const onData = (d: Buffer) => {

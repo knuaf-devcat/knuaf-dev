@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { winSpawn } from '../win'
 
 /** stdio JSON-RPC. stderr stays out of the student transcript and credentials never enter logs. */
 export class JsonRpcProcess {
@@ -13,7 +14,10 @@ export class JsonRpcProcess {
   onRequest: (id: number | string, method: string, params: any) => void = () => {}
   onClose: () => void = () => {}
   constructor(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
-    this.child = spawn(binary, args, { cwd, env, stdio: 'pipe' })
+    // 윈도우에서 npm 이 깐 codex 는 `.cmd` 다 — Node 가 직접 띄우지 못하므로 cmd.exe 로 감싼다
+    // (맥·리눅스와 `.exe` 는 그대로 — winSpawn 이 빈 옵션을 돌려준다).
+    const spec = winSpawn(binary, args)
+    this.child = spawn(spec.command, spec.args, { cwd, env, stdio: 'pipe', ...spec.options })
     const lines = createInterface({ input: this.child.stdout })
     lines.on('line', line => {
       let m: any

@@ -9,6 +9,7 @@ import { skillSource, VERSION_FILE } from '../src/main/agent'
 import { autoAllow, describeTool, looksLikePath, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
 import { subscriptionEnv } from '../src/main/chat/contracts'
+import { cmdQuote, winSpawn } from '../src/main/win'
 import type { AgentConnection } from '../src/main/chat/contracts'
 
 const appRoot = resolve(__dirname, '..')
@@ -60,6 +61,48 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {
   const env = subscriptionEnv()
   expect(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1')
+})
+
+/**
+ * 형님 승인 W1 연결 기제 ①. 윈도우에서 npm 이 깐 codex·claude 는 `.cmd` 이고, Node 는
+ * 셸 없이 그것을 띄우지 못한다(EINVAL, Node ≥20.12 — CVE-2024-27980 처방). `.cmd`·`.bat` 만
+ * `cmd.exe /d /s /c` 로 감싼다 — 그 밖은 손대지 않는다.
+ */
+test('윈도우 `.cmd`·`.bat` 만 cmd.exe 로 감싼다 (W1 ①)', () => {
+  const shim = 'C:\\Users\\학생\\AppData\\Roaming\\npm\\claude.cmd'
+  const w = winSpawn(shim, ['auth', 'status'], 'win32')
+  expect(w.command).toBe('cmd.exe')                       // ComSpec 이 없으면 기본값
+  expect(w.args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
+  // `/s` 는 바깥 따옴표 한 쌍을 벗긴다 — 한 줄을 한 겹 더 감싸야 그대로 명령이 된다.
+  expect(w.args[3]).toBe(`""${shim}" "auth" "status""`)
+  expect(w.options).toEqual({ windowsVerbatimArguments: true, windowsHide: true })
+
+  // 경로에 공백이 있어도 한 줄 안에서 인용된다.
+  const spaced = winSpawn('C:\\Program Files\\npm\\codex.cmd', ['-c', 'model=gpt-5'], 'win32')
+  expect(spaced.args[3]).toBe('""C:\\Program Files\\npm\\codex.cmd" "-c" "model=gpt-5""')
+  // `.bat` 도 같은 자리다.
+  expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('cmd.exe')
+
+  // `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
+  expect(winSpawn('C:\\x\\claude.exe', ['auth'], 'win32')).toEqual({ command: 'C:\\x\\claude.exe', args: ['auth'], options: {} })
+  for (const c of ['/opt/homebrew/bin/claude', '/x/codex.cmd', '/x/a.bat']) {
+    expect(winSpawn(c, ['auth', 'status'], 'darwin')).toEqual({ command: c, args: ['auth', 'status'], options: {} })
+  }
+})
+
+test('cmd 한 줄 인용은 역슬래시·따옴표를 지킨다 (W1 ①)', () => {
+  expect(cmdQuote('plain')).toBe('"plain"')
+  expect(cmdQuote('a b')).toBe('"a b"')
+  // 닫는 따옴표 앞의 역슬래시는 두 배로 — 안 하면 그 `\` 가 `"` 를 이스케이프해 버린다.
+  expect(cmdQuote('C:\\dir\\')).toBe('"C:\\dir\\\\"')
+  // 안쪽 `"` 는 `\"` 로 — codex 의 `-c skills.config=[{path="…"}]` 가 이 모양이다.
+  expect(cmdQuote('path="x"')).toBe('"path=\\"x\\""')
+})
+
+test('cmd 로 표현할 수 없는 인자는 조용히 뭉개지 않고 던진다 (W1 ①)', () => {
+  expect(() => winSpawn('C:\\x\\claude.cmd', ['a\nb'], 'win32')).toThrow()
+  // 맥에서는 같은 인자가 그대로 간다(줄바꿈도 정상 인자다).
+  expect(winSpawn('/x/claude', ['a\nb'], 'darwin').args).toEqual(['a\nb'])
 })
 
 async function settled(svc: ChatService, root: string) {
