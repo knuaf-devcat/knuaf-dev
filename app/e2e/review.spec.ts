@@ -140,6 +140,60 @@ test('질문 카드가 떠 있으면 행동 막대를 띄우지 않는다', asyn
   }
 })
 
+test('작업 중에 고른 선택은 작업이 끝나면 막대가 뜬다 — 다시 고르지 않아도', async () => {
+  // 맥 CI 실패 처방(FIX-CI-MAC-R2 실패 1): 도우미가 아직 작업 중일 때 고르면 선택을 버려서
+  // 작업이 끝난 뒤 처음부터 다시 골라야 막대가 떴다. 이제는 숨기기만 하고 선택을 지킨다.
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_HOLD: '1' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('.paperpane .sheet')).toContainText('600평', { timeout: 30_000 })
+
+    // 도우미를 일하게 만든다 — 가짜 서버가 턴을 끝내지 않는다(작업 중 상태 유지).
+    await page.locator(COMPOSER).fill('작업을 시작해 주세요')
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+
+    // 작업 중에 고른다 — 막대는 뜨지 않지만 선택은 버려지지 않는다.
+    await selectParagraph(page, '600평')
+    await expect(page.locator('.selbar')).toHaveCount(0)
+
+    // 작업을 끝낸다(같은 자리가 중단 단추) → 입력칸이 돌아오면 다시 고르지 않아도 막대가 뜬다.
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.locator('.zone-status')).toHaveCount(0, { timeout: 30_000 })
+    await expect(page.locator('.selbar'), '작업이 끝났는데 그 선택 위에 막대가 뜨지 않는다').toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('.selbar').getByRole('button', { name: '고쳐 달라기' })).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('본문이 바뀌면 묵은 행동 막대가 남지 않는다', async () => {
+  // 저장·절 교체로 종이가 다시 그려지면 담아 둔 선택은 더 이상 그 글자가 아니다.
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const root = synthProject()
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const sheet = page.locator('.paperpane .sheet')
+    await expect(sheet).toContainText('600평', { timeout: 30_000 })
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+    await selectParagraph(page, '600평')
+    await expect(page.locator('.selbar')).toBeVisible()
+
+    // 도우미가 그 절을 다시 저장한다 → 종이가 다시 그려진다.
+    rewriteSection(root, { body: BODY_800, expected: 1 })
+    await expect(sheet).toContainText('800평', { timeout: 30_000 })
+    await expect(page.locator('.selbar'), '본문이 바뀌었는데 묵은 막대가 남아 있다').toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
 test('고친 부분 보기 — 600평→800평 저장 뒤 지움 1·새것 1, 끄면 지금 본문', async () => {
   const dir = scratch()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })

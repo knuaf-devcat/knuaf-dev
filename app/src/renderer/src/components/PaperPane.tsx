@@ -112,6 +112,8 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       return   // 못 읽은 절은 이전 모습 그대로 둔다
     }
     const freshNow: Record<string, number[]> = {}
+    /** 이번 읽기에서 **본문이 실제로 바뀐** 절이 있었는가 — 종이가 다시 그려진다. */
+    let contentChanged = false
     for (const r of rows) {
       const sec = sections.find((s) => s.id === r.id)
       if (!sec) continue
@@ -124,6 +126,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       prevDocs.current[r.id] = { title: r.title, draft: r.draft, hash: sec.draft_hash }
       // 처음 보는 절이면 칠하지 않는다(앱을 켠 직후·폴더를 연 직후).
       if (before) {
+        contentChanged = true
         const idx = newBlockIndexes(splitBlocks(before.draft), splitBlocks(r.draft))
         if (idx.length) freshNow[r.id] = idx
       }
@@ -132,6 +135,9 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
     const next: Record<string, Doc> = {}
     for (const s of sections) { const d = prevDocs.current[s.id]; if (d) next[s.id] = d }
     setDocs(next)
+    // 본문이 실제로 바뀌면(저장·절 교체) 종이의 DOM 이 다시 그려진다 — 그때 담아 둔 선택은
+    // 더 이상 그 글자가 아니다. 묵은 막대가 엉뚱한 자리에 뜨지 않게 지운다.
+    if (contentChanged) setSel(null)
     if (Object.keys(freshNow).length) {
       setFresh(freshNow)
       timers.current.forEach(clearTimeout)
@@ -153,11 +159,15 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   }, [focusedSection, focusSection])
 
   /**
-   * 마우스를 떼면 고른 문장을 읽는다(N-I03). 선택이 **종이 안**이고 **한 장 안**일 때만
-   * 행동 막대를 띄운다 — 어느 장의 문장인지 말할 수 없으면 인용 형식도 만들 수 없다.
+   * 마우스를 떼면 고른 문장을 읽는다(N-I03). 선택이 **종이 안**이고 **한 장 안**일 때만 담는다 —
+   * 어느 장의 문장인지 말할 수 없으면 인용 형식도 만들 수 없다.
+   *
+   * 아래 칸이 입력칸이 아니어도(**작업 중·질문 카드·허락 카드**) 선택을 **버리지 않는다**.
+   * 막대는 그동안 숨기기만 하고(렌더의 `canQuote`), 입력칸이 돌아오면 그 선택 위에 다시 뜬다.
+   * 예전에는 그 자리에서 `setSel(null)` 로 버려서 — 맥 CI 처럼 작업이 아직 도는 동안 고르면 —
+   * 작업이 끝난 뒤 학생이 **처음부터 다시 골라야** 막대가 떴다(FIX-CI-MAC-R2 실패 1).
    */
   const readSelection = useCallback(() => {
-    if (!canQuote) { setSel(null); return }
     const s = window.getSelection()
     const el = desk.current?.querySelector('.sheet')
     const host = pane.current
@@ -175,7 +185,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
     const r = range.getBoundingClientRect()
     const pr = host.getBoundingClientRect()
     setSel({ text, sectionId: section.id, sectionTitle: section.title, x: r.left + r.width / 2 - pr.left, top: r.top - pr.top, bottom: r.bottom - pr.top })
-  }, [canQuote, sections])
+  }, [sections])
 
   if (!root) return null
   const slotSection = card.kind === 'question' && card.card.chapterHint
