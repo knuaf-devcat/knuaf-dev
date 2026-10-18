@@ -4,8 +4,11 @@
  */
 export function joinPath(root: string | null, rel: string): string {
   if (!root) return rel
-  const sep = window.knuaf.platform === 'win32' ? '\\' : '/'
-  // `rel` 은 정본이 담은 상대경로라 `build/1/review/…` 처럼 슬래시로 온다 — 구분자를
-  // 끼워 넣기만 하면 윈도우에서 `…\build/1/...` 처럼 섞인다(사용자에게 보이는 경로).
-  return `${root}${sep}${rel.split(/[\\/]/).join(sep)}`
+  // POSIX 에서는 `rel` 을 **그대로** 이어 붙인다. 역슬래시는 여기서 평범한 파일명 글자라,
+  // 구분자로 바꾸면 `build/probe\review.docx` 와 `build/probe/review.docx` 라는 **서로 다른
+  // 두 파일**이 같은 열기 경로로 간다(검토 W1B-R1-01). 그래서 통일은 윈도우에서만 한다.
+  if (window.knuaf.platform !== 'win32') return `${root}/${rel}`
+  // 윈도우에서는 `/` 와 `\` 가 같은 구분자라, 정본의 `build/1/review/…` 를 `\` 로 통일해도
+  // 파일이 달라지지 않는다 — 섞인 경로(`…\build/1/...`)를 만들지 않는다.
+  return `${root}\\${rel.split(/[\\/]/).join('\\')}`
 }
