@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Icon } from './Icon'
+import { CLOSE_LABEL } from '../copy'
 
 /** Modal surface: centered (confirm) or side (preview). Materialize motion via CSS; Esc/backdrop close. */
 export function Sheet({ open, title, side, children, foot, onClose, badge }: { open: boolean; title: ReactNode; side?: boolean; children: ReactNode; foot?: ReactNode; onClose: () => void; badge?: ReactNode }) {
@@ -12,7 +13,7 @@ export function Sheet({ open, title, side, children, foot, onClose, badge }: { o
   }, [open])
   return (
     <dialog ref={ref} className={`sheet ${side ? 'side' : ''}`} onClose={onClose} onClick={(e) => { if (e.target === ref.current) onClose() }}>
-      <div className="sheet-head"><div className="row"><h2>{title}</h2>{badge}</div><button className="quiet" aria-label="닫기" onClick={onClose}><Icon name="x" /></button></div>
+      <div className="sheet-head"><div className="row"><h2>{title}</h2>{badge}</div><button className="quiet" aria-label={CLOSE_LABEL} onClick={onClose}><Icon name="x" /></button></div>
       <div className="sheet-body">{children}</div>
       {foot && <div className="sheet-foot">{foot}</div>}
     </dialog>

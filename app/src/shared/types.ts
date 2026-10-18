@@ -91,6 +91,12 @@ export interface Settings {
    * 읽는 것으로 충분하다. 폴더별 trusted_roots 는 이 값과 무관하게 그대로 살아 있다.
    */
   permission_mode?: 'trust' | 'ask'
+  /**
+   * 논문별 화면 취향. **학생이 직접 고른 것만** 저장한다(IMPL-PLAN §4-2) — 배치 자체
+   * (한 칸/두 칸)는 저장하지 않고 매번 계산한다. 지금 담는 것은 종이 칸을 닫았는지 하나다.
+   * 키는 앱이 폴더를 열 때 받은 경로 그대로다(렌더러에는 realpath 가 없다).
+   */
+  ui_prefs?: Record<string, { paperClosed?: boolean }>
 }
 /** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
 export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }

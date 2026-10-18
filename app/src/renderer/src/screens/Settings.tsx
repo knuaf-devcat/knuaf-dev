@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
 import { useChat, chatProvider, resolveChatMode, type ChatMode } from '../store/chat'
-import { Toolbar } from '../components/Toolbar'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
 import { HelperSheet } from '../components/HelperSheet'
@@ -50,8 +49,6 @@ export function SettingsScreen() {
   const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
   return (
     <div ref={body}>
-      <Toolbar title={SETTINGS.title} />
-
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.folderTitle}</h2></div>
         {root && <div className="row"><strong>{base(root)}</strong><span className="caption">{root}</span></div>}

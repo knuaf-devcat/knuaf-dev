@@ -10,30 +10,36 @@ import { SettingsScreen } from './screens/Settings'
 import { Onboarding } from './screens/Onboarding'
 import { Shell } from './components/Shell'
 import { Intro } from './components/Intro'
-import { Sidebar, type NavItem } from './components/Sidebar'
-import { NAV } from './copy'
+import { TitleBar } from './components/TitleBar'
+import { Workspace } from './components/Workspace'
+import { PaperPane } from './components/PaperPane'
+import { Sheet } from './components/Sheet'
+import { SheetOver } from './components/SheetOver'
+import { showsPaper, useLayout } from './components/useLayout'
+import { ARTIFACTS, CHECKUP, MATERIALS, SETTINGS } from './copy'
 import { useShallow } from 'zustand/react/shallow'
 
-/** The five destinations — 도구·문제 해결·절 목록은 설정과 사이드바 차례로 흡수됐다(06 4단계). */
-const NAV_ITEMS: NavItem[] = [
-  // 폴더 없음도 내 논문의 한 상태 — 프로젝트 없이도 항상 열려 있는 유일한 목적지(03-화면/01).
-  { id: 'chat', label: NAV.thesis, icon: 'doc' },
-  { id: 'materials', label: NAV.materials, icon: 'files', needsProject: true },
-  { id: 'artifacts', label: NAV.artifacts, icon: 'box', needsProject: true },
-  { id: 'checkup', label: NAV.checkup, icon: 'check', needsProject: true },
-  { id: 'settings', label: NAV.settings, icon: 'gear' }
-]
+/** 메뉴 막대(`main/menu.ts`)가 보낼 수 있는 화면 이름 — 'chat' 은 "시트를 닫아라"는 뜻이다. */
+const SHEETS: Screen[] = ['materials', 'artifacts', 'checkup', 'settings']
 
+/**
+ * 앱 — 제목줄 하나, 작업 공간(대화 | 내 논문) 하나, 그 위에 덮이는 시트들 (IMPL-PLAN §4-5).
+ *
+ * v5에서 왼쪽 사이드바 목적지 다섯이 사라졌다: 내 논문은 작업 공간 자체가 됐고,
+ * 자료·결과물·설정은 논문 위에 덮이는 한 장이며, 점검(제출 전 점검)은 논문 칸을 덮는
+ * 한 장이다(시안 ⑫). 메뉴 막대의 같은 항목도 같은 시트를 연다 — 메뉴만 남아 다른 곳으로
+ * 가면 두 진입점이 다른 화면을 보여 준다.
+ */
 export function App() {
-  const { screen, setScreen, root, hasProject, status, settings, loadSettings, pushLog, open } = useProject(useShallow((s) => ({ screen: s.screen, setScreen: s.setScreen, root: s.root, hasProject: s.hasProject, status: s.status, settings: s.settings, loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open })))
+  const { sheet, openSheet, closeSheet, root, settings, loadSettings, pushLog, open, paneView } = useProject(useShallow((s) => ({
+    sheet: s.sheet, openSheet: s.openSheet, closeSheet: s.closeSheet, root: s.root, settings: s.settings,
+    loadSettings: s.loadSettings, pushLog: s.pushLog, open: s.open, paneView: s.paneView
+  })))
+  const layout = useLayout()
   const [dragging, setDragging] = React.useState(false)
   /**
-   * 여는 화면. 크레딧을 "내 논문" 화면 안쪽 점선 상자로 얹어 두던 것을 앱 전체 위로
-   * 올렸다. 처음에는 첫 실행에만 띄웠지만(설정의 credit_shown_at) 켤 때마다 보고 싶다는
-   * 요청이 있어 매번 띄운다 — 누르거나 아무 키나 누르면 그 자리에서 건너뛴다.
-   *
-   * 한 번 띄운 뒤로는 `shown` 이 막는다. 설정은 나중에도 바뀌므로(권한 토글 등)
-   * 그때마다 다시 뜨면 안 된다.
+   * 여는 화면. 켤 때마다 뜨고, 누르거나 아무 키나 누르면 건너뛴다(`show_intro: false` 로 끈다).
+   * 한 번 띄운 뒤로는 `shown` 이 막는다 — 설정이 나중에 바뀌어도 다시 뜨면 안 된다.
    */
   const [intro, setIntro] = React.useState(false)
   const shown = React.useRef(false)
@@ -45,7 +51,7 @@ export function App() {
   useEffect(() => {
     void loadSettings()
     const h = location.hash.replace('#', '') as Screen
-    if (NAV_ITEMS.some((n) => n.id === h && !n.needsProject)) setScreen(h)
+    if (SHEETS.includes(h)) openSheet(h)
     const off = window.knuaf.onSidecarLog(pushLog)
     const offChat = window.knuaf.onChatSnapshot((s) => useChat.getState().onSnapshot(s))
     const offMenu = window.knuaf.onMenu((a) => {
@@ -53,11 +59,13 @@ export function App() {
       if (a.type === 'open-folder') void window.knuaf.pickFolder().then((d) => { if (d) void st.open(d) })
       else if (a.type === 'open-recent' && a.root) void st.open(a.root)
       else if (a.type === 'refresh') void st.refresh()
-      else if (a.type === 'settings') st.setScreen('settings')
-      else if (a.type === 'ai-helper') { if (st.root) st.setScreen('chat') }
-      else if (a.type === 'screen' && a.screen) {
-        const item = NAV_ITEMS.find((n) => n.id === a.screen)
-        if (item && (!item.needsProject || (st.root && st.hasProject))) st.setScreen(item.id)
+      // 시트가 없는 화면 이름('chat')은 "대화로 돌아가기"다 — 논문은 언제나 깔려 있다.
+      else if (a.type === 'settings') st.openSheet('settings')
+      else if (a.type === 'ai-helper') st.closeSheet()
+      else if (a.type === 'screen') {
+        const name = a.screen as Screen
+        if (SHEETS.includes(name)) st.openSheet(name)
+        else st.closeSheet()
       }
     })
     return () => { off(); offChat(); offMenu() }
@@ -69,31 +77,32 @@ export function App() {
     const p = window.knuaf.pathForFile(f)
     if (await window.knuaf.isDir(p)) await open(p)
   }
-  const screens: Record<Screen, React.JSX.Element> = {
-    chat: <Chat />, materials: <Materials />, artifacts: <Artifacts />, checkup: <Checkup />, settings: <SettingsScreen />
-  }
-  const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? root : null
-  /**
-   * 첫 실행 화면은 폴더를 고르기 전에 AI 연결부터 묻는다(DESIGN §6). 폴더가 열려 있으면
-   * 언제나 앱 화면이다 — 재방문은 논문 화면(폴더 없음)을 그대로 열고, 연결이 끊겼으면
-   * 그 자리에서 다시 로그인만 묻는다(로그인 벽으로 전체를 막지 않는다).
-   *
-   * 설정을 아직 못 읽은 동안에는 아무것도 그리지 않는다. 먼저 그리면 폴더 고르기 화면이
-   * 한 번 번쩍인 뒤 첫 실행 화면으로 바뀐다 — 첫인상이 그 화면이면 순서를 바꾼 뜻이 없다.
-   */
   const onboarding = !!settings && !root && !settings.onboarded_at
   // 학생이 고른 공급자는 설정에 남는다 — 세션 상태(store/connect)를 그 값과 맞춰 둔다.
-  // 대화 화면은 이 값을 먼저 보고, 없으면 옛 기본값(helper_mode)으로 되돌아간다.
   const choice = settings?.provider_choice?.provider ?? null
   useEffect(() => { useConnect.getState().select(choice) }, [choice])
+
+  const paperOnScreen = showsPaper(layout, paneView)
+  const checkup = sheet === 'checkup' && paperOnScreen
+    ? <SheetOver open title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></SheetOver>
+    : null
+
   return (
     <div style={{ height: '100%' }} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop} data-dragging={dragging || undefined}>
-    {intro && <Intro onDone={() => setIntro(false)} />}
-    {!settings ? null : onboarding ? <Onboarding /> : (
-      <Shell screenKey={screen} sidebar={<Sidebar items={NAV_ITEMS} active={screen} enabled={!!(root && hasProject)} onSelect={(s) => setScreen(s)} projectName={name} projectPath={root} revision={status?.revision ?? null} />}>
-        {screens[screen]}
-      </Shell>
-    )}
+      {intro && <Intro onDone={() => setIntro(false)} />}
+      {!settings ? null : onboarding ? <Onboarding /> : (
+        <Shell
+          titleBar={<TitleBar />}
+          sheets={<>
+            {sheet === 'materials' && <Sheet open side title={MATERIALS.title} onClose={closeSheet}><Materials /></Sheet>}
+            {sheet === 'artifacts' && <Sheet open side title={ARTIFACTS.title} onClose={closeSheet}><Artifacts /></Sheet>}
+            {sheet === 'settings' && <Sheet open side title={SETTINGS.title} onClose={closeSheet}><SettingsScreen /></Sheet>}
+            {sheet === 'checkup' && !paperOnScreen && <Sheet open side title={CHECKUP.sheetTitle} onClose={closeSheet}><Checkup /></Sheet>}
+          </>}
+        >
+          <Workspace chat={<Chat />} paper={<PaperPane overlay={checkup} />} />
+        </Shell>
+      )}
     </div>
   )
 }

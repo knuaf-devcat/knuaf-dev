@@ -38,6 +38,11 @@
   --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-pill: 999px;
   --hairline: 1px;
   --sidebar-w: 224px; --titlebar-h: 52px; --toolbar-h: 52px;
+  /* macOS 신호등 자리 확보 — main/index.ts 의 trafficLightPosition 과 함께 본다. */
+  --titlebar-inset: 78px;
+  --serif: "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
+  /* 종이 칸(3단계) — 종이와 책상. */
+  --desk: #eef2f7; --paper: #fffffe; --paper-ink: #161b26;
   --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .18);
   --shadow-1: 0 1px 2px rgba(15, 23, 42, .05), 0 6px 20px rgba(15, 23, 42, .07);
 }
@@ -55,6 +60,8 @@
     --attn: #d9a443;
     --alert-bg: #1a2232; --alert-border: #2a3650;
     --paper-faint: #7f8ca2; --new: #1d2a42;
+    /* 종이도 어두워진다 — 캡처(어둡게)가 이 값을 본다. */
+    --desk: #0b1018; --paper: #1a2131; --paper-ink: #e5eaf2;
     --material-toolbar: color-mix(in srgb, var(--bg) 72%, transparent);
     --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .5);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .35);

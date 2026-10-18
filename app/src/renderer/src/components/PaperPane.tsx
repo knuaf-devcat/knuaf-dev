@@ -1,0 +1,171 @@
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Icon } from './Icon'
+import { PopHead, Popover, PopRow } from './Popover'
+import { FilesPopover } from './FilesPopover'
+import { MaterialsPopover } from './MaterialsPopover'
+import { useProject } from '../store/project'
+import { useChat } from '../store/chat'
+import { rpc } from '../rpc'
+import { renderMarkdown } from '../markdown'
+import { newBlockIndexes, splitBlocks } from '../../../shared/paper'
+import { zoneOf } from '../../../shared/zone'
+import { PAPER, TITLEBAR } from '../copy'
+import type { SectionRow } from '../../../shared/types'
+import { useShallow } from 'zustand/react/shallow'
+
+/** 절 하나의 본문. `hash` 는 정본이 말하는 본문 지문이다. */
+type Doc = { title: string; draft: string; hash: string }
+
+/** 새로 저장된 문단을 칠해 두는 시간. 저장하지 않는다(IMPL-PLAN §4-2). */
+const FRESH_MS = 8_000
+
+/** 장 상태 말 — 숫자로 세지 않는다(DESIGN §2). */
+function stateWord(status: string): string {
+  if (status === 'empty') return PAPER.stateEmpty
+  if (status === 'drafting') return PAPER.stateWriting
+  return PAPER.stateDone
+}
+
+/**
+ * 질문 원문에 적힌 장(`Ⅲ장`)에 해당하는 절. 로마 숫자를 제목 앞머리에서 먼저 찾고,
+ * 없으면 등록 순서로 본다 — **등록되지 않은 장은 짐작하지 않는다**(R4 원칙).
+ */
+function sectionForChapter(sections: SectionRow[], hint: string): SectionRow | null {
+  const roman = hint.replace(/장\s*$/, '')
+  const n = 'ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ'.indexOf(roman) + 1
+  if (n <= 0) return null
+  return sections.find((s) => s.title.trim().startsWith(roman)) ?? sections.find((s) => s.order === n) ?? null
+}
+
+/**
+ * 내 논문 칸 — 저장된 논문을 종이 그대로 보여 준다 (DESIGN §2, 시안 ④~⑦⑩⑭).
+ *
+ * **저장된 글만** 그린다. 답을 보냈다고 문단을 미리 그리지 않고, 빈 장은 제목만 흐리게
+ * 둔다 — 없는 진척을 연출하지 않는다. 방금 저장된 문단만 옅은 파랑으로 잠깐 칠한다.
+ *
+ * 절 목록은 `project.sections`(등록된 절 그대로)이고 Ⅰ~Ⅶ 고정이 아니다. 본문은 절마다
+ * `section.read` 로 읽는다(3-A 합류 뒤 `section.read_all` 한 번으로 줄인다 — 읽는 자리는
+ * `load()` 하나뿐이다).
+ */
+export function PaperPane({ overlay }: { overlay?: ReactNode }) {
+  const { root, sections, revision, focusedSection, focusSection, setPaperClosed } = useProject(useShallow((s) => ({
+    root: s.root, sections: s.sections, revision: s.status?.revision ?? s.peek?.revision ?? null,
+    focusedSection: s.focusedSection, focusSection: s.focusSection, setPaperClosed: s.setPaperClosed
+  })))
+  const { snapshot, status } = useChat(useShallow((s) => ({ snapshot: s.snapshot, status: s.status })))
+  const pStatus = useProject((s) => s.status)
+  const [docs, setDocs] = useState<Record<string, Doc>>({})
+  const [fresh, setFresh] = useState<Record<string, number[]>>({})
+  const [toc, setToc] = useState(false)
+  /**
+   * 절마다 **직전에 본 본문**. 메모리에만 둔다 — 저장하지 않는다. 그래서 앱을 켠 직후
+   * 첫 읽기에는 비교할 것이 없고, 아무것도 칠하지 않는다.
+   */
+  const prevDocs = useRef<Record<string, Doc>>({})
+  /** 늦게 온 읽기가 그사이 바뀐 목록을 되돌리지 않게 하는 기준. */
+  const sects = useRef<SectionRow[] | null>(sections)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+  const desk = useRef<HTMLDivElement>(null)
+  sects.current = sections
+
+  const load = useCallback(async () => {
+    if (!root || !sections) { setDocs({}); return }
+    const freshNow: Record<string, number[]> = {}
+    await Promise.all(sections.map(async (s) => {
+      const before = prevDocs.current[s.id]
+      // 지문이 같으면 다시 읽지 않는다 — 읽어도 같은 글이고 칠할 것도 없다.
+      if (before && before.hash === s.draft_hash) return
+      try {
+        const r = await rpc.readSection(root, s.id)
+        prevDocs.current[s.id] = { title: r.title, draft: r.draft, hash: s.draft_hash }
+        // 처음 보는 절이면 칠하지 않는다(앱을 켠 직후·폴더를 연 직후).
+        if (before) {
+          const idx = newBlockIndexes(splitBlocks(before.draft), splitBlocks(r.draft))
+          if (idx.length) freshNow[s.id] = idx
+        }
+      } catch { /* 못 읽은 절은 이전 모습 그대로 둔다 */ }
+    }))
+    if (sects.current !== sections) return
+    const next: Record<string, Doc> = {}
+    for (const s of sections) { const d = prevDocs.current[s.id]; if (d) next[s.id] = d }
+    setDocs(next)
+    if (Object.keys(freshNow).length) {
+      setFresh(freshNow)
+      timers.current.forEach(clearTimeout)
+      timers.current = [setTimeout(() => setFresh({}), FRESH_MS)]
+    }
+  }, [root, sections])
+
+  // 폴더가 바뀌면 직전 본문을 들고 가지 않는다 — 다른 논문에 칠할 것은 없다.
+  useEffect(() => { prevDocs.current = {}; setDocs({}); setFresh({}); return () => { timers.current.forEach(clearTimeout); timers.current = [] } }, [root])
+  // 기록이 오르면 다시 읽는다(사이드바 차례와 같은 기준, IMPL-PLAN §4-2).
+  useEffect(() => { void load() }, [load, revision])
+
+  // 대화 이벤트 줄의 "종이에서 보기" — 그 장으로 간다.
+  useEffect(() => {
+    if (!focusedSection) return
+    desk.current?.querySelector(`#sec-${CSS.escape(focusedSection)}`)?.scrollIntoView({ block: 'start' })
+    focusSection(null)
+  }, [focusedSection, focusSection])
+
+  if (!root) return null
+  const card = zoneOf(snapshot, status, pStatus)
+  const slotSection = card.kind === 'question' && card.card.chapterHint
+    ? sectionForChapter(sections ?? [], card.card.chapterHint)?.id ?? null
+    : null
+  const writing = sections?.find((s) => s.status === 'drafting') ?? null
+
+  return (
+    <section className="paperpane" aria-label={PAPER.paneLabel}>
+      <div className="paper-head">
+        <div className="pop-host">
+          <button className="chap" aria-expanded={toc} onClick={() => setToc(!toc)}>
+            <span className="n">{writing ? writing.title : PAPER.empty}</span>
+            {writing && <span className="w">{stateWord(writing.status)}</span>}
+            <Icon name="chevron" size={14} />
+          </button>
+          <Popover open={toc} onClose={() => setToc(false)} label={PAPER.tocTitle} width={300}>
+            <PopHead>{PAPER.tocTitle}</PopHead>
+            {(sections ?? []).map((s) => (
+              <PopRow key={s.id} icon={<span className="rn">{s.order}</span>} current={writing?.id === s.id}
+                onClick={() => { setToc(false); desk.current?.querySelector(`#sec-${CSS.escape(s.id)}`)?.scrollIntoView({ block: 'start' }) }}
+                meta={stateWord(s.status)}>
+                {s.title}
+              </PopRow>
+            ))}
+          </Popover>
+        </div>
+        <span className="sp" />
+        <MaterialsPopover />
+        <FilesPopover />
+        <button className="lnk" onClick={() => setPaperClosed(true)} title={TITLEBAR.paperClose} aria-label={TITLEBAR.paperClose}><Icon name="x" size={12} /></button>
+      </div>
+
+      <div className="desk" ref={desk}>
+        <div className="sheet">
+          {(sections ?? []).length === 0
+            ? <div className="paper-empty"><p className="doc-s">{PAPER.empty}</p><p className="ln">{PAPER.emptyBody}</p></div>
+            : (sections ?? []).map((s) => {
+              const doc = docs[s.id]
+              const blocks = doc ? splitBlocks(doc.draft) : []
+              const mark = new Set(fresh[s.id] ?? [])
+              return (
+                <div key={s.id} id={`sec-${s.id}`} className={blocks.length === 0 ? 'paper-empty' : undefined}>
+                  <h2>{s.title}{s.status === 'drafting' && <span className="tag">{PAPER.writingTag}</span>}</h2>
+                  {blocks.length === 0 && <p className="ln">{PAPER.emptyLine}</p>}
+                  {/* markdown-it 이 html:false 로 만든 태그만 들어온다 — 링크·이미지는 렌더 단계에서
+                      지운다(markdown.ts). 도우미가 쓴 글자가 곧 마크업이 되는 경로는 없다. */}
+                  {blocks.map((b, i) => (
+                    <div key={i} className={mark.has(i) ? 'blk new' : 'blk'} dangerouslySetInnerHTML={{ __html: renderMarkdown(b) }} />
+                  ))}
+                  {slotSection === s.id && <div className="slot"><Icon name="info" size={14} /><span>{PAPER.questionSlot}</span></div>}
+                </div>
+              )
+            })}
+        </div>
+      </div>
+      {/* 점검 한 장이 논문 칸을 덮는다(시안 ⑫) — 내용은 Checkup 하나뿐이다. */}
+      {overlay}
+    </section>
+  )
+}

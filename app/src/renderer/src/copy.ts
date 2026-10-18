@@ -513,6 +513,24 @@ export const EMPTY: Record<string, { title: string; body: string; action?: strin
  */
 export const CHECKUP = {
   title: '점검',
+  /** 논문 칸을 덮는 한 장의 이름(시안 ⑫, DESIGN §4-5). */
+  sheetTitle: '제출 전 점검',
+  /** 시트 머리의 작은 글자. 기록 번호를 보이는 몇 안 되는 자리다(DESIGN §5). */
+  head: (n: number) => `지금 논문 · ${n}번째 기록`,
+  // 시트 세 덩어리(시안 ⑫). 문구는 화면에 있던 것을 그대로 옮겼다.
+  fileTitle: '제출할 파일',
+  fileNone: '아직 만든 파일이 없어요',
+  fileSame: '지금 논문과 같아요',
+  fileStale: '고친 내용이 빠져 있어요',
+  fileUnknown: '지금 논문과 같은지 앱이 몰라요',
+  finishTitle: '한글에서 내가 직접 할 것',
+  finishWho: '앱이 대신 못 해요',
+  lanesWho: '하나로 합치지 않아요',
+  copyRequest: '부탁 문장 복사',
+  copied: '복사했어요',
+  workTitle: '도우미에게 할 말',
+  /** 시트 머리의 다시 읽기 — 옛 점검 화면의 그 단추다. */
+  refresh: '새로고침',
   todoTitle: '내가 해야 할 일',
   fixTitle: '고칠 곳',
   pendingTitle: '아직 확인 못 한 것',
@@ -541,7 +559,7 @@ export const CHECKUP = {
   finishHowNote: '이 일은 한글 프로그램에서 직접 확인·고치는 일이에요. 끝내고 나면 도우미에게 알려 주세요.',
   passedTitle: (n: number) => `통과한 검사 ${n}건`,
   laneLines: {
-    machineFail: (n: number) => `실패 ${n}건 있음 — 위 고칠 곳 참고`,
+    machineFail: (n: number) => `실패 ${n}건 있음 — "자세히"에 고칠 곳이 있어요`,
     machineBlocked: (n: number) => `아직 확인 못 한 ${n}건 있음`,
     machinePass: (n: number) => `통과 ${n}건`,
     reviewDone: '기록 있음',
@@ -892,6 +910,7 @@ export const CHAT = {
 
 export const MATERIALS = {
   title: '자료',
+  loading: '불러오는 중…',
   currentTitle: '현재 작성물',
   manuscriptLabel: '현재 원고',
   financeLabel: '재무 파일',
@@ -928,6 +947,8 @@ export const ARTIFACTS = {
   checkNone: '자동 점검 기록 없음',
   savedTo: '저장했어요',
   previewTitle: '미리보기',
+  /** 목록에서 아직 아무 파일도 고르지 않았을 때. */
+  pickOne: '왼쪽 목록에서 파일을 골라 주세요.',
   // 파일 만들기 — 목록 위 한 단, 버튼만(경로 입력 0). 비활성은 "입력이 없어 실행 자체가
   // 불가능한 경우"뿐이고 이유를 캡션으로 말한다(04-결과물 결정). 제출용 버튼은 게이트가
   // 막혀 있어도 활성 — 누르는 순간이 고지의 자리다(Q1·#4 기각).
@@ -965,6 +986,10 @@ export const ARTIFACTS = {
     advancedOpen: '고급 도구에서 직접 실행',
     /** 실패했는데 스크립트가 이유를 안 남긴 경우 — 제목만 띄우고 끝내지 않는다(GUI-08). */
     failNoReason: '도구가 이유를 남기지 않았어요. "자세히"의 실행 기록을 확인해 주세요.',
+    /** 만들기가 끝나지 않았을 때의 제목. */
+    failTitle: '만들기가 끝나지 않았어요',
+    /** 만들기는 됐지만 통과하지 못한 검사가 남았을 때(자세히 안의 한 줄). */
+    unverified: (n: number) => `아직 통과하지 않은 검사 ${n}건`,
     xlsxGoto: '고급 도구에서 이어서 만들기',
     madeTitle: '만들어진 파일'
   }
@@ -996,6 +1021,124 @@ export const NAV = {
   tocHead: '논문 차례',
   tocNone: '아직 없음',
   savedNth: (n: number) => `${n}번째 기록` // revision은 apply마다 오른다 — 학생의 저장 행위만이 아님(gg_core.py:872)
+}
+
+/** 모든 닫기 단추의 화면 낭독 이름 — 한 곳에서만 적는다(화면 조각마다 다르면 낭독이 흔들린다). */
+export const CLOSE_LABEL = '닫기'
+
+// ---------------------------------------------------------------------------
+// 제목줄 (DESIGN §1-3·§2)
+// ---------------------------------------------------------------------------
+
+/**
+ * 제목줄 — 논문 ▾ · 지금 ▾ · 계정 · ⚙ (DESIGN §1-3).
+ *
+ * 시안이 그린 것은 자리와 글자뿐이다. "논문 ▾"과 "계정"을 눌렀을 때 열리는 팝오버의 내용은
+ * 시안·DESIGN 어디에도 없다 — 그 둘은 `impl/QUESTIONS-P3B.md`에 적어 책임자에게 올렸고,
+ * 여기 문구는 그 자리에 들어간 **최소한**이다(되돌리기 쉬운 한 곳).
+ */
+export const TITLEBAR = {
+  paperNone: '논문 열기',
+  paperMenuTitle: '다른 논문 열기',
+  recentPapers: '최근 논문',
+  openOther: '다른 폴더 열기…',
+  noRecent: '최근에 연 논문이 없어요',
+  /** 첫 대화는 한 칸 — 옆 칸이 왜 비어 있는지 한 줄로 말한다(시안 ③). */
+  paperLater: '내 논문 · 첫 장을 쓰면 옆에 열려요',
+  /** 좁은 창의 바꾸기(⑯). */
+  segChat: '대화',
+  segPaper: '내 논문',
+  /** 종이를 닫는 자리 — 닫으면 다시 저절로 열리지 않는다. */
+  paperClose: '내 논문 닫기',
+  paperOpen: '내 논문 열기',
+  accountTitle: '내 AI 계정 — 앱은 AI를 팔지 않아요',
+  accountNone: 'AI 연결 안 됨',
+  /** 제목줄 오른쪽 — 지금 대화하는 AI. 관찰한 것만 말한다(`connectStateLine` 과 같은 규칙). */
+  accountConnected: (name: string) => `${name} 연결됨`,
+  /** 계정 팝오버에서 다른 공급자로 옮기는 한 줄. */
+  switchTo: (name: string) => `${name}로 바꾸기`,
+  settingsTitle: '설정',
+  nowLabel: '지금',
+  nowOpen: '전체 과정 보기',
+  nowClose: '전체 과정 닫기',
+  nowTitle: '전체 과정'
+} as const
+
+// ---------------------------------------------------------------------------
+// 종이 칸 (DESIGN §2, 시안 ④~⑯)
+// ---------------------------------------------------------------------------
+
+/**
+ * 종이 칸. **저장된 글만** 그린다 — 답을 보냈다고 문단을 미리 그리지 않는다(DESIGN §2).
+ * 빈 장은 제목만 흐리게 두고, 장식용 장 번호·칠한 썸네일은 쓰지 않는다.
+ */
+export const PAPER = {
+  /** 칸의 화면 낭독 이름. */
+  paneLabel: '내 논문',
+  tocTitle: '차례 — 누르면 그 장으로 가요',
+  /** 장 상태 말. 숫자로 세지 않는다("7장 중 2장" 금지, DESIGN §2). */
+  stateDone: '초안 다 씀',
+  stateWriting: '쓰는 중',
+  stateEmpty: '아직',
+  /** 등록된 절이 하나도 없을 때. 가짜 차례를 만들지 않는다(R4 원칙). */
+  empty: '아직 등록된 장이 없어요',
+  emptyBody: '도우미와 대화를 시작하면 장이 하나씩 여기에 쌓여요.',
+  /** 아직 본문이 없는 장의 빈 자리 한 줄. */
+  emptyLine: '아직 쓴 글이 없어요',
+  /** 질문 원문에 장이 적혀 있을 때만, 그 장 끝에 한 줄(DESIGN §2). */
+  questionSlot: '지금 질문의 답은 이 장에 쓰여요',
+  writingTag: '도우미가 쓰는 중',
+  materialsCount: (n: number) => `자료 ${n}`,
+  filesCount: (n: number) => `파일 ${n}`,
+  /** 파일에 다시 만들어야 할 것이 있을 때만 옆에 붙는 호박색 점의 이름(낭독용). */
+  staleTitle: '다시 만들어야 할 파일이 있어요'
+} as const
+
+/** 파일 팝오버(⑩⑮) — 만들기 4줄 + 만든 파일. */
+export const FILES_POPOVER = {
+  makeTitle: '만들기',
+  madeTitle: '만든 파일 — 누르면 열려요',
+  madeNone: '아직 없어요',
+  revealFolder: '폴더에서 보기',
+  openAll: '결과물 전체 보기',
+  /** 검토본은 개정 번호 기준으로만 말한다(파일에 등록되지 않은 것도 있어서). */
+  reviewBasis: (n: number) => `${n}번째 기록 기준`,
+  same: '지금 논문과 같아요',
+  stale: '고친 내용이 빠져 있어요',
+  unknown: '지금 논문과 같은지 앱이 몰라요'
+} as const
+
+/** 자료 팝오버(⑬ 머리) — 요약만 보이고 전체는 시트로 연다(DESIGN §4-5). */
+export const MATERIALS_POPOVER = {
+  title: '자료',
+  current: '현재 작성물',
+  all: '자료 전체 보기',
+  noneYet: '아직 정해지지 않았어요'
+} as const
+
+// ---------------------------------------------------------------------------
+// 대화 이벤트 줄 (IMPL-PLAN §3 신규)
+// ---------------------------------------------------------------------------
+
+/**
+ * 도우미가 절을 저장한 사실을 대화에 한 줄로 그린다 — 절 제목은 `project.sections`에서
+ * 가져오므로 도우미 답변의 머리 배너(`> knuaf-dev …`)를 되뇌지 않는다.
+ * 대화 기록 파일에는 쓰지 않는다(앱이 그리는 표시일 뿐이다).
+ */
+export const CHAT_EVENT = {
+  wrote: (title: string) => `${title}${objectParticle(title)} 썼어요`,
+  goPaper: '종이에서 보기'
+} as const
+
+/**
+ * 목적격 조사 `을/를`. 마지막 글자가 한글 음절이면 받침을 보고 고르고, 그 밖(숫자·영문·
+ * 기호)은 `를`로 둔다. 절 제목에 조사를 붙여 문장을 만들 때만 쓴다.
+ */
+export function objectParticle(word: string): string {
+  const last = word.trim().slice(-1)
+  const code = last.charCodeAt(0)
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 > 0 ? '을' : '를'
+  return '를'
 }
 
 /**
