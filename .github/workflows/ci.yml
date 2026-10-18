@@ -80,7 +80,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       # live-*.spec.ts need a real Claude/Codex login and are excluded without KNUAF_LIVE=1.
-      # Screenshot specs regenerate committed PNGs, so they are for local runs only.
+      # 창 촬영(window-shots)은 맥 전용 `screencapture` 라 config 의 testIgnore 가 뺀다.
+      # 화면 캡처(screenshots.spec.ts 포함)는 CI 에서도 돌려 `KNUAF_SHOT_DIR` 에 남기고 아래에서
+      # 아티팩트로 올린다 — 사람이 내려받아 시안과 나란히 본다. 로컬 기본값은 docs/images 그대로다.
       #
       # e2e runs on macOS and Windows alike. `KNUAF_PYTHON` must be an absolute path — the app
       # tests `existsSync(KNUAF_PYTHON)` in choosePython, so a bare name is ignored and it falls
@@ -88,11 +90,38 @@ jobs:
       # macOS' stock 3.9.6 and fail project:open. On Windows the interpreter is python.exe.
       - name: e2e (macOS)
         if: runner.os == 'macOS'
-        run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
+        run: pnpm exec playwright test --grep-invert "real window capture"
         env:
           KNUAF_PYTHON: ${{ env.pythonLocation }}/bin/python
+          KNUAF_SHOT_DIR: test-results/ui-shots
       - name: e2e (Windows)
         if: runner.os == 'Windows'
-        run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
+        run: pnpm exec playwright test --grep-invert "real window capture"
         env:
           KNUAF_PYTHON: ${{ env.pythonLocation }}\python.exe
+          KNUAF_SHOT_DIR: test-results/ui-shots
+      # 시안 대조용 캡처 — 시험이 실패해도 남긴다(`always()`). 이름에 OS 를 넣어 구분한다.
+      - name: UI captures (macOS)
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots-macos
+          path: |
+            app/test-results/ui-shots
+            app/test-results/onboarding-shots
+            app/test-results/p3-shots
+            app/test-results/p1-shots
+          if-no-files-found: warn
+          retention-days: 14
+      - name: UI captures (Windows)
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots-windows
+          path: |
+            app/test-results/ui-shots
+            app/test-results/onboarding-shots
+            app/test-results/p3-shots
+            app/test-results/p1-shots
+          if-no-files-found: warn
+          retention-days: 14
