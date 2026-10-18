@@ -123,10 +123,10 @@ test('reduced motion keeps the intro readable', async () => {
 test('hard rules hold across screens', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  // The folder-less state is 내 논문 itself: one folder CTA, and no path entry anywhere on
-  // the student-facing screen (the only path input lives in 설정 > 고급).
+  // 폴더 없음 첫 화면은 두 단계 부품(FirstRun)이 덮는다 — 길잡이 한 줄이 있고, 학생 화면에는
+  // 경로 입력칸이 어디에도 없다(유일한 경로 입력은 설정 > 고급).
   await expect(page.locator('.chat-pane')).toBeVisible()
-  await expect(page.locator('text=논문 작업 폴더를 골라 주세요')).toBeVisible()
+  await expect(page.locator('.chat-pane .onb-way')).toBeVisible()
   expect(await page.locator('main input[aria-label="폴더 경로"]').count()).toBe(0)
   await openProject(page, root)
   await page.waitForSelector('.chat-pane', { timeout: 30_000 })
@@ -148,17 +148,17 @@ test('hard rules hold across screens', async () => {
   // The independent-review notice must reach the publish/save points even when the student
   // never opens 점검 — the notice lives at the moment of the attempt, not behind a screen.
   await navTo(page, '결과물')
-  await expect(page.locator('text=독립검토 미실행')).toBeVisible()
+  await expect(page.locator('text=다른 사람 검토 기록이 아직 없어요')).toBeVisible()
   // 파일 만들기: 제출용 버튼은 관문이 막혀도 활성 — 경고가 관문이지 버튼 잠금이 아니다(#4).
-  const submitBtn = page.locator('.make-row:has-text("제출용 파일 만들기") button')
+  const submitBtn = page.locator('.make-row:has-text("제출용 후보 만들기") button')
   await expect(submitBtn).toBeEnabled()
   await submitBtn.click()
-  await expect(page.locator('text=독립검토 미실행').first()).toBeVisible()
+  await expect(page.locator('text=다른 사람 검토 기록이 아직 없어요').first()).toBeVisible()
   // The same notice reaches the 고급 도구 발행 지점 (설정 > 고급 도구 > 검토본보내기).
   await navTo(page, '설정')
   await openPreset(page, 'tools:export')
   await page.selectOption('details[data-preset="tools:export"] select', 'submission_candidate')
-  await expect(page.locator('details[data-preset="tools:export"] >> text=독립검토 미실행')).toBeVisible()
+  await expect(page.locator('details[data-preset="tools:export"] >> text=다른 사람 검토 기록이 아직 없어요')).toBeVisible()
   const labels = (await page.locator('details[data-preset="tools:export"] label, details[data-preset="tools:export"] .field > span').allInnerTexts()).join('\n')
   expect(labels).not.toMatch(/JSON|모델/)
 
@@ -172,7 +172,7 @@ test('hard rules hold across screens', async () => {
   // 그 문구는 이제 여러 자리(만들기 고지·결과물 시트·점검 행)에 나온다 — 점검 행으로 좁히되,
   // **고지 요소 자체가 보이는지**를 본다(확인 1회째: toContainText 는 숨은 요소도 통과한다).
   const notice = page.locator('[data-screen="checkup"] .lanes .ln').filter({ hasText: '다른 사람 검토' })
-    .getByText('아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.')
+    .getByText('아직 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.')
   await expect(notice, '점검 행의 고지가 보이지 않는다').toBeVisible()
   expect(await page.locator('button:has-text("완료")').count()).toBe(0)
 

@@ -21,7 +21,11 @@ test('도우미가 저장하면 점검 화면이 새로고침 없이 따라온�
   try {
     await openProject(page, root)
     await navTo(page, '점검')
-    // 기록 번호가 보이는 몇 안 되는 자리 — 점검 한 장의 머리 작은 글자(DESIGN §5).
+    // 기록 번호가 보이는 자리는 점검 한 장의 **맨 아래 접힌 "기록 자세히"** 안이다(발주 R-04).
+    // 그 자리를 열고 같은 단언을 한다 — 약화가 아니라 자리 이동이다.
+    const record = page.locator('[data-screen="checkup"] details:has(.checkup-head)')
+    const openRecord = async (): Promise<void> => { await record.evaluate((d) => { (d as HTMLDetailsElement).open = true }) }
+    await openRecord()
     const head = page.locator('[data-screen="checkup"] .checkup-head')
     await expect(head).toContainText('지금 논문 · 1번째 기록', { timeout: 20_000 })
 
@@ -35,6 +39,7 @@ test('도우미가 저장하면 점검 화면이 새로고침 없이 따라온�
     expect(a.status, a.stdout + a.stderr).toBe(0)
 
     // 새로고침을 누르지 않는다.
+    await openRecord()
     await expect(head, '정본이 올랐는데 점검 화면이 옛 기록에 머물렀다').toContainText('지금 논문 · 2번째 기록', { timeout: 30_000 })
     // 사이드바가 하던 단언은 종이 칸으로 옮긴다 — 새로 등록한 절 제목이 저절로 나타나야 한다.
     await navTo(page, '내 논문')

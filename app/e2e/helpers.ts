@@ -78,7 +78,9 @@ export async function launch(opts: { userData?: string; colorScheme?: 'light' | 
    */
   await electronApp.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setBounds({ width: 1180, height: 800 }) })
   if (opts.colorScheme || opts.reducedMotion) await page.emulateMedia({ colorScheme: opts.colorScheme, reducedMotion: opts.reducedMotion })
-  await page.waitForSelector(opts.waitFor ?? 'text=논문 작업 폴더')
+  // 첫 화면은 재실행에서 **두 단계 부품**(제목줄 아래)이 덮는다 — 연결이 확인돼 있으면 폴더
+  // 단계, 끊겨 있으면 1단계(AI 연결). 둘 다에 있는 제목줄을 준비 신호로 기다린다.
+  await page.waitForSelector(opts.waitFor ?? '.titlebar')
   return { electronApp, page }
 }
 

@@ -13,7 +13,7 @@ test('open a project, see four lanes, export a draft, unlock a stale lock', asyn
   await expect(page.getByText('다른 사람 검토', { exact: true })).toBeVisible()
   await expect(page.getByText('파일 확인', { exact: true })).toBeVisible()
   await expect(page.getByText('교수님 승인', { exact: true })).toBeVisible()
-  await expect(page.locator('text=아직 독립검토 기록이 없어요')).toBeVisible()
+  await expect(page.locator('text=아직 기록이 없어요')).toBeVisible()
   // The row names the check in 한국어; check_id lives behind 자세히. school_profile is only
   // ever emitted blocked (gg_core.py:1552), so the row is always there to be found.
   // v5 에서 검사 행은 **자동 점검 행의 "자세히"** 안에 있다(시안 ⑫) — 먼저 펼친다.
