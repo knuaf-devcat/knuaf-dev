@@ -1,3 +1,4 @@
+import { delimiter } from 'node:path'
 import type { ConnectionStatus, PermissionRequest } from '../../shared/chat'
 export interface AgentEvents {
   message: (id: string, text: string) => void
@@ -49,7 +50,9 @@ export function subscriptionEnv(extraPathDirs: string[] = []): NodeJS.ProcessEnv
   // 이미 이렇게 하고 있었고, 채팅 경로만 빠져 있었다. 학생 맥의 기본 python3 는 3.9 라
   // 스킬의 최소 조건(3.10)에 못 미치는데, 이게 없으면 앱은 번들 3.12 로 잘 도는 반면
   // 도우미만 "쓸 수 있는 Python 이 없다"에 막힌다.
-  env.PATH = [...extraPathDirs, ...AGENT_PATH_DIRS, env.PATH].filter(Boolean).join(':')
+  // 구분자는 플랫폼마다 다르다(`:` vs `;`) — `:` 로 이으면 윈도우에서 `C:\…` 안의 `:` 까지
+  // 갈라져 자식 프로세스의 PATH 가 통째로 뭉갠다(형님 승인 W1 연결 기제 ②).
+  env.PATH = [...extraPathDirs, ...AGENT_PATH_DIRS, env.PATH].filter(Boolean).join(delimiter)
   return env
 }
 
