@@ -47,7 +47,9 @@ function koreanStrings(file: string): string[] {
 // "폴더를 열어 주세요"·"화면" 등). Sheet 의 닫기 이름을 copy.ts `CLOSE_LABEL` 로 옮겼고(-1),
 // 새로 생긴 화면 조각(TitleBar·Workspace·PaperPane·Popover·FilesPopover·MaterialsPopover·
 // SheetOver·Workspace)은 한글 문자열을 하나도 두지 않았다 — 문구는 전부 copy.ts 에 있다.
-const KNOWN_USER_STRING_VIOLATIONS = 223
+// 223 → 222(2차 QA N-R02): ProjectCard 를 한 줄 목록으로 바꾸며 기록 번호 칩(`N번째 기록`)을
+// 뺐다(-1). 남은 한글은 그대로다.
+const KNOWN_USER_STRING_VIOLATIONS = 222
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []
