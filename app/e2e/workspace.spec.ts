@@ -41,12 +41,12 @@ test('두 칸이 되면 대화 칸 폭이 규칙대로다 (1,140 → 460)', asyn
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
   await setWindowWidth(electronApp, 1140)
-  const width = await page.locator('.chat-pane').evaluate((el) => el.getBoundingClientRect().width)
-  expect(Math.round(width)).toBe(460)
-  // 종이는 최소 680 이상을 가져간다.
-  const paper = await page.locator('.paperpane').evaluate((el) => el.getBoundingClientRect().width)
-  // 소수점 이하가 있다(679.9999…) — 반올림해 견준다.
-  expect(Math.round(paper)).toBeGreaterThanOrEqual(680)
+  // 창 크기 변경은 OS·합성 단계를 거쳐 몇 박 늦게 반영된다 — 폴링으로 기다린다(한 번 재고 끝내면 흔들린다).
+  const chatWidth = async (): Promise<number> => Math.round(await page.locator('.chat-pane').evaluate((el) => el.getBoundingClientRect().width))
+  await expect.poll(chatWidth).toBe(460)
+  // 종이는 최소 680 이상을 가져간다(소수점 이하가 있다: 679.9999… — 반올림해 견준다).
+  const paperWidth = async (): Promise<number> => Math.round(await page.locator('.paperpane').evaluate((el) => el.getBoundingClientRect().width))
+  await expect.poll(paperWidth).toBeGreaterThanOrEqual(680)
   await electronApp.close()
 })
 
