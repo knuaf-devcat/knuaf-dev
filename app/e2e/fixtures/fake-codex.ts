@@ -7,8 +7,22 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { python, scripts, synthProject } from '../helpers'
+
+const WIN = process.platform === 'win32'
+
+/**
+ * 가짜 CLI 를 PATH 앞자리에 둔다. 유닉스는 셔뱅 스크립트(`codex`), 윈도우는 셔뱅이 없어
+ * `.cmd` 감싸개로 둔다 — `findExecutable` 은 윈도우에서 `name`·`name.cmd`·`name.exe` 순으로
+ * 찾으므로 `.cmd` 도 발견된다. 자식 프로세스에 넘길 PATH 의 구분자도 플랫폼마다 다르다
+ * (`:` vs `;` — 아래 `delimiter`).
+ */
+export function writeCliShim(dir: string, name: string, unixBody: string, winBody: string): void {
+  mkdirSync(dir, { recursive: true })
+  if (WIN) writeFileSync(join(dir, `${name}.cmd`), `@echo off\r\n${winBody}\r\n`, 'utf-8')
+  else writeFileSync(join(dir, name), `#!/bin/sh\n${unixBody}\n`, { mode: 0o755 })
+}
 
 export const FAKE_SERVER = resolve(__dirname, 'fake-codex-server.mjs')
 
@@ -45,11 +59,10 @@ export const QUESTION_2 = `[Q5-2] Ⅵ장 비용 계산에 쓰여요
  * 주고 그 PATH 만 보게 한다.
  */
 export function fakeCodexEnv(dir: string, extra: Record<string, string> = {}): Record<string, string> {
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'codex'),
-    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_SERVER)} "$@"\n`,
-    { mode: 0o755 })
-  return { PATH: `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`, KNUAF_AGENT_PATH_ONLY: '1', ...extra }
+  writeCliShim(dir, 'codex',
+    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_SERVER)} "$@"`,
+    `"${process.execPath}" "${FAKE_SERVER}" %*`)
+  return { PATH: [dir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1', ...extra }
 }
 
 /**
@@ -100,11 +113,12 @@ export function scratch(): string {
  * 연결(SDK·작업 실행)은 여기서 띄우지 않는다.
  */
 export function writeFakeClaude(dir: string, loggedIn = true): void {
-  mkdirSync(dir, { recursive: true })
   const body = loggedIn
     ? { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }
     : { loggedIn: false, authMethod: null, apiProvider: null }
-  writeFileSync(join(dir, 'claude'), `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(body)}'\n`, { mode: 0o755 })
+  writeCliShim(dir, 'claude',
+    `printf '%s\\n' '${JSON.stringify(body)}'`,
+    `echo ${JSON.stringify(body)}`)
 }
 
 /**

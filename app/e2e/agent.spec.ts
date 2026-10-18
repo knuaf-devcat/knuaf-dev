@@ -21,7 +21,8 @@ test.describe('findExecutable / probeVersion', () => {
   test('resolves an executable claude when installed, and null for a bogus name', async () => {
     if (claudePath) {
       expect(existsSync(claudePath)).toBe(true)
-      expect(claudePath.endsWith('/claude') || claudePath.endsWith('\\claude.exe')).toBe(true)
+      // 유닉스는 `claude`, 윈도우는 `claude.cmd`/`claude.exe` — 확장자까지 단언하지 않는다.
+      expect(basename(claudePath).replace(/\.(cmd|exe)$/i, '')).toBe('claude')
     }
     expect(findExecutable('definitely-not-a-real-binary-xyz', process.env)).toBeNull()
   })

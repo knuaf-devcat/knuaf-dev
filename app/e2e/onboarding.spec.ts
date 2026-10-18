@@ -9,10 +9,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { launch, synthProject } from './helpers'
 import { ONBOARD } from '../src/renderer/src/copy'
-import { fakeCodexEnv, replyFile, scratch, writeFakeClaude } from './fixtures/fake-codex'
+import { fakeCodexEnv, replyFile, scratch, writeCliShim, writeFakeClaude } from './fixtures/fake-codex'
 
 const INTRO = 'text=먼저, 쓰고 있는 AI를 연결해요'
 const FOLDER_STEP = 'text=논문을 담을 폴더를 골라요'
@@ -230,9 +230,8 @@ test('확인 실패는 폴더 화면에서도 로그인 필요가 아니다 (P2-
   // 대답을 못 들은 상태다 — 로그인을 요구하면 엉뚱한 재인증을 시킨다.
   const dir = scratch()
   const bin = join(dir, 'bin')
-  mkdirSync(bin, { recursive: true })
-  writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho invalid-json\n', { mode: 0o755 })
-  const env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, KNUAF_AGENT_PATH_ONLY: '1' }
+  writeCliShim(bin, 'claude', 'echo invalid-json', 'echo invalid-json')
+  const env = { PATH: [bin, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1' }
   const root = synthProjectNoContent()
   const userData = userDataWithRecent(dir, root, {
     provider_choice: { provider: 'claude', at: '2026-10-18T00:00:00.000Z' }, helper_mode: 'claude-chat'

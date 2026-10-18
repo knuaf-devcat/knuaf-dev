@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
@@ -59,8 +59,12 @@ test('KNUAF_AGENT_PATH_ONLY=1 이면 PATH 만 본다', () => {
   // Finder 로 띄운 앱처럼 PATH 가 비어 있으면 아무것도 찾지 못한다 — 개발 기계에
   // 진짜 codex 가 깔려 있어도 "도구 없음" 화면을 재현할 수 있어야 한다.
   expect(findExecutable('codex', { PATH: '', HOME: tmpdir(), KNUAF_AGENT_PATH_ONLY: '1' })).toBeNull()
-  // PATH 에 있으면 찾는다.
-  expect(findExecutable('sh', { PATH: '/bin:/usr/bin', KNUAF_AGENT_PATH_ONLY: '1' })).toBe('/bin/sh')
+  // PATH 에 있으면 찾는다 — 항목 구분자는 플랫폼마다 다르다(`:` vs `;`).
+  const onPath = mkdtempSync(join(tmpdir(), 'kd-path-'))
+  const probe = join(onPath, 'knuaf-probe-tool')
+  writeFileSync(probe, '#!/bin/sh\nexit 0\n', 'utf-8')
+  chmodSync(probe, 0o755)   // POSIX 는 실행 비트가 있어야 executable — 윈도우에서는 no-op
+  expect(findExecutable('knuaf-probe-tool', { PATH: ['/nonexistent-first', onPath].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1' })).toBe(probe)
   // 표식이 없으면 지금까지처럼 사용자 설치 위치도 본다(홈 아래 임시 설치로 확인).
   const home = mkdtempSync(join(tmpdir(), 'kd-bin-'))
   const binDir = join(home, '.local', 'bin')
@@ -76,12 +80,14 @@ test('KNUAF_AGENT_PATH_ONLY=1 이면 PATH 만 본다', () => {
 /** `auth status` 를 흉내 내는 가짜 CLI. 실제 claude 는 띄우지 않는다. */
 function fakeClaudeCli(body: string, opts: { sleep?: number } = {}): string {
   const dir = mkdtempSync(join(tmpdir(), 'kd-claude-'))
-  const file = join(dir, 'claude')
-  const script = opts.sleep
-    ? `#!/bin/sh\nsleep ${opts.sleep}\n`
-    : `#!/bin/sh\nprintf '%s\\n' '${body}'\n`
+  const win = process.platform === 'win32'
+  // 셔뱅은 유닉스에만 있다 — 윈도우는 `.cmd` 감싸개(`claude.cmd`)로 둔다.
+  const file = join(dir, win ? 'claude.cmd' : 'claude')
+  const script = win
+    ? (opts.sleep ? '@echo off\r\nping -n 6 127.0.0.1 >nul\r\n' : `@echo off\r\necho ${body}\r\n`)
+    : (opts.sleep ? `#!/bin/sh\nsleep ${opts.sleep}\n` : `#!/bin/sh\nprintf '%s\\n' '${body}'\n`)
   writeFileSync(file, script, 'utf-8')
-  chmodSync(file, 0o755)
+  if (!win) chmodSync(file, 0o755)
   return file
 }
 

@@ -7,7 +7,6 @@
  */
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { launch, markSectionReady, navTo, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
@@ -197,22 +196,34 @@ test('파일 현재성 문구는 근거 없는 파일에만 "모름"을 남긴�
 })
 
 /**
- * 사이드카 프로세스를 잠시 멈춘다 — "만드는 중" 창을 결정적으로 만든다.
- * `ipcMain`·preload 는 동결돼 있어 시험에서 호출을 가로챌 수 없다(`window.knuaf` 는 frozen).
- * POSIX 전용(SIGSTOP)이고, 윈도우에서는 이 시험을 건너뛴다 — REPORT 의 윈도우 영향 절에 적었다.
+ * `project.export` 의 IPC 응답을 잠시 보류한다 — "만드는 중" 창을 결정적으로 만든다.
+ *
+ * 전에는 사이드카를 `SIGSTOP`/`SIGCONT` 으로 멈췄는데 그것은 POSIX 전용이라 윈도우에서는
+ * `test.skip(win32)` 이었다. 이제는 앱의 `ipcMain 'rpc'` 핸들러를 감싸 첫 `project.export`
+ * 만 풀어 줄 때까지 붙잡는다 — 신호도 사이드카 PID 도 필요 없고 두 플랫폼에서 같은 방식으로
+ * 돈다. 렌더러의 `window.knuaf` 는 preload 가 동결해 시험에서 못 건드리므로 가로채는 자리는
+ * main 이다(`electronApp.evaluate`).
  */
-function sidecarPid(appPid: number): number {
-  const out = execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-ax'], { encoding: 'utf-8' })
-  for (const line of out.split('\n')) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)
-    if (m && Number(m[2]) === appPid && /knuaf_sidecar/.test(m[3])) return Number(m[1])
-  }
-  throw new Error('사이드카 프로세스를 찾지 못했다')
+async function holdExport(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    // Electron 은 invoke 핸들러를 이 사설 맵에 둔다 — 원본을 꺼내 감싸는 공개 대안이 없다.
+    const map = (ipcMain as unknown as { _invokeHandlers: Map<string, (...a: unknown[]) => unknown> })._invokeHandlers
+    const real = map.get('rpc')
+    if (!real) throw new Error('rpc 핸들러를 찾지 못했다')
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let held = false
+    ipcMain.removeHandler('rpc')
+    ipcMain.handle('rpc', async (...args: unknown[]) => {
+      if (!held && args[1] === 'project.export') { held = true; await gate }
+      return real(...args)
+    })
+    ;(globalThis as { __releaseExport?: () => void }).__releaseExport = release
+  })
 }
 
-async function holdSidecar(app: ElectronApplication, signal: 'SIGSTOP' | 'SIGCONT'): Promise<void> {
-  const pid = sidecarPid(app.process().pid ?? 0)
-  process.kill(pid, signal)
+async function releaseExport(app: ElectronApplication): Promise<void> {
+  await app.evaluate(() => { (globalThis as { __releaseExport?: () => void }).__releaseExport?.() })
 }
 
 /** 준비(deps.ensure)를 실제로 끝낸다 — DOCX 성공 장면에 필요하다(가짜가 아니다). */
@@ -223,7 +234,6 @@ async function ensureDeps(page: import('@playwright/test').Page, root: string): 
 }
 
 test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반례 ①)', async () => {
-  test.skip(process.platform === 'win32', 'SIGSTOP 은 POSIX 전용 시험 도구다(맥·리눅스에서만 돈다)')
   const dir = scratch()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
   const root = synthProject()
@@ -235,8 +245,8 @@ test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반�
     markSectionReady(root)
     await expect(page.locator('.titlebar .tbtn.now')).toContainText('검토본', { timeout: 20_000 })
 
-    // 사이드카를 멈춰 export 응답을 보류한다 — 그 동안이 "시도 중"이다.
-    await holdSidecar(electronApp, 'SIGSTOP')
+    // export 응답을 보류한다 — 그 동안이 "시도 중"이다.
+    await holdExport(electronApp)
     await expect(page.locator('.paper-head').getByRole('button', { name: '검토본 만들기' })).toBeVisible()
     await page.locator('.paper-head').getByRole('button', { name: '검토본 만들기' }).click()
 
@@ -253,11 +263,11 @@ test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반�
     await expect(fb.filter({ hasText: '독립검토' })).toBeVisible()
     await expect(fb.filter({ hasText: '만드는 중' })).toBeVisible()
 
-    // 응답을 재개하면 같은 자리들이 결과로 바뀐다(시도 시점과 결과 시점이 구별된다).
-    await holdSidecar(electronApp, 'SIGCONT')
+    // 응답을 풀면 같은 자리들이 결과로 바뀐다(시도 시점과 결과 시점이 구별된다).
+    await releaseExport(electronApp)
     await expect(pop).toContainText('검토본을 만들었어요', { timeout: 60_000 })
   } finally {
-    try { await holdSidecar(electronApp, 'SIGCONT') } catch { /* 이미 끝났다 */ }
+    try { await releaseExport(electronApp) } catch { /* 이미 풀렸다 */ }
     await electronApp.close()
   }
 })

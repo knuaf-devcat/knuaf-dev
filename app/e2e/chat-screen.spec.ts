@@ -1,10 +1,11 @@
 // Electron e2e for the "내 논문" screen — 도우미 상태 확인 실패 경로의 복구 UI.
 // (인앱 터미널은 제거됐다 — 내 논문은 항상 앱 채팅이다.)
 import { expect, test } from '@playwright/test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
+import { writeCliShim } from './fixtures/fake-codex'
 
 // chat.status RPC가 실패하면 status가 null로 남는다 — 그건 "확인 중"이 아니라 확정된
 // 실패다. 툴바의 "연결 확인 중…"이 영원히 남거나 본문이 캡션 하나로 끝나면 안 되고,
@@ -12,9 +13,9 @@ import { launch, navTo, openProject, synthProject } from './helpers'
 test('a failed status check is a confirmed failure, not a dead end', async () => {
   // PATH 첫 자리에 즉시 죽는 가짜 codex — status()의 app-server 핸드셰이크가 결정적으로 실패한다.
   const bindir = mkdtempSync(join(tmpdir(), 'kd-bin-'))
-  writeFileSync(join(bindir, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+  writeCliShim(bindir, 'codex', 'exit 1', 'exit /b 1')
   const root = synthProject()
-  const { electronApp, page } = await launch({ env: { PATH: `${bindir}:/usr/bin:/bin` } })
+  const { electronApp, page } = await launch({ env: { PATH: [bindir, '/usr/bin', '/bin'].join(delimiter) } })
   try {
     await openProject(page, root)
     await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
