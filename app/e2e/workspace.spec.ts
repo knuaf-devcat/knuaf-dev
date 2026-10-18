@@ -1,0 +1,158 @@
+/**
+ * 단계 3-B — 두 칸·제목줄·화면 흡수 (IMPL-PLAN §5 단계 3 완료 기준).
+ *
+ * 폭 경계의 세부(1,139/1,140/1,219/1,220 과 대화 칸 460/539/540)는 창을 띄우지 않고
+ * `layout.spec.ts` 가 Node 단위로 고정한다. 여기서는 실제 창에서 한 번씩만 밟는다.
+ *
+ * 아직 채우지 않은 항목(3-A 합류 뒤): "지금" 표시 개수(닫힘·열림 각 1), 권하는 단추,
+ * 파일 현재성 점(`project.load` 의 `outputs[*].stale`), 검토본 만들기 켜짐 조건
+ * (`fs.build_tree` 의 review 개정). 그 셋은 `shared/stage.ts` 와 `rpc.ts` 에 있고
+ * 그 파일들은 3-A 워커의 것이다.
+ */
+import { expect, test } from '@playwright/test'
+import { launch, synthProject } from './helpers'
+import { addSectionBody, openProjectP3, setWindowWidth } from './p3-helpers'
+
+test('본문이 없으면 한 칸, 첫 장이 저장되면 두 칸이 된다', async () => {
+  const root = synthProject({ withContent: false })
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+
+  // 아직 쓴 글이 없다 — 빈 종이로 옆 칸을 채우지 않는다(DESIGN §1-1).
+  await expect(page.locator('.paperpane')).toHaveCount(0)
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  // 제목줄이 왜 옆 칸이 비었는지 말한다(시안 ③).
+  await expect(page.locator('.titlebar')).toContainText('첫 장을 쓰면')
+
+  // 첫 절 본문이 저장된다. 정본 감시(2초)가 기록이 오른 것을 보고 다시 읽는다.
+  addSectionBody(root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  // 종이에는 저장된 글만 있다.
+  await expect(page.locator('.paperpane .sheet')).toContainText('농장A의 재배 면적은 600평이다')
+  await electronApp.close()
+})
+
+test('두 칸이 되면 대화 칸 폭이 규칙대로다 (1,140 → 460)', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await setWindowWidth(electronApp, 1140)
+  const width = await page.locator('.chat-pane').evaluate((el) => el.getBoundingClientRect().width)
+  expect(Math.round(width)).toBe(460)
+  // 종이는 최소 680 이상을 가져간다.
+  const paper = await page.locator('.paperpane').evaluate((el) => el.getBoundingClientRect().width)
+  expect(paper).toBeGreaterThanOrEqual(680)
+  await electronApp.close()
+})
+
+test('좁은 창(1,139)에서는 한 칸 + 제목줄 바꾸기', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await setWindowWidth(electronApp, 1000)
+  // 바꾸기가 나오고, 논문 칸은 화면에서 빠진다(⑯).
+  await expect(page.locator('.tbar-seg')).toBeVisible()
+  await expect(page.locator('.paperpane')).toHaveCount(0)
+  await expect(page.locator('.chat-pane')).toBeVisible()
+
+  await page.locator('.tbar-seg').getByRole('tab', { name: '내 논문' }).click()
+  await expect(page.locator('.paperpane')).toBeVisible()
+  await expect(page.locator('.chat-pane')).toHaveCount(0)
+
+  // 다시 넓히면 두 칸으로 돌아온다.
+  await setWindowWidth(electronApp, 1280)
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await expect(page.locator('.paperpane')).toBeVisible()
+  await electronApp.close()
+})
+
+test('종이를 닫으면 다시 저절로 열리지 않는다', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.getByRole('button', { name: '내 논문 닫기' }).click()
+  await expect(page.locator('.paperpane')).toHaveCount(0)
+  await expect(page.locator('.tbar-seg')).toBeVisible()
+
+  // 기록이 올라도 닫아 둔 것은 닫힌 채다(설계 §4-2).
+  addSectionBody(root, { id: 'sec-02', title: 'Ⅱ. 농장 소개', body: '새벽빛 농원은 해 뜨기 전에 딴다.', expected: 1 })
+  await page.waitForTimeout(4_000)
+  await expect(page.locator('.paperpane')).toHaveCount(0)
+
+  // 다시 여는 것은 학생의 선택이다 — 설정에 남는다.
+  await page.locator('.tbar-seg').getByRole('tab', { name: '내 논문' }).click()
+  await expect(page.locator('.paperpane')).toBeVisible()
+  await electronApp.close()
+})
+
+test('제출 전 점검 한 장이 논문 칸을 덮고, 확인 행이 네 개다', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  // 여는 길: 종이 머리 자료 팝오버 → 자료 전체 보기 → 점검(전체 화면이 시트로 남아 있다).
+  await page.locator('.paper-head').getByRole('button', { name: /자료/ }).click()
+  await page.getByRole('button', { name: '자료 전체 보기' }).click()
+  await page.locator('dialog[open]').getByRole('button', { name: '점검' }).click()
+
+  const over = page.locator('.paperpane .sheetover')
+  await expect(over).toBeVisible()
+  await expect(over.getByRole('heading')).toContainText('제출 전 점검')
+  // 네 갈래는 합치지 않고 행 네 개로 따로.
+  await expect(over.locator('.lanes .ln')).toHaveCount(4)
+  await expect(over).toContainText('자동 점검')
+  await expect(over).toContainText('다른 사람 검토')
+  await expect(over).toContainText('파일 확인')
+  await expect(over).toContainText('교수님 승인')
+  // 한글에서 내가 직접 할 것 — 앱이 대신 못 하는 일.
+  await expect(over).toContainText('한글에서 내가 직접 할 것')
+  // 퍼센트·진행 막대·완료 배지는 쓰지 않는다.
+  expect(await over.locator('[role=progressbar], progress').count()).toBe(0)
+  expect(await over.locator('button:has-text("완료")').count()).toBe(0)
+  await electronApp.close()
+})
+
+test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 열린다', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+  const pop = page.locator('.paperpane .popover')
+  await expect(pop).toBeVisible()
+  // 만들기 4줄(v2 §4-2 조건 그대로) — 인터뷰 중에도 검토본은 켜져 있다.
+  await expect(pop.locator('.pop-make')).toHaveCount(4)
+  await expect(pop).toContainText('검토본 만들기')
+  await expect(pop).toContainText('제출용 파일 만들기')
+  await expect(pop.getByRole('button', { name: '검토본 만들기' })).toBeEnabled()
+  // Esc 로 닫힌다.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.paperpane .popover')).toHaveCount(0)
+  await electronApp.close()
+})
+
+test('차례 팝오버 — 등록된 절만, 상태 말과 함께', async () => {
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  await openProjectP3(page, root)
+  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
+
+  await page.locator('.paper-head .chap').click()
+  const pop = page.locator('.paper-head .popover')
+  await expect(pop).toBeVisible()
+  await expect(pop.locator('.pop-row')).toHaveCount(1)
+  await expect(pop).toContainText('Ⅰ. 머리말')
+  await expect(pop).toContainText('쓰는 중')
+  // 가짜 차례를 만들지 않는다 — 등록되지 않은 장은 없다.
+  await expect(pop).not.toContainText('Ⅶ')
+  await electronApp.close()
+})

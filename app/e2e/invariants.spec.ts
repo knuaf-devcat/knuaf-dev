@@ -43,7 +43,11 @@ function koreanStrings(file: string): string[] {
 // 270 → 263(단계 2 합류): Chat.tsx 의 "시작하기"·"이어서 하기"(6)를 copy.ts 의
 // `CHAT.firstTurn`·`firstTurnNext` 로, 폴더 없음 화면의 "최근 폴더"(1)를 `CHAT.recentTitle`
 // 로 옮겼다 — 두 화면(첫 실행 2단계·재방문)이 같은 부품(FolderPicker)을 쓰게 되면서다.
-const KNOWN_USER_STRING_VIOLATIONS = 263
+// 263 → 223(단계 3-B): 사이드바(Sidebar.tsx)가 사라졌다(-9: "먼저 폴더를 여세요"·
+// "폴더를 열어 주세요"·"화면" 등). Sheet 의 닫기 이름을 copy.ts `CLOSE_LABEL` 로 옮겼고(-1),
+// 새로 생긴 화면 조각(TitleBar·Workspace·PaperPane·Popover·FilesPopover·MaterialsPopover·
+// SheetOver·Workspace)은 한글 문자열을 하나도 두지 않았다 — 문구는 전부 copy.ts 에 있다.
+const KNOWN_USER_STRING_VIOLATIONS = 223
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []
