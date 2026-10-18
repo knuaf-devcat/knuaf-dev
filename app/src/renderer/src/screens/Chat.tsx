@@ -214,16 +214,30 @@ export function Chat() {
   const clearQuote = useReview((s) => s.clearQuote)
   /**
    * 보내기 — 인용이 붙어 있으면 `> 문장 · (장에서) · 글` 형식으로 합쳐 보낸다(발주 QA2-B §2 (a)).
-   * 보낸 뒤에만 인용을 지운다. **인용만 있어도 보낼 수 있다** — 학생이 "이 부분을 고쳐 줘"만
-   * 원하는 경우 초안이 비어 있어도 막지 않는다.
+   * **인용은 그 논문의 것**이라 다른 폴더 대화에는 붙이지 않는다(QA2B-R1-01). 초안은
+   * `consumeDraft` 로 넘겨 일반 전송과 **같은 규칙**으로 소비한다 — 보낸 글이 입력칸에 남지 않고,
+   * 전송 중 새로 쓴 글은 지켜진다(QA2B-R1-02). 보낸 뒤에는 그 인용이 아직 그대로일 때만 지운다
+   * — 늦게 온 결과가 그사이 새로 붙인 인용을 지우지 않게.
    */
-  const canSend = !!draft.trim() || !!quote
   const sendBody = async (text?: string): Promise<boolean> => {
-    if (!quote) return send(text)
-    const ok = await send(buildQuotedMessage(quote, text ?? draft))
-    if (ok) clearQuote()
+    const q = useReview.getState().quote
+    if (!q || q.root !== projectRoot) return send(text)
+    const ok = await send(buildQuotedMessage(q, text ?? draft), { consumeDraft: true })
+    if (ok && useReview.getState().quote === q) clearQuote()
     return ok
   }
+
+  // 인용은 그 논문의 것 — 다른 논문을 열면 지운다(QA2B-R1-01).
+  useEffect(() => {
+    const q = useReview.getState().quote
+    if (q && q.root !== projectRoot) clearQuote()
+  }, [projectRoot, clearQuote])
+
+  // 고쳐 달라기를 누르면 인용이 붙는다 — 입력칸으로 초점을 옮겨 바로 쓰게 한다(QA2B-R1-06).
+  useEffect(() => { if (quote) taRef.current?.focus() }, [quote])
+
+  /** 인용만 있어도 보낼 수 있다 — "이 부분을 고쳐 줘"만 원하는 경우(발주 QA2-B §2 (a)). */
+  const canSend = !!draft.trim() || !!quote
 
   const emptyChat = !!snapshot && snapshot.messages.length === 0
   const hasRevision = (revision ?? 0) >= 1
@@ -374,8 +388,8 @@ export function Chat() {
             {zone.kind === 'running' && (
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
-            {/* 인용 칩 — 입력칸 바로 위(N-I03). 보내면 메시지에 합쳐지고 사라진다. */}
-            {quote && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
+            {/* 인용 칩 — 입력칸 바로 위(N-I03). 이 논문의 인용만 보여 준다(QA2B-R1-01). */}
+            {quote && quote.root === projectRoot && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}

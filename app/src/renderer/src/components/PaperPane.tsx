@@ -13,7 +13,7 @@ import { newBlockIndexes, splitBlocks } from '../../../shared/paper'
 import { fileStateOf, isReviewExport } from '../../../shared/files'
 import { zoneOf } from '../../../shared/zone'
 import { hasChange } from '../../../shared/diff'
-import { quoteOf, useReview } from '../store/review'
+import { baselineKey, quoteOf, useReview } from '../store/review'
 import { ReviewSelectBar } from './ReviewSelectBar'
 import { ReviewDiffBlocks } from './ReviewDiff'
 import { PAPER, REVIEW, TITLEBAR } from '../copy'
@@ -87,10 +87,13 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   /** 종이에서 고른 문장 — 행동 막대가 뜰 자리와 무엇을 골랐는지(N-I03). */
   const [sel, setSel] = useState<Sel | null>(null)
   /**
-   * 절마다 **이번 실행에서 처음 본 본문** — "고친 부분 보기"의 기준(N-I04). 메모리에만 둔다:
-   * 정본 폴더에 쓰지 않으므로 앱을 다시 켜면 기준이 초기화된다(REPORT 한계).
+   * 절마다 **이번 실행에서 처음 본 본문** — "고친 부분 보기"의 기준(N-I04). store 에 둔다
+   * (검토 QA2B-R1-03): 여기 지역 상태였을 때 종이 칸을 닫았다 열면 컴포넌트가 새로 만들어져
+   * 기준이 사라졌다. 논문(root)+절로 키를 잡아 화면 조각의 수명과 분리한다. 정본 폴더에는
+   * 쓰지 않는다 — 앱을 다시 켜면 초기화된다.
    */
-  const baseline = useRef<Record<string, Doc>>({})
+  const baseline = useReview((s) => s.baseline)
+  const noteBaseline = useReview((s) => s.noteBaseline)
   const showDiff = useReview((s) => s.showDiff)
   const toggleDiff = useReview((s) => s.toggleDiff)
   const setQuote = useReview((s) => s.setQuote)
@@ -113,7 +116,8 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       const sec = sections.find((s) => s.id === r.id)
       if (!sec) continue
       // 기준 본문은 **처음 본 순간에만** 박는다 — 이후 저장은 모두 이 기준과 견준다.
-      if (!baseline.current[r.id]) baseline.current[r.id] = { title: r.title, draft: r.draft, hash: sec.draft_hash }
+      const key = baselineKey(root, r.id)
+      if (!useReview.getState().baseline[key]) noteBaseline(key, { title: r.title, draft: r.draft, hash: sec.draft_hash })
       const before = prevDocs.current[r.id]
       // 지문이 같으면 다시 그리지 않는다 — 같은 글이고 칠할 것도 없다.
       if (before && before.hash === sec.draft_hash) continue
@@ -133,10 +137,11 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       timers.current.forEach(clearTimeout)
       timers.current = [setTimeout(() => setFresh({}), FRESH_MS)]
     }
-  }, [root, sections])
+  }, [root, sections, noteBaseline])
 
   // 폴더가 바뀌면 직전 본문을 들고 가지 않는다 — 다른 논문에 칠할 것은 없다.
-  useEffect(() => { prevDocs.current = {}; baseline.current = {}; setDocs({}); setFresh({}); setSel(null); return () => { timers.current.forEach(clearTimeout); timers.current = [] } }, [root])
+  // 비교 기준(store)은 논문별 키라 건드리지 않는다 — 같은 논문을 다시 열면 이어진다.
+  useEffect(() => { prevDocs.current = {}; setDocs({}); setFresh({}); setSel(null); return () => { timers.current.forEach(clearTimeout); timers.current = [] } }, [root])
   // 기록이 오르면 다시 읽는다(사이드바 차례와 같은 기준, IMPL-PLAN §4-2).
   useEffect(() => { void load() }, [load, revision])
 
@@ -180,7 +185,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
   /** 바뀐 절이 하나라도 있어야 "고친 부분 보기"가 켜진다(발주 §③). */
   const changed = (sections ?? []).some((s) => {
     const d = docs[s.id]
-    const base = baseline.current[s.id]
+    const base = baseline[baselineKey(root, s.id)]
     return !!d && !!base && hasChange(base.draft, d.draft)
   })
 
@@ -243,7 +248,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
             ? <div className="paper-empty"><p className="doc-s">{PAPER.empty}</p><p className="ln">{PAPER.emptyBody}</p></div>
             : (sections ?? []).map((s) => {
               const doc = docs[s.id]
-              const base = baseline.current[s.id]
+              const base = baseline[baselineKey(root, s.id)]
               const blocks = doc ? splitBlocks(doc.draft) : []
               const mark = new Set(fresh[s.id] ?? [])
               return (
@@ -269,7 +274,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
       {/* 고른 문장 위에 뜨는 행동 막대(N-I03) — 좁아지면 선택 아래로 뒤집는다. */}
       {sel && canQuote && (
         <ReviewSelectBar x={sel.x} top={sel.top} bottom={sel.bottom} paneWidth={pane.current?.clientWidth ?? 0}
-          onQuote={() => { setQuote(quoteOf(sel.text, sel.sectionId, sel.sectionTitle)); setSel(null); window.getSelection()?.removeAllRanges() }}
+          onQuote={() => { setQuote(quoteOf(root, sel.text, sel.sectionId, sel.sectionTitle)); setSel(null); window.getSelection()?.removeAllRanges() }}
           onCopy={() => { void navigator.clipboard?.writeText(sel.text); setSel(null); window.getSelection()?.removeAllRanges() }} />
       )}
       {/* 점검 한 장이 논문 칸을 덮는다(시안 ⑫) — 내용은 Checkup 하나뿐이다. */}

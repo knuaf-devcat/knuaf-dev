@@ -27,6 +27,9 @@
 }
 .paperpane .sheet .rev-del { background: var(--rev-del-bg); color: var(--rev-del-ink); }
 .paperpane .sheet del.rev-del { text-decoration: line-through; }
+/* 문단·블록을 **통째로** 지운 경우(div.rev-del)에도 취소선 — 색만으로는 삭제임을 알기 어렵다
+   (검토 QA2B-R1-05). 안쪽 요소(표 칸·목록 항목)의 글자에도 함께 긋는다. */
+.paperpane .sheet .blk.rev-del, .paperpane .sheet .blk.rev-del * { text-decoration: line-through; }
 .paperpane .sheet .blk.rev-segs { margin: 0 0 10px; }
 .paperpane .sheet .blk.rev-segs > * { border-radius: 2px; padding: 1px 0; }
 

@@ -92,8 +92,18 @@ function blockMatches(a: string[], b: string[]): [number, number][] {
 }
 
 /**
+ * **구조 블록**인가 — 표·목록·제목·인용처럼 문장 단위로 갈라 평문으로 그리면 무너지는 블록.
+ * 이런 블록은 문장 비교 대신 **블록 통째 del/ins** 로 내고, 화면이 마크다운 그대로 그린다
+ * (검토 QA2B-R1-04: 바뀐 표가 `| … |` 원문 한 덩어리로 붕괴했다).
+ */
+export function isStructural(block: string): boolean {
+  return block.split('\n').some((line) => /^\s*(\||>|#{1,6}\s|[-*+]\s|\d+[.)]\s)/.test(line))
+}
+
+/**
  * 절 하나의 비교 — 문단 경계(`splitBlocks`)를 지키며 낸다.
- * 같지 않은 구간에 문단이 하나씩 짝지어지면 **문장 단위**로 갈라 내고, 그 밖에는 문단 통째로 낸다.
+ * 같지 않은 구간에 문단이 하나씩 짝지어지고 **둘 다 구조 블록이 아니면** 문장 단위로 갈라 내고,
+ * 그 밖에는 문단 통째로 낸다(구조는 마크다운 렌더를 유지한다).
  */
 export function sectionDiff(before: string, after: string): BlockDiff[] {
   const a = splitBlocks(before)
@@ -105,8 +115,9 @@ export function sectionDiff(before: string, after: string): BlockDiff[] {
     const del = a.slice(ai, aEnd)
     const ins = b.slice(bi, bEnd)
     if (!del.length && !ins.length) return
-    if (del.length === 1 && ins.length === 1) out.push({ kind: 'segs', segs: diffSentences(del[0], ins[0]) })
-    else {
+    if (del.length === 1 && ins.length === 1 && !isStructural(del[0]) && !isStructural(ins[0])) {
+      out.push({ kind: 'segs', segs: diffSentences(del[0], ins[0]) })
+    } else {
       for (const t of del) out.push({ kind: 'del', markdown: t })
       for (const t of ins) out.push({ kind: 'ins', markdown: t })
     }

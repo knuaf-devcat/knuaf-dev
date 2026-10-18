@@ -59,7 +59,7 @@ test('같은 글은 표시할 것이 없다 — hasChange 가 거짓', () => {
 
 // ---------------------------------------------------------------- 보낼 메시지
 
-const quote = quoteOf('농장A의 재배 면적은 600평이다.', 'sec-01', 'Ⅰ. 머리말')
+const quote = quoteOf('/tmp/논문A', '농장A의 재배 면적은 600평이다.', 'sec-01', 'Ⅰ. 머리말')
 
 test('인용 메시지 형식 — `> 문장` · `(장에서)` · 빈 줄 · 학생 글', () => {
   expect(buildQuotedMessage(quote, '단위를 kg으로 바꿔 줘'))
@@ -71,6 +71,6 @@ test('학생 글이 비면 "이 부분을 고쳐 줘"가 대신 들어간다', (
 })
 
 test('여러 줄을 골라도 인용은 한 줄로 눌린다', () => {
-  const multi = quoteOf('첫 줄\n둘째   줄', 'sec-01', 'Ⅰ. 머리말')
+  const multi = quoteOf('/tmp/논문A', '첫 줄\n둘째   줄', 'sec-01', 'Ⅰ. 머리말')
   expect(multi.text).toBe('첫 줄 둘째 줄')
 })

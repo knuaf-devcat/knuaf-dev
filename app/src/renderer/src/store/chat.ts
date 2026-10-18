@@ -92,8 +92,11 @@ interface ChatState {
   refreshStatus: () => Promise<void>
   login: () => Promise<void>
   /** Send `text` (defaults to the draft) with a fresh requestId; clears the draft on acceptance.
-   *  Returns false when the send was refused — the question card unlocks itself on refusal. */
-  send: (text?: string) => Promise<boolean>
+   *  Returns false when the send was refused — the question card unlocks itself on refusal.
+   *  `opts.consumeDraft` — 보기를 눌러 보낸 것이 아니라 **초안을 소비하는** 전송(인용 합치기)임을
+   *  알린다. 그러면 명시적 `text` 라도 일반 전송과 같은 `draftSeq` 규칙으로 그 초안만 비운다
+   *  — 전송 중 새로 쓴 글은 지키면서(검토 QA2B-R1-02). */
+  send: (text?: string, opts?: { consumeDraft?: boolean }) => Promise<boolean>
   respond: (id: string, allow: boolean) => Promise<void>
   stop: () => Promise<void>
   /** Push target for window.knuaf.onChatSnapshot; ignores snapshots for other roots/providers. */
@@ -179,7 +182,7 @@ export const useChat = create<ChatState>((set, get) => ({
       return get().status?.connected === true
     })
   },
-  send: async (text) => {
+  send: async (text, opts) => {
     const { root, provider, draft } = get()
     const body = (text ?? draft).trim()
     if (!root || !body) return false
@@ -200,7 +203,11 @@ export const useChat = create<ChatState>((set, get) => ({
     }
     if ('result' in r) {
       // 보기를 눌러 보낸 `send(text)` 는 초안을 건드리지 않는다 — 학생이 쓰던 글이 남는다.
-      const keep = text === undefined ? draftAfterSend(seqAtSend, get().draftSeq, get().draft) : get().draft
+      // 인용을 합쳐 보낸 경우(`consumeDraft`)는 그 초안을 **소비**하므로 일반 전송과 같은
+      // `draftSeq` 규칙을 쓴다 — 보낸 글이 입력칸에 남지 않고, 그 사이 새로 쓴 글은 지켜진다.
+      const keep = (text === undefined || opts?.consumeDraft)
+        ? draftAfterSend(seqAtSend, get().draftSeq, get().draft)
+        : get().draft
       set({ busy: false, snapshot: r.result, draft: keep })
       void window.knuaf.chat.setDraft(root, keep)
       return true
