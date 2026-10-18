@@ -1205,6 +1205,26 @@ export function objectParticle(word: string): string {
 }
 
 /**
+ * 종이 검토 — 골라서 고쳐 달라기(N-I03) · 고친 부분 보기(N-I04).
+ * 2차 QA 수정 B 가 `components/ReviewQuote.tsx` 안에 두었던 문구를 여기 한 곳으로 옮겼다
+ * (copy.ts 첫 줄 규칙 — 화면 문구는 한 곳에).
+ */
+export const REVIEW = {
+  /** 고른 문장 위 행동 막대. */
+  quote: '고쳐 달라기',
+  copy: '복사',
+  /** 종이 머리 토글. */
+  diffToggle: '고친 부분 보기',
+  diffToggleHint: '지운 문장과 새로 쓴 문장을 색으로 보여 줘요',
+  /** 인용 칩. */
+  quoteLead: (title: string) => `${title}에서 고른 문장`,
+  removeQuote: '인용 빼기',
+  quoteLabel: '고른 문장',
+  /** 학생 글이 비었을 때 보낼 말 — 무엇을 하려는지가 메시지에 남아야 한다. */
+  quoteFallback: '이 부분을 고쳐 줘'
+} as const
+
+/**
  * 설정 (03-화면/08) — 폴더 / 도우미 연결 / 문제 해결 / 고급 도구 / Python 실행기 / 앱 정보.
  * 문제 해결·고급 도구는 평소 닫힌 펼침 목록; 실패 경로의 딥링크가 해당 펼침을 연 채로 진입한다.
  */

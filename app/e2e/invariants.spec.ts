@@ -49,6 +49,8 @@ function koreanStrings(file: string): string[] {
 // SheetOver·Workspace)은 한글 문자열을 하나도 두지 않았다 — 문구는 전부 copy.ts 에 있다.
 // 223 → 222(2차 QA N-R02): ProjectCard 를 한 줄 목록으로 바꾸며 기록 번호 칩(`N번째 기록`)을
 // 뺐다(-1). 남은 한글은 그대로다.
+// 2차 QA 수정 B 가 새 컴포넌트(components/ReviewQuote.tsx)의 문구 7개를 더했다(222+7=229).
+// 그 차수엔 copy.ts 가 A 워커 소유라 옮기지 못했고, 이 통합에서 그 7개를 copy.ts 로 옮겨 다시 222.
 const KNOWN_USER_STRING_VIOLATIONS = 222
 
 test('user-facing strings live in copy.ts', () => {

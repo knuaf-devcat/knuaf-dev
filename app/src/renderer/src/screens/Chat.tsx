@@ -2,7 +2,9 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
+import { useReview, buildQuotedMessage } from '../store/review'
 import { FirstRun } from '../components/FirstRun'
+import { ReviewQuoteChip } from '../components/ReviewQuote'
 import { PopHead, Popover, PopSep } from '../components/Popover'
 import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
 import { Disclosure } from '../components/Disclosure'
@@ -204,6 +206,25 @@ export function Chat() {
   const lastUncertain = snapshot?.messages.filter((m) => m.role === 'user' && m.delivery === 'uncertain').at(-1)
   const attach = async (): Promise<void> => { const p = await window.knuaf.pickFile({ title: CHAT.attach }); if (p) insertPath(p) }
 
+  /**
+   * 종이에서 고른 문장(인용) — 입력칸 위 칩이 보여 주고, 보낼 때 메시지에 합쳐진다(N-I03).
+   * 두 상태 다 앱 메모리에만 산다(정본 폴더에 쓰지 않는다).
+   */
+  const quote = useReview((s) => s.quote)
+  const clearQuote = useReview((s) => s.clearQuote)
+  /**
+   * 보내기 — 인용이 붙어 있으면 `> 문장 · (장에서) · 글` 형식으로 합쳐 보낸다(발주 QA2-B §2 (a)).
+   * 보낸 뒤에만 인용을 지운다. **인용만 있어도 보낼 수 있다** — 학생이 "이 부분을 고쳐 줘"만
+   * 원하는 경우 초안이 비어 있어도 막지 않는다.
+   */
+  const canSend = !!draft.trim() || !!quote
+  const sendBody = async (text?: string): Promise<boolean> => {
+    if (!quote) return send(text)
+    const ok = await send(buildQuotedMessage(quote, text ?? draft))
+    if (ok) clearQuote()
+    return ok
+  }
+
   const emptyChat = !!snapshot && snapshot.messages.length === 0
   const hasRevision = (revision ?? 0) >= 1
 
@@ -353,6 +374,8 @@ export function Chat() {
             {zone.kind === 'running' && (
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
+            {/* 인용 칩 — 입력칸 바로 위(N-I03). 보내면 메시지에 합쳐지고 사라진다. */}
+            {quote && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true) }}
               onDragLeave={() => setDragging(false)}
@@ -369,8 +392,8 @@ export function Chat() {
                   e.preventDefault()
                   // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
                   // 단추만 막으면 Enter 로 들어와 main 의 소유권 잠금에 걸린다(검토 P1-R1-03).
-                  if (zone.kind === 'running' || busy || !draft.trim()) return
-                  void send()
+                  if (zone.kind === 'running' || busy || !canSend) return
+                  void sendBody()
                 }} />
               <div className="crow">
                 {/* 왼쪽 아래 32×32 원형 `+` — 파일 첨부(기존 동작 그대로). */}
@@ -380,7 +403,7 @@ export function Chat() {
                 {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
                   ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={13} /></button>
-                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void send()} disabled={busy || !draft.trim()}><Icon name="up" size={17} /></button>}
+                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !canSend}><Icon name="up" size={17} /></button>}
               </div>
             </div>
             <p className="disc">{CHAT.disclaimer}</p>
