@@ -88,34 +88,34 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
       <p className="sr-only" aria-live="polite">{CHAT.questionArrived}</p>
       <div className="qcard-use">{card.use}</div>
       <div className="qcard-q">{card.text}</div>
-      {mode === 'pick' ? (
-        <div className="qcard-opts" role="radiogroup" aria-label={CHAT.questionOptions}>
-          {card.options.map((option, i) => {
-            const { main, note } = splitOption(option)
-            return (
-              <button key={i} type="button" role="radio" aria-checked={chosen === i}
-                className={`qopt${chosen === i ? ' on' : ''}`} onClick={() => pick(i)}>
-                <span className="qopt-k">{i + 1}</span>
-                <span className="qopt-t">{main}</span>
-                {note && <span className="qopt-x">{note}</span>}
-              </button>
-            )
-          })}
+      {/* 보기 1~n은 직접 입력 중에도 그대로 남는다(시안 E). 마지막 줄만 입력 영역으로 펼쳐진다 —
+          보기가 사라지면 마음이 바뀌었을 때 되돌아갈 곳이 없어진다(검토 P1-R1-04). */}
+      <div className="qcard-opts" role="radiogroup" aria-label={CHAT.questionOptions}>
+        {card.options.map((option, i) => {
+          const { main, note } = splitOption(option)
+          return (
+            <button key={i} type="button" role="radio" aria-checked={chosen === i}
+              className={`qopt${chosen === i ? ' on' : ''}`} onClick={() => pick(i)}>
+              <span className="qopt-k">{i + 1}</span>
+              <span className="qopt-t">{main}</span>
+              {note && <span className="qopt-x">{note}</span>}
+            </button>
+          )
+        })}
+        {mode === 'pick' ? (
           <button type="button" className="qopt free" onClick={openFree}>
             <span className="qopt-k"><Pen /></span>
             <span className="qopt-t">{CHAT.directInput}</span>
           </button>
-        </div>
-      ) : (
-        <div className="qcard-opts">
+        ) : (
           <div className="freebox">
             <textarea ref={free} value={draft} rows={2} placeholder={CHAT.freePlaceholder}
               onChange={(e) => onDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (draft.trim()) void send() } }} />
             <button type="button" className="send" onClick={() => { if (draft.trim()) void send() }} disabled={!draft.trim()}>{CHAT.send}</button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       <div className="qcard-foot">
         {mode === 'pick'
           ? <><kbd>1</kbd><span>–</span><kbd>{card.options.length}</kbd><span>{CHAT.optionKeysTail}</span></>

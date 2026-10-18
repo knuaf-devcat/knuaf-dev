@@ -66,7 +66,14 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   }
   if (options.length < 2 || options.length > 5) return null
 
-  // ③ 접을 범위는 보기 줄과 바로 뒤따르는 빈 줄·`→ …` 안내 줄까지.
+  // ③ 보기 묶음 뒤에 아직 보기 모양 줄이 남아 있으면 이 원문은 통째로 읽을 수 없다.
+  // 첫 비보기 줄에서 멈춘 앞쪽 길이만 보면 `1) 2)` + 빈 줄 + `3) 4)` 같은 원문을
+  // 보기 2개짜리 카드로 잘라 만든다 — 질문의 일부만 고를 수 있게 표현하는 셈이다.
+  // 잘린 카드보다 카드 없음이 낫다: 원문 전체와 보통 입력칸을 그대로 보여 준다.
+  // `→ …` 안내 줄과 빈 줄은 보기가 아니다(검토 P1-R1-02).
+  for (let i = last + 1; i < lines.length; i++) if (OPTION.test(lines[i])) return null
+
+  // ④ 접을 범위는 보기 줄과 바로 뒤따르는 빈 줄·`→ …` 안내 줄까지.
   let end = last
   for (let i = last + 1; i < lines.length; i++) {
     if (lines[i].trim() === '') { end = i; continue }

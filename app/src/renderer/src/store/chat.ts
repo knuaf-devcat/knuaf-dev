@@ -163,11 +163,21 @@ export const useChat = create<ChatState>((set, get) => ({
     const { root, provider, draft } = get()
     const body = (text ?? draft).trim()
     if (!root || !body) return false
-    // 보낼 때의 초안 편집 번호. 응답이 돌아올 때까지 한 번이라도 바뀌었으면 그 글이 최신이다.
+    // 보낼 때의 폴더·공급자와 초안 편집 번호. 응답은 몇 초 뒤에 온다 — 그 사이 학생이 다른
+    // 논문을 열었을 수 있고, 그러면 이 응답은 지금 화면의 것이 아니다(검토 P1-R1-01).
+    // 저장할 초안의 소유 폴더는 늘 `setDraft` 에 넘기는 root 여야 한다.
     const seqAtSend = get().draftSeq
+    const rootAtSend = root
+    const providerAtSend = provider
     set({ busy: true, error: null })
     const requestId = crypto.randomUUID()
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
+    // 폴더·공급자가 달라졌으면 스냅샷도 초안도 지금 화면에 적용하지 않는다. 다른 폴더의
+    // 늦은 성공이 지금 논문의 미전송 초안을 덮거나, 그 초안을 원래 폴더 파일에 쓰면 안 된다.
+    if (get().root !== rootAtSend || get().provider !== providerAtSend) {
+      set({ busy: false })
+      return 'result' in r
+    }
     if ('result' in r) {
       // 보기를 눌러 보낸 `send(text)` 는 초안을 건드리지 않는다 — 학생이 쓰던 글이 남는다.
       const keep = text === undefined ? draftAfterSend(seqAtSend, get().draftSeq, get().draft) : get().draft

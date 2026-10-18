@@ -366,7 +366,14 @@ export function Chat() {
             }}>
             <textarea value={draft} rows={3} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+                e.preventDefault()
+                // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
+                // 단추만 막으면 Enter 로 들어와 main 의 소유권 잠금에 걸린다(검토 P1-R1-03).
+                if (zone.kind === 'running' || busy || !draft.trim()) return
+                void send()
+              }} />
             <div className="row between">
               <div className="row">
                 <button onClick={() => void attach()}>{CHAT.attach}</button>

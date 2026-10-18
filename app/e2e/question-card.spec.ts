@@ -85,6 +85,8 @@ test('직접 입력: Esc 로 되돌아가도 글이 남고, Enter 로 보낸다'
     await card.locator('.qopt.free').click()
     const box = card.locator('.freebox textarea')
     await expect(box).toBeVisible()
+    // 직접 입력 중에도 위 보기는 그대로 남는다(시안 E · 검토 P1-R1-04).
+    await expect(card.getByRole('radio')).toHaveCount(4)
     await box.fill(typed)
 
     // Esc 는 보기로 되돌아간다. 초안은 건드리지 않는다.
@@ -94,11 +96,39 @@ test('직접 입력: Esc 로 되돌아가도 글이 남고, Enter 로 보낸다'
 
     // 다시 펼치면 쓰던 글이 그대로 있다 — 직접 입력 칸과 보통 입력칸은 같은 초안 하나를 쓴다.
     await card.locator('.qopt.free').click()
+    await expect(card.getByRole('radio')).toHaveCount(4)
     await expect(card.locator('.freebox textarea')).toHaveValue(typed)
 
     await card.locator('.freebox textarea').press('Enter')
     await expect(page.locator('.chat-msg.user')).toHaveCount(1, { timeout: 30_000 })
     await expect(page.locator('.chat-msg.user').first()).toContainText('체험용')
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('직접 입력 중에 보기를 눌러도 초안이 남고 그 보기가 전송된다 (검토 P1-R1-04)', async () => {
+  const dir = scratch()
+  const root = questionProject()
+  seedChat(root, [questionMessage()])
+  const env = fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, QUESTION_2) })
+  const kept = '내 사정은 따로 적어 둔다'
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const card = page.locator('.qcard')
+    await expect(card).toBeVisible({ timeout: 30_000 })
+    await card.locator('.qopt.free').click()
+    await card.locator('.freebox textarea').fill(kept)
+
+    await card.getByRole('radio', { name: /온라인 직거래/ }).click()
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1, { timeout: 30_000 })
+    await expect(page.locator('.chat-msg.user').first()).toContainText(OPTION_2)
+
+    // 다음 질문 카드에서 직접 입력을 열면 쓰던 초안이 그대로다 — 보기 전송은 초안을 건드리지 않는다.
+    await expect(page.locator('.qcard')).toBeVisible({ timeout: 30_000 })
+    await page.locator('.qopt.free').click()
+    await expect(page.locator('.freebox textarea')).toHaveValue(kept)
   } finally {
     await electronApp.close()
   }
@@ -174,6 +204,14 @@ test('작업 중에는 한 줄이 뜨고 입력칸은 살아 있으며 보내기
     await expect(composer).toBeEnabled()
     const stop = page.locator('.chat-composer button.send')
     await expect(stop).toHaveText(CHAT.stop)
+
+    // 작업 중 Enter 도 보내지 않는다 — 단추만 막으면 main 의 소유권 잠금에 걸려
+    // "현재 작업이 끝나거나 중단된 뒤 다시 실행해 주세요."가 뜬다(검토 P1-R1-03).
+    await composer.fill('작업 중에 미리 써 둔 다음 말')
+    await composer.press('Enter')
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1)
+    await expect(page.locator('text=현재 작업이 끝나거나 중단된 뒤')).toHaveCount(0)
+    await expect(composer).toHaveValue('작업 중에 미리 써 둔 다음 말')
 
     await stop.click()
     await expect(page.locator(`text=${CHAT.stoppedTitle}`)).toBeVisible({ timeout: 30_000 })

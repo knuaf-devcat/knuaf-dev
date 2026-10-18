@@ -22,8 +22,8 @@ function msg(over: Partial<ChatMessage> & { role: ChatMessage['role'] }): ChatMe
   return { id: Math.random().toString(36).slice(2), text: '', at: new Date().toISOString(), ...over }
 }
 
-function snap(messages: ChatMessage[], state: ChatSnapshot['state'] = 'idle'): ChatSnapshot {
-  return { root: '/p', provider: 'codex', state, messages }
+function snap(messages: ChatMessage[], state: ChatSnapshot['state'] = 'idle', root = '/p'): ChatSnapshot {
+  return { root, provider: 'codex', state, messages }
 }
 
 /** `tasks` 에 도우미가 기다리는 질문 하나를 가진 상태. */
@@ -79,6 +79,16 @@ test('한 메시지에 질문이 둘이면 마지막 것을 쓴다', () => {
   const parsed = parseQuestion(text)!
   expect(parsed.id).toBe('Q3-2')
   expect(parsed.options).toEqual(['농협 공판장', '온라인 직거래'])
+})
+
+test('보기 묶음 뒤에 보기 모양 줄이 더 있으면 카드가 아니다 (검토 P1-R1-02)', () => {
+  // 빈 줄 뒤에 3)·4) 가 이어지면 앞쪽 2개만 잘라 카드로 만들면 안 된다.
+  expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n\n3) 직매장\n4) 아직 몰라요\n')).toBeNull()
+  // 설명 줄을 끼우고 3) 을 놓아도 같다.
+  expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n(추천) 가까운 곳\n3) 직매장\n')).toBeNull()
+  // `→ …` 안내 줄·빈 줄은 보기가 아니다 — 정상 원문은 그대로 읽힌다.
+  expect(parseQuestion(Q())?.options).toHaveLength(3)
+  expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n\n→ 번호 또는 자유 입력\n')?.options).toEqual(['농협', '온라인'])
 })
 
 test('보기 사이 질문 문장이 없으면 제목 줄이 질문이 된다', () => {
@@ -160,15 +170,17 @@ test('초안 판정은 편집 번호로 한다 — 같은 문장을 지웠다 �
 
 const ROOT = '/p/race'
 
-function harness() {
+function harness(drafts: Record<string, string> = {}) {
   const persisted: string[] = []
+  const writes: { root: string; text: string }[] = []
+  const disk: Record<string, string> = { ...drafts }
   let pending: ((value: unknown) => void) | null = null
   const api = {
     chat: {
-      snapshot: async () => ({ result: snap([]) }),
+      snapshot: async (root: string) => ({ result: snap([], 'idle', root) }),
       status: async () => ({ result: CONNECTED }),
-      draft: async () => ({ result: '' }),
-      setDraft: async (_root: string, text: string) => { persisted.push(text); return { result: true } },
+      draft: async (root: string) => ({ result: disk[root] ?? '' }),
+      setDraft: async (root: string, text: string) => { disk[root] = text; persisted.push(text); writes.push({ root, text }); return { result: true } },
       send: () => new Promise((resolve) => { pending = resolve as (v: unknown) => void }),
       login: async () => ({ result: true }),
       respond: async () => ({ result: true }),
@@ -178,6 +190,8 @@ function harness() {
   return {
     api,
     persisted,
+    writes,
+    disk,
     finish: (value: unknown) => { const p = pending; pending = null; p?.(value) },
     reset: () => useChat.setState({
       root: ROOT, provider: 'codex', snapshot: snap([]), status: CONNECTED, statusFailed: false,
@@ -251,4 +265,35 @@ test('⑤ 보기를 눌러 보낸 `send(text)` 는 초안을 건드리지 않는
   expect(await sending).toBe(true)
   expect(useChat.getState().draft).toBe('내가 쓰던 말')
   expect(h.persisted.at(-1)).toBe('내가 쓰던 말')
+})
+
+test('⑥ 응답을 기다리는 동안 다른 폴더를 열면 그 폴더의 화면·초안을 건드리지 않는다 (검토 P1-R1-01)', async () => {
+  // 저장할 초안의 소유 폴더는 늘 `setDraft` 에 넘기는 root 여야 한다. 전에는 B 를 연 뒤
+  // A 의 늦은 성공 응답이 B 의 미전송 초안을 읽어 **A 파일에** 저장했다.
+  const h = harness({ '/A': '', '/B': 'B의 미전송 초안' })
+  ;(globalThis as unknown as { window: unknown }).window = { knuaf: h.api }
+  useChat.setState({
+    root: null, provider: 'codex', snapshot: null, status: null, statusFailed: false,
+    draft: '', draftSeq: 0, busy: false, error: null, mode: null
+  })
+
+  await useChat.getState().load('/A')
+  useChat.getState().setDraft('A의 답변')
+  const sending = useChat.getState().send()        // A 의 전송 응답을 보류한다
+
+  await useChat.getState().load('/B')              // 그 사이 학생이 B 를 연다
+  expect(useChat.getState().draft).toBe('B의 미전송 초안')
+
+  h.finish({ result: snap([msg({ role: 'user', text: 'A의 답변', delivery: 'sent' })], 'running', '/A') })
+  expect(await sending).toBe(true)
+
+  // B 화면은 B 그대로다 — A 의 답변이 넘어오지 않는다.
+  expect(useChat.getState().root).toBe('/B')
+  expect(useChat.getState().snapshot?.root).toBe('/B')
+  expect(useChat.getState().snapshot?.messages).toHaveLength(0)
+  expect(useChat.getState().draft).toBe('B의 미전송 초안')
+  expect(useChat.getState().busy).toBe(false)
+  // A 의 파일에 B 의 내용이 쓰이지 않았다.
+  expect(h.writes.filter((w) => w.root === '/A' && w.text === 'B의 미전송 초안')).toHaveLength(0)
+  expect(h.disk['/A']).toBe('A의 답변')
 })

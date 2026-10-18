@@ -12,9 +12,12 @@
   --sel-bg: #edf0f5; --hover: #f3f5f9;
   --ok: #2f7a4f; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
   --bad: #a13a2e; --bad-soft: color-mix(in srgb, var(--bad) 10%, transparent);
-  --warn: #a87318; --warn-soft: color-mix(in srgb, var(--warn) 12%, transparent);
+  /* 경고 **글자**는 어두운 호박이다 — 배지 바탕(--warn-soft) 위에서 4.5 이상이어야 한다.
+     실제로 가장 어두운 자리는 학생 말풍선(--accent-soft #edf2fa) 위의 "전송 중" 배지다:
+     #7a4e0e 로 5.36(흰 패널 5.99). 밝은 호박을 글자에 쓰면 3.19 였다(검토 P1-R1-05). */
+  --warn: #7a4e0e; --warn-soft: color-mix(in srgb, var(--warn) 12%, transparent);
   --blocked: #56598f; --blocked-soft: color-mix(in srgb, var(--blocked) 10%, transparent);
-  /* 안내 상자(허락 카드) = 아이스 그레이. 호박색 점(--attn)은 글자가 아니라 3:1 기준이다. */
+  /* 점·아이콘 전용 호박 — 비문자 표시라 3:1 기준이다(아이스 그레이 위 3.78). 글자에 쓰지 않는다. */
   --attn: #a87318;
   --alert-bg: #f4f6f9; --alert-border: #dfe4ec;
   /* 종이 칸(3단계)과 방금 저장된 문장. 지금은 종이 칸이 없어도 토큰은 여기 있다. */
