@@ -9,7 +9,7 @@ import { ChatService } from '../src/main/chat/service'
 import { skillSource, VERSION_FILE } from '../src/main/agent'
 import { autoAllow, describeTool, looksLikePath, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
-import { subscriptionEnv } from '../src/main/chat/contracts'
+import { pathKeyOf, subscriptionEnv } from '../src/main/chat/contracts'
 import { winSpawn } from '../src/main/win'
 import type { AgentConnection } from '../src/main/chat/contracts'
 
@@ -38,6 +38,15 @@ function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => 
   })
 }
 
+/**
+ * PATH 값 읽기 — 윈도우는 환경변수 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인 경우가
+ * 많다(`{...process.env}` 는 그 키를 그대로 복사한다). 두 플랫폼에서 같은 방식으로 읽는다.
+ */
+function pathOf(env: NodeJS.ProcessEnv): string {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH')
+  return (key ? env[key] : '') ?? ''
+}
+
 // ~/.claude/CLAUDE.md의 @import가 외부 경로를 가리키면 학생에게 영어 보안 프롬프트
 // ("Allow external CLAUDE.md file imports?")가 뜬다 — 앱이 띄우는 도우미의 환경에서는
 // 메모리 파일을 아예 읽지 않는다. 스킬(.claude/skills/knuaf-dev) 탐색과는 무관하다.
@@ -47,16 +56,17 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
   // "env: node: No such file or directory" 만 본다. 바이너리를 찾아내는 것과
   // 그 바이너리가 인터프리터를 찾는 것은 다른 문제다 — findExecutable 은 codex 를
   // 찾아내고도 이 지점에서 실패했다.
-  const dirs = subscriptionEnv().PATH!.split(delimiter)
+  const dirs = pathOf(subscriptionEnv()).split(delimiter)
   // 홈브루 자리는 맥 전용이다(contracts.ts 의 AGENT_PATH_DIRS 가 win32 에서 빈 배열).
   if (process.platform !== 'win32') for (const d of ['/opt/homebrew/bin', '/usr/local/bin']) expect(dirs).toContain(d)
   // 프로젝트 .venv 와 번들 CPython 이 앞자리에 온다. 학생 맥의 기본 python3 는 3.9 라
   // 스킬의 최소 조건(3.10)에 못 미치고, 이게 없으면 앱은 번들 3.12 로 도는데 도우미만
   // 쓸 수 있는 Python 을 못 찾는다.
-  const withPy = subscriptionEnv(['/p/.venv/bin', '/app/python/bin']).PATH!.split(delimiter)
+  const withPy = pathOf(subscriptionEnv(['/p/.venv/bin', '/app/python/bin'])).split(delimiter)
   expect(withPy.slice(0, 2)).toEqual(['/p/.venv/bin', '/app/python/bin'])
-  // 원래 PATH 를 덮어쓰지 않고 앞에 붙이기만 한다.
-  for (const d of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) expect(dirs).toContain(d)
+  // 원래 PATH 를 덮어쓰지 않고 앞에 붙이기만 한다 — 윈도우에서는 실제 키(`Path`)의 값이
+  // 그대로 살아 있어야 한다(CI 3차에서 이 값이 통째로 사라졌다).
+  for (const d of pathOf(process.env).split(delimiter).filter(Boolean)) expect(dirs).toContain(d)
 })
 
 /**
@@ -68,29 +78,44 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
  */
 test('subscriptionEnv 는 PATH 를 플랫폼 구분자로 잇는다 (W1 ②)', () => {
   const extras = ['/p/.venv/bin', '/app/python/bin']
-  const orig = process.env.PATH ?? ''
+  // 윈도우에서는 실제 키가 `Path` 다 — 대소문자 무관하게 읽어야 시스템 PATH 를 잃지 않는다.
+  const orig = pathOf(process.env)
   // 윈도우: 홈브루 자리가 없다(AGENT_PATH_DIRS = []).
   const expectedWin = ['/p/.venv/bin', '/app/python/bin', orig].filter(Boolean).join(';')
   // 맥·리눅스: 홈브루 자리가 앞에 붙는다(contracts.ts 의 AGENT_PATH_DIRS).
   const expectedPosix = ['/p/.venv/bin', '/app/python/bin', '/opt/homebrew/bin', '/usr/local/bin', orig].filter(Boolean).join(':')
   const win = process.platform === 'win32'
-  expect(subscriptionEnv(extras).PATH).toBe(win ? expectedWin : expectedPosix)
+  const env = subscriptionEnv(extras)
+  expect(pathOf(env)).toBe(win ? expectedWin : expectedPosix)
+  // 대소문자만 다른 PATH 키가 둘 생기면 자식이 어느 쪽을 볼지 알 수 없다 — 하나여야 한다.
+  expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), 'PATH 키가 중복됐다').toHaveLength(1)
   // 구분자 자체도 못 박는다 — 윈도우 `;`, 그 밖 `:`.
   expect(delimiter).toBe(win ? ';' : ':')
 
   if (win) {
     // `C:\…` 안의 `:` 가 갈라지지 않는다 — 이음매가 `;` 라서다(`:` 로 이으면 여기서 쪼개진다).
     const drive = 'C:\\Program Files\\내 앱\\bin'
-    const path = subscriptionEnv([drive]).PATH!
+    const path = pathOf(subscriptionEnv([drive]))
     expect(path.startsWith(`${drive};`)).toBe(true)
     expect(path.split(';')[0]).toBe(drive)
     expect(path.split(';')[0].endsWith('bin')).toBe(true)
   } else {
     const dir = '/p/.venv/bin'
-    const path = subscriptionEnv([dir]).PATH!
+    const path = pathOf(subscriptionEnv([dir]))
     expect(path.startsWith(`${dir}:`)).toBe(true)
     expect(path.split(':')[0]).toBe(dir)
   }
+})
+
+test('윈도우에서는 기존 PATH 키(대소문자 무시)에 이어 쓴다 (W1 ②, CI 3차)', () => {
+  // 실물 윈도우 환경처럼 키가 `Path` 인 경우 — 새 `PATH` 키를 만들면 시스템 PATH 를 잃는다.
+  expect(pathKeyOf({ Path: 'C:\\Windows' }, 'win32')).toBe('Path')
+  expect(pathKeyOf({ PATH: 'C:\\x' }, 'win32')).toBe('PATH')
+  expect(pathKeyOf({ PATHx: 'C:\\x' }, 'win32'), '다른 이름은 건드리지 않는다').toBe('PATH')
+  expect(pathKeyOf({}, 'win32')).toBe('PATH')
+  // 맥·리눅스는 종전 그대로 `PATH`.
+  expect(pathKeyOf({ Path: 'C:\\x' }, 'darwin')).toBe('PATH')
+  expect(pathKeyOf({}, 'darwin')).toBe('PATH')
 })
 
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {

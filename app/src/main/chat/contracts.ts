@@ -31,6 +31,17 @@ export interface AgentOptions {
   /** `auth status` 확인 제한 시간. 시험 이음매 — 기본 12초. */
   statusTimeoutMs?: number
 }
+/**
+ * PATH 를 쓸 **키** 이름. 윈도우는 환경변수 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인
+ * 경우가 많다 — `{...process.env}` 는 있는 그대로 복사하므로 새 `PATH` 키를 만들면 시스템 PATH 가
+ * `Path` 에 남아 자식에게서 사라진다(윈도우 CI 3차: AI 도구 자식이 node·시스템 경로를 못 찾았다).
+ * 그래서 기존 키를 찾아 거기에 잇고, 중복 키를 만들지 않는다. 맥·리눅스는 종전 그대로 `PATH`.
+ */
+export function pathKeyOf(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return 'PATH'
+  return Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+}
+
 export function subscriptionEnv(extraPathDirs: string[] = []): NodeJS.ProcessEnv {
   const env = { ...process.env }
   // A user's unrelated API environment must never silently change billing for this app.
@@ -52,7 +63,11 @@ export function subscriptionEnv(extraPathDirs: string[] = []): NodeJS.ProcessEnv
   // 도우미만 "쓸 수 있는 Python 이 없다"에 막힌다.
   // 구분자는 플랫폼마다 다르다(`:` vs `;`) — `:` 로 이으면 윈도우에서 `C:\…` 안의 `:` 까지
   // 갈라져 자식 프로세스의 PATH 가 통째로 뭉갠다(형님 승인 W1 연결 기제 ②).
-  env.PATH = [...extraPathDirs, ...AGENT_PATH_DIRS, env.PATH].filter(Boolean).join(delimiter)
+  //
+  // 윈도우는 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인 경우가 많다 — 기존 키에 잇는다
+  // (새 `PATH` 키를 만들면 시스템 PATH 를 잃는다 — 위 `pathKeyOf` 주석).
+  const pathKey = pathKeyOf(env)
+  env[pathKey] = [...extraPathDirs, ...AGENT_PATH_DIRS, env[pathKey]].filter(Boolean).join(delimiter)
   return env
 }
 
