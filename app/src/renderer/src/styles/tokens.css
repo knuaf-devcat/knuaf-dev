@@ -10,7 +10,9 @@
   --btn-bg: #e9eef8; --btn-ink: #1e3a6e; --btn-border: #cdd8ec;
   --send-bg: #1f2937; --send-ink: #ffffff;
   --sel-bg: #edf0f5; --hover: #f3f5f9;
-  --ok: #2f7a4f; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
+  /* 통과 배지 글자도 배지 바탕 위에서 4.5 이상이어야 한다. 네 자리 모두 넘는다:
+     흰 패널 5.28 · 앱 바탕 5.02 · 패널2 4.86 · 학생 말풍선 4.72. #2f7a4f 는 4.10~4.58 이었다. */
+  --ok: #2a6f44; --ok-soft: color-mix(in srgb, var(--ok) 10%, transparent);
   --bad: #a13a2e; --bad-soft: color-mix(in srgb, var(--bad) 10%, transparent);
   /* 경고 **글자**는 어두운 호박이다 — 배지 바탕(--warn-soft) 위에서 4.5 이상이어야 한다.
      실제로 가장 어두운 자리는 학생 말풍선(--accent-soft #edf2fa) 위의 "전송 중" 배지다:
