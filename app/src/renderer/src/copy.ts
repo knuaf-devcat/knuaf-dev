@@ -179,6 +179,10 @@ export function describeChatError(raw: string): DescribedError {
   } catch { /* plain text, use as-is */ }
   const classified = providerCopy(inner)
   if (classified) return { ...classified, code: null, raw: trimmed }
+  // 앱이 저장·검사 중이라 잠깐 거절한 것 — 오류가 아니라 기다리면 되는 일이다(형님 윈도우 실기
+  // 2026-10-19: 빨간 알림이 실패처럼 보였다). 폴더 준비는 이제 기다렸다 보내므로 여기 오는 것은
+  // 학생이 직접 시작한 저장·내보내기 중일 때뿐이다.
+  if (inner.startsWith('앱이 저장·검사 작업 중이에요')) return { title: CHAT.appBusyTitle, action: CHAT.appBusyBody, kind: 'warning', code: null, raw: trimmed }
   // Our own Korean one-liners stay the headline; machine noise gets the generic title.
   if (!/[{}\[\]"]/.test(trimmed) && trimmed.length <= 160) return { title: trimmed, action: null, kind: 'error', code: null, raw: trimmed }
   return { title: '도우미가 답변을 만들지 못했어요.', action: '다시 보내 보세요. 계속되면 "설정 > 문제 해결"을 확인해 주세요.', kind: 'error', code: null, raw: trimmed }
@@ -921,6 +925,11 @@ export const CHAT = {
   depthSoon: '곧 고를 수 있어요',
   // --- 아래 칸: 작업 중 한 줄(설계 §3) --------------------------------------
   runningLine: '도우미가 작업 중이에요',
+  /** 폴더 준비(.venv) 중 — 입력칸 위 진행 표시(store/prep.ts). 처음 한 번, 윈도우에서는 몇 분 걸린다. */
+  preparingLine: '이 폴더를 처음 쓸 준비를 하고 있어요 — 몇 분 걸릴 수 있어요',
+  preparingQueued: '준비가 끝나면 바로 보낼게요',
+  appBusyTitle: '앱이 저장·검사를 마치는 중이에요',
+  appBusyBody: '끝나면 다시 보내 주세요.',
 }
 
 export const MATERIALS = {

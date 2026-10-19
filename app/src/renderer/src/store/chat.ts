@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { usePrep, whenPrepared } from './prep'
 import { connInfoOf, startPoll, stopPoll, type ConnState } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
@@ -65,6 +66,8 @@ interface ChatState {
   /** 초안 편집 번호 — 학생이 초안을 바꾼 모든 경로가 1씩 올린다(`draftAfterSend` 판정용). */
   draftSeq: number
   busy: boolean
+  /** 폴더 준비가 끝나기를 기다렸다가 보내는 중(store/prep.ts) — 화면이 진행 표시를 띄운다. */
+  waitingPrep: boolean
   error: string | null
   /** Session override; null = follow settings.helper_mode / codex_terminal. */
   mode: ChatMode | null
@@ -113,6 +116,7 @@ export const useChat = create<ChatState>((set, get) => ({
   draft: '',
   draftSeq: 0,
   busy: false,
+  waitingPrep: false,
   error: null,
   mode: null,
   startIntent: null,
@@ -217,6 +221,13 @@ export const useChat = create<ChatState>((set, get) => ({
     const rootAtSend = root
     const providerAtSend = provider
     set({ busy: true, error: null })
+    // 폴더 준비 중이면 main 이 전송을 거절한다 — 거절당하지 않고 끝날 때까지 기다렸다 보낸다.
+    if (usePrep.getState().root === root) {
+      set({ waitingPrep: true })
+      await whenPrepared(root)
+      set({ waitingPrep: false })
+      if (get().root !== rootAtSend || get().provider !== providerAtSend) { set({ busy: false }); return false }
+    }
     const requestId = crypto.randomUUID()
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
     // 폴더·공급자가 달라졌으면 스냅샷도 초안도 지금 화면에 적용하지 않는다. 다른 폴더의
