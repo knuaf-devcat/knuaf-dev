@@ -5,10 +5,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import {
-  agentApi, buildLaunchScript, bundledAgentDirs, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
-  skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
+  agentApi, buildLaunchScript, bundledAgentDirs, bundledDirs, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
+  setAgentPlatformForTest, setBundledDirsProvider, skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
 import { serverArgsFor } from '../src/main/chat/codex'
+import { ChatService } from '../src/main/chat/service'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
@@ -104,6 +105,102 @@ test.describe('findExecutable / probeVersion', () => {
     expect(bundledAgentDirs(dev, 'win32')).toEqual([join('/tmp/app-root', 'resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
     expect(bundledAgentDirs({ ...dev, isPackaged: true, resourcesPath: '/app/Contents/Resources' }, 'win32'))
       .toEqual([join('/app/Contents/Resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
+  })
+
+  /**
+   * 검토 CODEX-BUNDLE-R1-01 — 동봉 우선은 **옵션을 준 호출자만의 혜택이면 안 된다**. 첫 화면
+   * (`connect:status`)과 로그인·채팅(`ChatService`)은 `findExecutable(provider)` 를 옵션 없이
+   * 부르기 때문이다. 그래서 동봉 자리는 `findExecutable` 의 **기본값**이고, 그 기본값을 여기서
+   * (그리고 아래 ChatService 시험에서) 확인한다.
+   */
+  test.describe('동봉 우선은 기본값 (CODEX-BUNDLE-R1-01)', () => {
+    /**
+     * `ChatService` 는 탐색을 `findExecutable(provider)` 로 부른다 — env 인자가 없어 **process.env**
+     * 를 본다(연결 객체에 넘기는 env 는 spawn 환경이라 다른 것이다). 그래서 실제 소비 경로를
+     * 검사하려면 process.env 를 잠시 바꿔야 한다. 끝나면 되돌린다.
+     */
+    const withBundled = (dir: string, fn: () => void | Promise<void>, envPatch: Record<string, string> = {}) => {
+      const prevPlatform = setAgentPlatformForTest('win32')
+      const prevDirs = setBundledDirsProvider(() => [dir])
+      const prevEnv = new Map<string, string | undefined>()
+      const patch: Record<string, string> = { Path: '', PATH: '', HOME: dir, USERPROFILE: dir, ...envPatch }
+      return (async () => {
+        try {
+          for (const [k, v] of Object.entries(patch)) { prevEnv.set(k, process.env[k]); process.env[k] = v }
+          await fn()
+        } finally {
+          for (const [k, v] of prevEnv) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+          setAgentPlatformForTest(prevPlatform)
+          setBundledDirsProvider(prevDirs)
+        }
+      })()
+    }
+    const fakeExe = (dir: string, name = 'codex.exe'): string => {
+      const p = join(dir, name)
+      writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      chmodSync(p, 0o755)
+      return p
+    }
+    const chatFor = (dir: string, env: Record<string, string | undefined>): ChatService =>
+      new ChatService({
+        skillSource: join(dir, 'skill'), userData: join(dir, 'userData'),
+        emit: () => {}, openExternal: async () => {}, sidecarBusy: () => false,
+        venvPython: () => null, bundledPython: () => null, isTrusted: () => false, env
+      })
+
+    test('옵션 없이 부른 탐색이 동봉본을 찾고, PATH 설치본보다 앞선다 (윈도우)', async () => {
+      const bundled = mkdtempSync(join(tmpdir(), 'kd-def-bundle-'))
+      const onPath = mkdtempSync(join(tmpdir(), 'kd-def-path-'))
+      const bundledExe = fakeExe(bundled)
+      fakeExe(onPath)
+      await withBundled(bundled, () => {
+        // 옵션 없이(= 실제 소비 경로들과 같은 방식으로) 부른다.
+        expect(findExecutable('codex', { Path: onPath, USERPROFILE: bundled })).toBe(bundledExe)
+      })
+    })
+
+    test('첫 화면·폴더별 연결: 동봉본만 있으면 설치 안내로 떨어지지 않는다 (윈도우)', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kd-svc-'))
+      const bundled = mkdtempSync(join(tmpdir(), 'kd-svc-bin-'))
+      const exe = fakeExe(bundled)
+      await withBundled(bundled, async () => {
+        // 소비 경로가 하는 바로 그 호출 — 동봉본이 뽑힌다(별도 설치가 없어도).
+        expect(findExecutable('codex')).toBe(exe)
+        const chat = chatFor(dir, {})
+        // 전역(첫 화면) — 설치 안내 분기(installed:false)가 아니라 연결 시도까지 간다.
+        const global = await chat.globalStatus('codex')
+        expect(global.installed).toBe(true)
+        expect(global.probe).toBe('failed')  // 가짜 CLI 라 연결은 실패한다 — 그 전에 찾긴 찾았다
+        // 폴더별 연결도 같은 기본 탐색을 쓴다: 설치 안내로 떨어지지 않는다.
+        const perFolder = await chat.status(join(dir, 'proj'), 'codex').catch((e) => ({ installed: true, detail: String(e) }))
+        expect(perFolder.installed).not.toBe(false)
+      })
+    })
+
+    test('KNUAF_AGENT_PATH_ONLY=1 이면 동봉도 PATH 도 아니면 설치 안내 — 종전 의미 보존', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kd-only-svc-'))
+      const bundled = mkdtempSync(join(tmpdir(), 'kd-only-bin-'))
+      fakeExe(bundled)
+      await withBundled(bundled, async () => {
+        expect(findExecutable('codex')).toBeNull()
+        const chat = chatFor(dir, {})
+        const global = await chat.globalStatus('codex')
+        expect(global.installed).toBe(false)
+        expect(String(global.detail)).toContain('설치 안내')
+        const perFolder = await chat.status(join(dir, 'proj'), 'codex')
+        expect(perFolder.installed).toBe(false)
+      }, { KNUAF_AGENT_PATH_ONLY: '1' })
+    })
+
+    test('맥에서는 동봉 자리를 아예 보지 않는다 — 종전 그대로', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kd-mac-'))
+      fakeExe(dir, 'knuaf-bundle-probe')  // 맥 이름 규칙: `.exe` 는 후보가 아니다
+      expect(bundledDirs('darwin')).toEqual([])
+      const prevDirs = setBundledDirsProvider(() => [dir])
+      try {
+        expect(findExecutable('knuaf-bundle-probe', { PATH: '', HOME: dir }, { platform: 'darwin' })).toBe(join(dir, 'knuaf-bundle-probe'))
+      } finally { setBundledDirsProvider(prevDirs) }
+    })
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {
