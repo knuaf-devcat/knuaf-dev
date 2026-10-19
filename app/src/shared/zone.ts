@@ -34,12 +34,16 @@ export interface QuestionCardRef { card: ParsedQuestion; messageId: string }
  * 질문 카드 조건(설계 §4-1). 하나라도 확인할 수 없으면 null → 카드 없이 원문과 입력칸.
  *  1. 마지막 도우미 메시지가 질문 원문으로 해석된다.
  *  2. 그 메시지 뒤에 학생 메시지가 하나도 없다(`pending`·`uncertain`·`sent` 어느 상태든).
- *  3. 도우미가 기다리는 질문이 있다(한글 마무리 제외).
- *  4. 대화가 `idle`이다.
+ *  3. 대화가 `idle`이다.
+ *
+ * 예전에는 "도우미가 기다리는 질문이 있다"(`waitingQuestionCount >= 1`)도 요구했다. 그런데 그 수는
+ * 정본 `tasks` 의 `user_owned` 작업에서만 나오고, 스킬은 인터뷰 중에 그런 작업을 만들지 않는다 —
+ * 새 논문에서는 늘 0이라 실제 인터뷰에서 카드가 한 번도 뜨지 않았다(형님 윈도우 실기 2026-10-19,
+ * REPORT-WIN-FEEDBACK §2). "이미 답한 질문"은 조건 2가 막는다. `projectStatus` 는 호출 모양을
+ * 지키려고 받기만 한다.
  */
-export function questionCardOf(snapshot: ChatSnapshot | null, projectStatus: Status | null): QuestionCardRef | null {
+export function questionCardOf(snapshot: ChatSnapshot | null, _projectStatus: Status | null): QuestionCardRef | null {
   if (snapshot?.state !== 'idle') return null
-  if (waitingQuestionCount(projectStatus) < 1) return null
   const messages = snapshot.messages
   let last = -1
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') { last = i; break }

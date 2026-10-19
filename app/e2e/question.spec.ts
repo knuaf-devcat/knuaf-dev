@@ -82,8 +82,9 @@ test('한 메시지에 질문이 둘이면 마지막 것을 쓴다', () => {
 })
 
 test('보기 묶음 뒤에 보기 모양 줄이 더 있으면 카드가 아니다 (검토 P1-R1-02)', () => {
-  // 빈 줄 뒤에 3)·4) 가 이어지면 앞쪽 2개만 잘라 카드로 만들면 안 된다.
-  expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n\n3) 직매장\n4) 아직 몰라요\n')).toBeNull()
+  // 빈 줄 뒤에 3)·4) 가 이어지면 앞쪽 2개만 잘라 카드로 만들면 안 된다 — 보기 사이 빈 줄은
+  // 건너뛰고 끝까지 읽는다(형님 윈도우 실기 2026-10-19 이후). 잘리지 않고 4개 모두 나와야 한다.
+  expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n\n3) 직매장\n4) 아직 몰라요\n')?.options).toEqual(['농협', '온라인', '직매장', '아직 몰라요'])
   // 설명 줄을 끼우고 3) 을 놓아도 같다.
   expect(parseQuestion('[Q1-1] 판매처\n어디에 파나요?\n1) 농협\n2) 온라인\n(추천) 가까운 곳\n3) 직매장\n')).toBeNull()
   // `→ …` 안내 줄·빈 줄은 보기가 아니다 — 정상 원문은 그대로 읽힌다.
@@ -133,7 +134,7 @@ test('한글 마무리만 남으면 카드가 아니다 (GUI-10)', () => {
     user_finish_pending: finish
   })
   expect(waitingQuestionCount(withFinish)).toBe(0)
-  expect(questionCardOf(snap([msg({ role: 'assistant', text: Q() })]), withFinish)).toBeNull()
+  // 카드 판정은 이 수를 보지 않는다(REPORT-WIN-FEEDBACK §2) — 세는 규칙만 여기서 고정한다.
   // 같은 tasks 라도 한글 마무리 id 가 아니면 질문으로 센다.
   expect(waitingQuestionCount(status())).toBe(1)
 })
@@ -154,8 +155,41 @@ test('끊겨 있으면 언제나 미연결 자리다', () => {
 
 test('카드를 만들 수 없으면 보통 입력칸이다', () => {
   expect(zoneOf(snap([msg({ role: 'assistant', text: '좋아요. 3,300㎡(약 1,000평)로 적었어요.' })]), CONNECTED, status()).kind).toBe('composer')
-  // 질문은 있는데 도우미가 기다리는 질문이 없으면(이미 답한 것) 카드가 아니다.
-  expect(zoneOf(snap([msg({ role: 'assistant', text: Q() })]), CONNECTED, status({ tasks: [] })).kind).toBe('composer')
+  // 이미 답한 질문(그 뒤에 학생 메시지가 있음)은 카드가 아니다 — 정본 tasks 와 무관하다.
+  const answered = [msg({ role: 'assistant', text: Q() }), msg({ role: 'user', text: '2) 온라인 직거래', delivery: 'sent' })]
+  expect(zoneOf(snap(answered), CONNECTED, status({ tasks: [] })).kind).toBe('composer')
+})
+
+test('정본에 기다리는 질문이 없어도 답하지 않은 질문이면 카드다 (형님 윈도우 실기 2026-10-19)', () => {
+  // 새 논문의 실제 상태 — tasks 에는 한글 마무리뿐이다(gg_core.next_tasks 실측). 예전에는 이 상태에서
+  // 카드가 한 번도 뜨지 않았다.
+  const fresh = status({ tasks: [{ id: 'font_shinmyeongjo', status: 'needs_user' }], user_finish_pending: [{ id: 'font_shinmyeongjo', status: 'needs_user', owner: 'user', reason: '글꼴' }] })
+  expect(waitingQuestionCount(fresh)).toBe(0)
+  expect(zoneOf(snap([msg({ role: 'assistant', text: Q() })]), CONNECTED, fresh).kind).toBe('question')
+  expect(zoneOf(snap([msg({ role: 'assistant', text: Q() })]), CONNECTED, null).kind).toBe('question')
+})
+
+test('도우미가 형식을 조금 벗어나도 같은 질문이면 읽는다 (형님 윈도우 실기 2026-10-19)', () => {
+  const canonical = parseQuestion(Q())!
+  const variants: Record<string, string> = {
+    '굵은 글씨': Q().replace('[Q3-2] Ⅲ장 판매 현황 · Ⅵ장 매출 계산에 쓰여요', '**[Q3-2] Ⅲ장 판매 현황 · Ⅵ장 매출 계산에 쓰여요**').replace(/  (\d)\) /g, '  **$1)** '),
+    '윈도우 줄바꿈': Q().replace(/\n/g, '\r\n'),
+    '전각 괄호': Q().replace(/  (\d)\) /g, '  $1） ').replace('[Q3-2]', '［Q3-2］'),
+    '목록 표시': Q().replace(/  (\d)\) /g, '  - $1) '),
+    '보기 사이 빈 줄': Q().replace(/\n(  [23]\) )/g, '\n\n$1')
+  }
+  for (const [name, text] of Object.entries(variants)) {
+    const got = parseQuestion(text)
+    expect(got?.options, name).toEqual(canonical.options)
+    expect(got?.id, name).toBe('Q3-2')
+  }
+  // 넓히지 않는 것: 스킬의 `[Q2] 기본 계획` 은 네 칸을 한꺼번에 답하는 질문이다 — 고르는 카드가
+  // 되면 틀린 카드다. `[Qn]` 머리와 `1.` 번호는 그래서 읽지 않는다.
+  expect(parseQuestion('[Q2] 기본 계획\n1. 전공\n2. 작목\n3. 지역\n4. 자금\n')).toBeNull()
+  expect(parseQuestion('[Q2] 기본 계획\n1) 전공\n2) 작목\n')).toBeNull()
+  expect(parseQuestion(Q().replace(/  (\d)\) /g, '  $1. '))).toBeNull()
+  // 보기 사이에 다른 글(예시 줄)이 끼면 여전히 카드가 아니다 — 틀린 카드보다 카드 없음.
+  expect(parseQuestion('[Q2-1] 기본 계획\n1) 전공\n   예: 스마트팜\n2) 작목\n')).toBeNull()
 })
 
 // --------------------------------------------------------------- draftAfterSend

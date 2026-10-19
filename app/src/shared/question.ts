@@ -12,6 +12,13 @@
  *     → 번호 또는 자유 입력
  *
  * 보수적으로 읽는다. 하나라도 어긋나면 null이다 — **틀린 카드보다 카드 없음**이 낫다.
+ *
+ * 다만 모양만 다른 같은 질문은 읽는다(형님 윈도우 실기 2026-10-19 — 카드가 뜨지 않음): 도우미는
+ * 정본 형식을 자주 벗어난다 — 굵은 글씨(`**[Q3-2] …**`, `**1)**`), 목록·머리 표시, 보기 사이 빈 줄,
+ * 윈도우 줄바꿈(CRLF), 전각 괄호. 이것들은 줄을 읽기 전에 걷어 낸다(`clean`).
+ * **넓히지 않는 것**: 머리 `[Q2]`(하위 번호 없음)와 `1.` 번호. 스킬의 `[Q2] 기본 계획`처럼 그 모양은
+ * "전공·작목·지역·자금을 한꺼번에 답하는" 여러 칸 질문에 쓰인다 — 하나를 고르는 카드로 만들면
+ * 틀린 카드다. 보기 줄 사이에 다른 글(예시·설명 줄)이 끼어도 카드가 아니다.
  * 카드가 없으면 화면은 지금처럼 원문과 보통 입력칸을 그대로 보여 준다.
  * 값 입력형·서술형은 보기 줄이 없으니 자연히 null이다.
  */
@@ -34,11 +41,23 @@ export interface ParsedQuestion {
 const TITLE = /^\s*\[Q(\d+)-(\d+)\]\s*(\S.*)$/
 /** `1) 보기` — 번호와 보기 글이 있어야 한다. */
 const OPTION = /^\s*(\d+)\)\s*(\S.*)$/
+
+/**
+ * 한 줄에서 모양만 다른 부분을 걷어 낸다 — 굵은·기울인 표시(`**`·`__`), 머리 표시(`### `), 목록
+ * 표시(`- `·`* `·`• `), 전각 괄호, 줄 끝 `\r`. 줄 수는 바꾸지 않는다(접을 범위가 원문 줄 번호다).
+ */
+function clean(line: string): string {
+  return line
+    .replace(/\r$/, '')
+    .replace(/\*\*|__/g, '')
+    .replace(/[（）［］]/g, (c) => ({ '（': '(', '）': ')', '［': '[', '］': ']' })[c] ?? c)
+    .replace(/^(\s*)(?:#{1,6}\s+|[-*•]\s+)/, '$1')
+}
 /** 장 이름(`Ⅲ장`). 로마 숫자는 학교 양식의 Ⅰ~Ⅹ까지 본다. */
 const CHAPTER = /[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+장/
 
 export function parseQuestion(text: string): ParsedQuestion | null {
-  const lines = text.split('\n')
+  const lines = text.split('\n').map(clean)
 
   // ① 마지막 `[Qn-m] 제목` 줄. 한 메시지에 질문이 둘 있으면 뒤엣것이 지금 질문이다.
   let titleAt = -1
@@ -58,6 +77,12 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   const options: string[] = []
   let last = first
   for (let i = first; i < lines.length; i++) {
+    if (lines[i].trim() === '') {
+      // 보기 사이 빈 줄은 건너뛴다 — 다음 비지 않은 줄이 이어지는 번호의 보기일 때만.
+      const next = lines.slice(i + 1).find((l) => l.trim() !== '')?.match(OPTION)
+      if (next && Number(next[1]) === options.length + 1) continue
+      break
+    }
     const found = lines[i].match(OPTION)
     if (!found) break
     if (Number(found[1]) !== options.length + 1) return null
@@ -89,7 +114,7 @@ export function parseQuestion(text: string): ParsedQuestion | null {
     use,
     text: between.length ? between.join(' ') : use,
     options,
-    chapterHint: text.match(CHAPTER)?.[0] ?? null,
+    chapterHint: lines.join('\n').match(CHAPTER)?.[0] ?? null,
     span: { start: first, end }
   }
 }
