@@ -26,7 +26,7 @@ export function Onboarding({ onDone }: { onDone?: () => void }) {
     <div className="onb">
       <div className="drag-strip" aria-hidden="true" />
       <div className="onb-inner">
-        <FirstRun onFolderOpened={(root) => void opened(root)} />
+        <FirstRun onFolderOpened={opened} />
       </div>
     </div>
   )

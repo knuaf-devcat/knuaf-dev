@@ -5,6 +5,7 @@ import { Sidecar } from './sidecar'
 import { registerIpc } from './ipc'
 import type { ChatService } from './chat/service'
 import { APP_ROOT } from './python'
+import { cleanupRuntime } from './runtime'
 import { installMenu, type MenuAction } from './menu'
 import { LEGACY_USERDATA_NAMES, migrateUserDataDir } from './userdata'
 import { APP_NAME } from '../shared/name'
@@ -104,6 +105,8 @@ if (!single) app.quit()
 else {
   app.on('second-instance', () => { if (win && !hidden) { if (win.isMinimized()) win.restore(); win.focus() } })
   app.whenReady().then(() => {
+    // 도장 없는(미완성) 런타임 폴더와 남은 임시 다운로드만 지운다 — 게시된 폴더는 건드리지 않는다.
+    cleanupRuntime()
     if (isMac && !app.isPackaged && !hidden) {
       const iconPng = join(APP_ROOT, 'build', 'icon.png')
       if (existsSync(iconPng)) app.dock?.setIcon(nativeImage.createFromPath(iconPng))

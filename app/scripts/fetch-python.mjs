@@ -1,14 +1,14 @@
 // Download a python-build-standalone "install_only" runtime into resources/python for the current platform
 // (or PBS_TARGET=aarch64-apple-darwin | x86_64-apple-darwin | x86_64-pc-windows-msvc).
-// Usage: node scripts/fetch-python.mjs [--release 20250918] [--version 3.12.11] [--force]
+// Usage: node scripts/fetch-python.mjs [--release R] [--version V] [--force]
 //
-// Integrity: the archive is always hashed. PBS_SHA256 pins an expected digest; otherwise the
-// release's published .sha256 is fetched and compared, so a truncated or corrupted download
-// fails loudly instead of shipping. This interpreter runs skill scripts over student theses,
-// so an unverified download is not acceptable — the previous version only checked when
-// PBS_SHA256 happened to be set.
+// Integrity: release·version·sha256 의 정본은 `app/python-runtime.json` 이다 — 앱 안의
+// 클릭 설치(src/main/runtime.ts)가 **같은 바이트**를 받는다(D1). 기본 실행은 그 명세의
+// 고정 해시로 검증하며, 네트워크의 SHA256SUMS 를 믿지 않는다. 빌드 작업자가 다른 빌드를
+// 시험할 때만 PBS_RELEASE/PBS_VERSION/PBS_SHA256 으로 덮어쓴다 — 그 경우 "앱 설치와 같은
+// 바이트"라는 설명은 성립하지 않는다(명세는 그대로이므로 앱은 명세의 해시를 계속 요구한다).
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { spawnSync } from 'node:child_process'
@@ -19,8 +19,10 @@ const flag = (name) => {
   return i === -1 ? undefined : argv[i + 1]
 }
 const force = argv.includes('--force') || process.env.PBS_FORCE === '1'
-const release = flag('release') ?? process.env.PBS_RELEASE ?? '20250918'
-const version = flag('version') ?? process.env.PBS_VERSION ?? '3.12.11'
+const app = resolve(import.meta.dirname, '..')
+const spec = JSON.parse(readFileSync(resolve(app, 'python-runtime.json'), 'utf-8'))
+const release = flag('release') ?? process.env.PBS_RELEASE ?? spec.release
+const version = flag('version') ?? process.env.PBS_VERSION ?? spec.version
 const target =
   process.env.PBS_TARGET ??
   (process.platform === 'darwin'
@@ -28,8 +30,13 @@ const target =
       ? 'aarch64-apple-darwin'
       : 'x86_64-apple-darwin'
     : 'x86_64-pc-windows-msvc')
+const pinned = spec.targets?.[target]
+const overridden = Boolean(process.env.PBS_RELEASE || process.env.PBS_VERSION || flag('release') || flag('version'))
+if (!pinned && !process.env.PBS_SHA256) {
+  console.error(`python-runtime.json has no target ${target}; set PBS_SHA256 to pin the digest`)
+  process.exit(1)
+}
 
-const app = resolve(import.meta.dirname, '..')
 const out = resolve(app, 'resources', 'python')
 // 마커는 **대상** 플랫폼을 따른다 — `PBS_TARGET` 으로 다른 OS 런타임을 받을 수 있으므로
 // 호스트(process.platform)를 보면 윈도우 런타임을 받고도 `bin/python3` 을 찾다 실패한다.
@@ -61,27 +68,26 @@ const digest = await new Promise((ok, fail) => {
 let expected = process.env.PBS_SHA256
 let origin = 'PBS_SHA256'
 if (!expected) {
-  const sums = await fetch(
-    `https://github.com/astral-sh/python-build-standalone/releases/download/${release}/SHA256SUMS`
-  )
-  if (!sums.ok) {
+  if (overridden) {
     rmSync(tmp, { force: true })
-    console.error(`no SHA256SUMS for release ${release}; set PBS_SHA256 to pin the digest`)
+    console.error('release/version overridden without PBS_SHA256 — the pinned spec hash does not apply; pass PBS_SHA256')
     process.exit(1)
   }
-  const line = (await sums.text()).split('\n').find((l) => l.trim().endsWith(` ${name}`))
-  if (!line) {
-    rmSync(tmp, { force: true })
-    console.error(`${name} is not listed in SHA256SUMS; set PBS_SHA256 to pin the digest`)
-    process.exit(1)
-  }
-  expected = line.trim().split(/\s+/)[0]
-  origin = 'published SHA256SUMS'
+  expected = pinned.sha256
+  origin = `python-runtime.json (${target})`
 }
 if (digest !== expected) {
   rmSync(tmp, { force: true })
   console.error(`sha256 mismatch against ${origin}\n  expected ${expected}\n  got      ${digest}`)
   process.exit(1)
+}
+if (pinned?.size !== undefined && !overridden) {
+  const { size } = statSync(tmp)
+  if (size !== pinned.size) {
+    rmSync(tmp, { force: true })
+    console.error(`size mismatch against python-runtime.json\n  expected ${pinned.size}\n  got      ${size}`)
+    process.exit(1)
+  }
 }
 console.log('sha256 verified against', origin)
 

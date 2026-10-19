@@ -46,8 +46,23 @@ export interface Envelope {
   ok: boolean; exit: number; status: string | null; data: unknown; path: string | null; block_reason: string | null
   stdout: string; stderr: string; argv: string[]; python: string; duration_ms: number; venv_python?: string | null
 }
-export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
+export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'managed' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
+/**
+ * `project:open` 의 응답. 시작 단계(사이드카 configure)에서 실패하면 **실패한 그 선택**의
+ * python·kind 를 `sidecar` 로, `startupFailed: true` 를 같이 돌려준다(PY-D1-03).
+ * renderer 는 이 값으로만 준비 버튼을 판단하고 store.sidecar(성공한 프로젝트)로 판단하지 않는다.
+ */
+export interface OpenProjectReply {
+  result?: { root: string; hasProject: boolean; nestedProject?: string | null; sidecar: SidecarInfo }
+  error?: RpcError
+  sidecar?: SidecarInfo
+  startupFailed?: boolean
+}
 export interface RecentEntry { root: string; opened_at: string }
+/** `runtime:status` — 지원 플랫폼인지, 유효 설치가 있는지, 내려받기 크기(압축). */
+export interface RuntimeStatus { supported: boolean; target: string | null; installed: boolean; sizeBytes: number | null }
+/** `runtime:install` 의 응답 — 성공하면 새 선택으로 재시작한 사이드카 정보를 같이 준다. */
+export interface RuntimeInstallReply { installed: boolean; sidecar: SidecarInfo }
 export interface Settings {
   recent: RecentEntry[]
   credit_shown_at: string | null

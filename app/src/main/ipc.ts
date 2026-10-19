@@ -5,6 +5,7 @@ import type { Sidecar } from './sidecar'
 import type { ProjectPeek, WindowInfo } from '../shared/types'
 import type { Provider } from '../shared/chat'
 import { APP_ROOT, basePython, bundledPython, venvPython, wheelhouseDir } from './python'
+import { cancelRuntimeInstall, cleanupRuntime, installRuntime, runtimeStatus } from './runtime'
 import { agentApi, skillSource, type AgentCtx, type AgentKind } from './agent'
 import { ChatService } from './chat/service'
 import { openGuide } from './menu'
@@ -128,7 +129,9 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       const nestedProject = hasProject ? null : findNestedProject(root)
       return { result: { root, hasProject, nestedProject, sidecar: info } }
     } catch (error) {
-      return { error }
+      // 실패한 **이 선택**의 python·kind 를 같이 돌려준다(PY-D1-03). renderer 의 store.sidecar 는
+      // 성공 분기에서만 갱신되므로, 첫 실패에서 이전 프로젝트의 값으로 버튼을 판단하면 안 된다.
+      return { error, sidecar: sidecar.status(), startupFailed: true }
     }
   })
 
@@ -269,6 +272,26 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   ipcMain.handle('sidecar:restart', async () => {
     try { return { result: await sidecar.restart() } } catch (error) { return { error } }
   })
+  /**
+   * 앱 전용 Python 런타임(D7). 진행 이벤트는 기존 `rpc:event` 채널로 clientId 에만 보낸다.
+   * 설치는 프로세스 전역 1건 — 진행 중 재요청은 main 이 같은 약속에 합류시킨다.
+   */
+  ipcMain.handle('runtime:status', () => ({ result: runtimeStatus() }))
+  ipcMain.handle('runtime:install', async (_e, clientId: string) => {
+    const w = win()
+    try {
+      await installRuntime((event) => w?.webContents.send('rpc:event', { clientId, event: 'progress', data: event }))
+      // 교체가 아니라 새 폴더 게시이므로 사이드카만 새 선택으로 다시 띄운다. 실패는 무시하고
+      // 지금 상태를 돌려준다 — 설치 성공을 폴더 복구 성공으로 표시하지 않는다.
+      let info = sidecar.status()
+      try { info = await sidecar.restart() } catch { /* 재시작 실패는 호출자가 재시도로 다룬다 */ }
+      cleanupRuntime()
+      return { result: { installed: true, sidecar: info } }
+    } catch (error) {
+      return { error }
+    }
+  })
+  ipcMain.handle('runtime:cancel', () => ({ result: cancelRuntimeInstall() }))
   ipcMain.handle('deps:ensure', async (_e, root: string, clientId: string) => {
     const w = win()
     if (agentBusy(root)) return { error: { code: 'agent_busy', message: AGENT_BUSY_MESSAGE } }

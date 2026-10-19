@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useProject } from '../store/project'
 import { Feedback } from './Feedback'
+import { RuntimeFix } from './RuntimeFix'
 import { ProjectCard } from './ProjectCard'
 import { EMPTY, relativeTime, type DescribedError } from '../copy'
 import type { ProjectPeek, RecentEntry } from '../../../shared/types'
@@ -29,9 +30,10 @@ export interface FolderPickerCopy {
   foot?: string
 }
 
-export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpened?: (root: string) => void }) {
-  const { open, settings, error, loading, loadSettings, clearError } = useProject(useShallow((s) => ({
-    open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings, clearError: s.clearError
+export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpened?: (root: string) => void | Promise<void> }) {
+  const { open, settings, error, loading, loadSettings, clearError, openFailure, retryOpen } = useProject(useShallow((s) => ({
+    open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings,
+    clearError: s.clearError, openFailure: s.openFailure, retryOpen: s.retryOpen
   })))
   const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})
   const [openErr, setOpenErr] = useState<DescribedError | null>(null)
@@ -47,11 +49,14 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
   }, [settings?.recent])
 
   /** 실패는 이 화면에서 한 번만 알린다 — 전역 error 에 두면 다른 화면에도 같은 오류가 뜬다(GUI-04). */
-  const openFolder = async (dir: string) => {
+  const openFolder = async (dir: string): Promise<DescribedError | null> => {
     setOpenErr(null); clearError()
     const err = await open(dir, { local: true })
-    if (err) { setOpenErr(err); return }
-    onOpened?.(dir)
+    if (err) { setOpenErr(err); return err }
+    // 성공 후처리(온보딩 기록 등)가 끝난 뒤에 "열었다"를 확정한다 — 부르기만 하면 화면 전환과
+    // 기록 사이에 순서가 없어진다. 첫 실행 경로에서도 화면은 그대로다(기다림만 생긴다).
+    await onOpened?.(dir)
+    return null
   }
   const pick = async () => { const dir = await window.knuaf.pickFolder(); if (dir) await openFolder(dir) }
   const remove = async (root: string) => {
@@ -59,13 +64,21 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
     await loadSettings()
   }
 
-  const shown = openErr ?? error
+  // 시작 실패(openFailure)는 FirstRun 이 화면 위에서 한 번만 보여 준다 — 여기서 또 그리면
+  // 같은 오류 카드가 두 장이 된다. 그 밖의 전역 오류는 지금처럼 이 화면이 맡는다.
+  const shown = openErr ?? (openFailure ? null : error)
   return (
     <>
       <h1>{copy.title}</h1>
       <p className="caption" style={{ margin: 'var(--sp-2) 0 var(--sp-5)' }}>{copy.intro}</p>
 
       {shown && <Feedback kind={shown.kind} title={shown.title} body={shown.action} details={<code>{shown.raw}</code>} />}
+      {/* 실패한 그 요청의 인터프리터 정보로만 버튼을 세운다 — store.sidecar(성공한 프로젝트)로
+          판단하면 첫 실패에서 버튼이 없고, 다른 논문을 열었던 세션에서는 틀린 kind 가 된다.
+          재시도는 같은 openFolder 를 타므로 성공 후처리(onOpened)까지 그대로 이어진다. */}
+      {shown && openFailure && shown.code === openFailure.code && (
+        <RuntimeFix failure={openFailure} onRetry={async () => retryOpen(openFailure.root, onOpened)} />
+      )}
 
       {/* 새로 시작 / 이어 쓰기 두 행 — 첫 실행 연결 단계와 같은 한 테두리 묶음(시안 B, N-R01). */}
       <div className="choices">
