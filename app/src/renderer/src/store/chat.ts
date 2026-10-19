@@ -147,6 +147,12 @@ export const useChat = create<ChatState>((set, get) => ({
       ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking' }),
       ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
     })
+    // 이 읽기를 **시작한 시점**의 화면. 늦게 도착한 응답이 그 뒤에 앱이 스스로 바꾼 값
+    // (전송으로 새 메시지가 붙음 · 도착 스냅샷 반영 · 학생이 초안을 씀/보내 비움)을 되돌리면
+    // 보낸 글이 화면에서 사라지고 소비한 초안이 미전송 글처럼 되살아난다(검토 MACR3-R1-01).
+    const snapAtStart = get().snapshot
+    const draftAtStart = get().draft
+    const draftSeqAtStart = get().draftSeq
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,
@@ -161,13 +167,18 @@ export const useChat = create<ChatState>((set, get) => ({
     // 도는데(스토어 기본 provider → 설정이 정한 provider), 첫 번째는 provider 가
     // 달라져 위 가드에서 빠지고 두 번째는 switching 이 false 라 건너뛰어 아무도
     // 복원하지 않았다. 기준은 "같은 폴더인가"가 아니라 "화면에 학생 것이 있는가"다.
-    const typedMeanwhile = get().draft !== ''
+    //
+    // 위 기준에 **"읽기 시작 뒤에 움직였는가"** 를 더한다: 그 사이 메시지가 갱신됐으면
+    // 이 읽기의 옛 snapshot 은 버리고, 초안이 편집·소비됐으면 이 읽기의 저장 초안은 버린다.
+    // 연결 상태(status)는 이 읽기의 최신 판단이므로 그대로 반영한다.
+    const snapMoved = get().snapshot !== snapAtStart
+    const draftMoved = get().draftSeq !== draftSeqAtStart || get().draft !== draftAtStart
     const savedDraft = 'result' in saved ? saved.result : ''
     set({
-      snapshot: 'result' in snap ? snap.result : null,
+      ...(snapMoved ? {} : { snapshot: 'result' in snap ? snap.result : null }),
       ...statusInfo(st),
       // 디스크 값을 불러오는 것도 초안 편집으로 센다(설계 §4-1).
-      ...(typedMeanwhile ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
+      ...(draftMoved || get().draft !== '' ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
       error: messageOf(snap) ?? messageOf(st)
     })
   },
