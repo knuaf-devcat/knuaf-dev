@@ -9,6 +9,7 @@ import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
 import { writeCliShim } from './fixtures/fake-codex'
 import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
+import { useChat } from '../src/renderer/src/store/chat'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
 import type { ConnectionStatus, Provider } from '../src/shared/chat'
 
@@ -383,6 +384,87 @@ test('한 공급자 취소는 다른 공급자의 폴링을 멈추지 않는다 
     useConnect.getState().stopPolling()
     clock.restore()
     ipc.restore()
+  }
+})
+
+/** 손으로 돌리는 타이머 — 콜백을 모아 두고 시험이 원하는 순서로 한 번씩 돌린다. */
+function manualTimers(): { timers: Map<unknown, () => void>; runAll: () => Promise<void>; restore: () => void } {
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  const timers = new Map<unknown, () => void>()
+  globalThis.setInterval = ((fn: () => void) => { const t = {}; timers.set(t, fn); return t }) as unknown as typeof setInterval
+  globalThis.clearInterval = ((t?: unknown) => { timers.delete(t); return 0 }) as unknown as typeof clearInterval
+  return {
+    timers,
+    runAll: async () => {
+      for (const fn of [...timers.values()]) fn()
+      for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0))   // tick 의 await 를 흘려보낸다
+    },
+    restore: () => { globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval }
+  }
+}
+
+test('폴더 로그인의 옛 응답은 계정 팝오버가 시작한 새 감시를 갈아 끼우지 않는다 (R2-C01)', async () => {
+  // 판정서 R2-C01 의 순서 그대로: 폴더 로그인 응답을 보류 → 공급자 전환 → 새 connect.login 성공
+  // → 옛 응답 해제. 옛 코드는 여기서 startPoll 을 불러 새 타이머를 교체했고, 그 타이머는 첫 tick
+  // 에서 "공급자가 바뀌었다"를 보고 스스로 꺼져 감시가 0개가 됐다.
+  const clock = manualTimers()
+  const realWindow = (globalThis as { window?: unknown }).window
+  let releaseChatLogin: (v: unknown) => void = () => {}
+  const chatLogin = new Promise<unknown>((resolve) => { releaseChatLogin = resolve })
+  let releaseConnectLogin: (v: unknown) => void = () => {}
+  const connectLogin = new Promise<unknown>((resolve) => { releaseConnectLogin = resolve })
+  const okStatus = { result: { installed: true, connected: false, version: null, detail: '', probe: 'ok' } }
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: {
+      chat: {
+        login: () => chatLogin,
+        snapshot: async () => ({ result: { root: '/fake/paper', provider: 'claude', state: 'idle', messages: [] } }),
+        status: async () => okStatus,
+        draft: async () => ({ result: '' })
+      },
+      connect: {
+        status: async () => okStatus,
+        login: () => connectLogin,
+        cancel: async () => ({ result: true }),
+        reopen: async () => ({ result: true })
+      }
+    }
+  }
+  const chatBefore = useChat.getState()
+  try {
+    useConnect.getState().stopPolling()
+    useChat.setState({ root: '/fake/paper', provider: 'codex', visit: 0, busy: false })
+
+    const folderLogin = useChat.getState().login()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useChat.getState().busy, '폴더 로그인이 시작되지 않았다').toBe(true)
+
+    // ② 그 사이 학생이 다른 공급자로 옮긴다.
+    await useChat.getState().load('/fake/paper', 'claude')
+    expect(useChat.getState().provider).toBe('claude')
+
+    // ③ 계정 팝오버가 같은 공급자(codex)로 새 로그인을 시작해 성공한다 — 새 감시가 생긴다.
+    const popoverLogin = useConnect.getState().login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseConnectLogin({ result: true })
+    await popoverLogin
+    expect(clock.timers.size, '새 로그인의 감시가 생기지 않았다').toBe(1)
+
+    // ④ 이제야 ①의 옛 응답이 도착한다.
+    releaseChatLogin({ result: true })
+    await folderLogin
+    expect(clock.timers.size, '옛 응답이 새 감시를 갈아 끼웠다').toBe(1)
+
+    // ⑤ 그 타이머를 한 번 돌려도 살아 있어야 한다 — 옛 코드는 여기서 스스로 꺼졌다.
+    await clock.runAll()
+    expect(clock.timers.size, '새 감시가 첫 tick 에서 사라졌다').toBe(1)
+    expect(useConnect.getState().loggingIn.codex, '새 시도의 로그인 중 표시가 유지되지 않았다').toBe(true)
+  } finally {
+    useConnect.getState().stopPolling()
+    useChat.setState({ ...chatBefore, visit: 0, busy: false })
+    clock.restore()
+    ;(globalThis as { window?: unknown }).window = realWindow
   }
 })
 

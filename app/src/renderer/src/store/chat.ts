@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { isPreparing, waitPrepared } from './prep'
-import { connInfoOf, startPoll, stopPoll, type ConnState } from './connect'
+import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, type ConnState } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
@@ -208,9 +208,23 @@ export const useChat = create<ChatState>((set, get) => ({
   login: async () => {
     const { root, provider } = get()
     if (!root) return
+    // 이 방문(visit)과 이 공급자의 시도 표를 들고 시작한다. 응답은 브라우저 왕복 뒤에 오므로,
+    // 그 사이 학생이 다른 폴더·공급자로 떠났거나 같은 공급자의 새 로그인을 시작했을 수 있다.
+    const mine = beginLoginAttempt(provider)
+    const visitAtStart = get().visit
     stopPoll(provider)   // 같은 공급자의 이전 기다림만 끝낸다 — 다른 공급자의 로그인은 건드리지 않는다
     set({ busy: true, error: null })
     const r = await window.knuaf.chat.login(root, provider) as Reply<true>
+    /**
+     * 옛 응답은 지금 화면의 것이 아니다 — 상태도 폴링도 건드리지 않는다(R2-C01).
+     * 예전에는 무조건 `startPoll` 을 불러, 늦게 도착한 폴더 로그인 응답이 그 사이 계정 팝오버가
+     * 시작한 **새** 로그인의 감시를 갈아 끼웠다. 그 새 타이머는 첫 tick 에서 "공급자가 바뀌었다"를
+     * 보고 스스로 꺼져, 실제로는 로그인 중인데 감시가 하나도 남지 않았다.
+     *
+     * `busy` 도 여기서 내리지 않는다 — 새 시도가 아직 진행 중이면 그 표시는 그 시도의 것이다.
+     * (폴더·공급자를 떠난 경우는 `load` 가 이미 `busy` 를 풀었다.)
+     */
+    if (get().visit !== visitAtStart || get().provider !== provider || !loginAttemptLive(provider, mine)) return
     set({ busy: false, error: messageOf(r) })
     if ('error' in r && r.error) return
     // 브라우저 로그인은 오래 걸린다 — 3초마다, 3분까지. 이 폴더의 연결 상태를 다시 본다.

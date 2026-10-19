@@ -105,6 +105,27 @@ export function startPoll(provider: Provider, tick: () => Promise<boolean>): voi
 const attempts = new Map<Provider, number>()
 
 /**
+ * 로그인 시도 소유권 — 첫 화면(`useConnect.login`)과 폴더 화면(`useChat.login`)이 **같은 표**를
+ * 쓴다. 두 화면이 같은 공급자의 로그인을 따로 시작할 수 있으므로, 나중에 시작한 쪽이 이기고
+ * 먼저 시작한 쪽의 늦은 응답은 무효다(R2-C01).
+ *
+ * 시작은 번호를 올려 이번 시도의 표를 받고, 응답이 온 뒤 `loginAttemptLive` 로 아직 자기 것인지
+ * 묻는다. 표가 바뀌었으면(취소·새 시도) 그 응답은 상태도 폴링도 건드리지 않는다.
+ */
+export function beginLoginAttempt(provider: Provider): number {
+  const mine = (attempts.get(provider) ?? 0) + 1
+  attempts.set(provider, mine)
+  return mine
+}
+export function loginAttemptLive(provider: Provider, mine: number): boolean {
+  return (attempts.get(provider) ?? 0) === mine
+}
+/** 그 공급자의 진행 중 로그인 응답을 무효로 만든다(취소). */
+export function invalidateLoginAttempt(provider: Provider): void {
+  attempts.set(provider, (attempts.get(provider) ?? 0) + 1)
+}
+
+/**
  * 지금 대화할 공급자 — 학생이 고른 것(`provider_choice`, 세션에서 고른 것)이 먼저다.
  * 고른 적이 없으면 null 이고, 화면은 옛 기본값(`helper_mode`)으로 되돌아간다.
  */
@@ -163,14 +184,13 @@ export const useConnect = create<ConnectState>((set, get) => ({
   login: async (provider) => {
     // 시도 번호와 타이머는 **그 공급자 것만** 건드린다(W2 D1) — 다른 쪽 로그인을 시작해도
     // 진행 중이던 로그인의 응답이 무효가 되거나 그 감시가 사라지지 않는다.
-    const mine = (attempts.get(provider) ?? 0) + 1
-    attempts.set(provider, mine)
+    const mine = beginLoginAttempt(provider)
     stopPoll(provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: true } }))
     const r = await window.knuaf.connect.login(provider) as Reply<true>
     // 그 사이에 이 공급자를 취소했거나 새 시도가 시작됐으면 이 응답은 지금 화면의 것이 아니다 —
     // 상태를 바꾸지도, 폴링을 다시 만들지도 않는다(P2-R1-04).
-    if (mine !== (attempts.get(provider) ?? 0)) return
+    if (!loginAttemptLive(provider, mine)) return
     if ('error' in r) {
       set({ loggingIn: { ...get().loggingIn, [provider]: false } })
       set(one(provider, { state: 'failed', detail: r.error?.message ?? '', version: null }))
@@ -185,7 +205,7 @@ export const useConnect = create<ConnectState>((set, get) => ({
     })
   },
   cancel: async (provider) => {
-    attempts.set(provider, (attempts.get(provider) ?? 0) + 1)   // 이 공급자의 진행 중 로그인 응답을 무효로 만든다
+    invalidateLoginAttempt(provider)   // 이 공급자의 진행 중 로그인 응답을 무효로 만든다
     stopPoll(provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
     await window.knuaf.connect.cancel(provider)
