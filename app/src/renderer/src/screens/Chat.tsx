@@ -12,6 +12,7 @@ import { AccountChooser, useAccountProvider } from '../components/AccountChooser
 import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Icon } from '../components/Icon'
+import { RuntimeFix } from '../components/RuntimeFix'
 import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, describeChatError } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
@@ -185,6 +186,8 @@ export function Chat() {
   const settings = useProject((s) => s.settings)
   const pStatus = useProject((s) => s.status)
   const pError = useProject((s) => s.error)
+  const pOpenFailure = useProject((s) => s.openFailure)
+  const openProjectRoot = useProject((s) => s.open)
   const clearPError = useProject((s) => s.clearError)
   const openSheet = useProject((s) => s.openSheet)
   const events = useProject((s) => s.events)
@@ -399,6 +402,11 @@ export function Chat() {
         {waiting && <ZoneLine tone="wait" title={waiting === 'prep' ? CHAT.preparingLine : CHAT.appBusyTitle}
           sub={waitingPrep ? CHAT.preparingQueued : waiting === 'write' ? CHAT.appBusyWaitSub : undefined} />}
         {pError && <ZoneLine tone={toneOf(pError.kind)} title={pError.title} sub={pError.action} raw={pError.raw} onClose={clearPError} />}
+        {/* 전역 오류로 같은 실패가 뜨는 자리 — 재시도 대상 root 는 store 가 오류와 함께 보관한
+            `openFailure.root` 다(이전 프로젝트 root 가 아니다). */}
+        {pError && pOpenFailure && pError.code === pOpenFailure.code && (
+          <RuntimeFix failure={pOpenFailure} onRetry={async () => (await openProjectRoot(pOpenFailure.root)) === null} />
+        )}
         {chatErr && <ZoneLine tone={toneOf(chatErr.kind)} title={chatErr.title} sub={chatErr.action} raw={chatErr.raw} onClose={clearError} />}
         {snapshot && haltKey && !closedNotes.has(haltKey) && (
           <ZoneLine tone="attn" title={snapshot.state === 'stopped' ? CHAT.stoppedTitle : CHAT.interruptedTitle} sub={snapshot.state === 'stopped' ? CHAT.stoppedBody : CHAT.interruptedBody}

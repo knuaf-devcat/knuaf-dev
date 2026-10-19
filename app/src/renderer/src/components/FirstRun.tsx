@@ -4,7 +4,9 @@ import { displayState, useConnect, canAdvance, type ConnInfo, type ConnState } f
 import type { ChatMode } from '../store/chat'
 import { FolderPicker } from './FolderPicker'
 import { ConnectBadges, ConnectRow } from './ConnectRow'
-import { FOLDER, ONBOARD, PRIVACY_NOTE } from '../copy'
+import { Feedback } from './Feedback'
+import { RuntimeFix } from './RuntimeFix'
+import { CLOSE_LABEL, FOLDER, ONBOARD, PRIVACY_NOTE } from '../copy'
 import type { Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -27,7 +29,9 @@ const MODE: Record<Provider, ChatMode> = { codex: 'codex-chat', claude: 'claude-
 const ROWS: Provider[] = ['codex', 'claude']
 
 export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) => void }) {
-  const { settings, loadSettings } = useProject(useShallow((s) => ({ settings: s.settings, loadSettings: s.loadSettings })))
+  const { settings, loadSettings, error, openFailure, clearError, open } = useProject(useShallow((s) => ({
+    settings: s.settings, loadSettings: s.loadSettings, error: s.error, openFailure: s.openFailure, clearError: s.clearError, open: s.open
+  })))
   const { codex, claude, selected, loggingIn, select, refreshAll, stopPolling } = useConnect(useShallow((s) => ({
     codex: s.codex, claude: s.claude, selected: s.selected, loggingIn: s.loggingIn, select: s.select,
     refreshAll: s.refreshAll, stopPolling: s.stopPolling
@@ -86,6 +90,15 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
 
   return (
     <>
+      {/* 메뉴(Finder·독)에서 폴더를 열다 실패한 경우 — 어느 단계에 있든 그 실패와 준비 버튼을
+          여기서 한 번 보여 준다. FolderPicker 는 이 경우 같은 오류를 되풀이하지 않는다. */}
+      {error && openFailure && error.code === openFailure.code && (
+        <>
+          <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>}
+            actions={<button onClick={clearError}>{CLOSE_LABEL}</button>} />
+          <RuntimeFix failure={openFailure} onRetry={async () => (await open(openFailure.root, { local: true })) === null} />
+        </>
+      )}
       {/* 길잡이 — 번호 원 없이 한 줄(DESIGN §6). 지난 단계는 ✓ 로 끝난 것을 말한다. */}
       <div className="caption onb-way">
         <strong className={here('connect')}>{connectDone ? ONBOARD.guideConnectDone : ONBOARD.guideConnect}</strong>

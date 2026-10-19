@@ -43,6 +43,12 @@ interface ProjectState {
   depsReady: boolean | null
   loading: boolean
   error: DescribedError | null
+  /**
+   * 시작 단계에서 실패한 **그 요청**의 정보(PY-D1-03). 준비 버튼의 조건과 재시도 대상 root 는
+   * 오직 여기서 온다 — `sidecar` 는 성공한 프로젝트의 값이라 첫 실패·이전 프로젝트에서 틀린다.
+   * 오류 카드를 닫으면(`clearError`) 같이 지운다.
+   */
+  openFailure: { root: string; sidecar: SidecarInfo; code: string } | null
   sidecar: (SidecarInfo & { basePython?: string; wheelhouse?: string | null }) | null
   settings: Settings | null
   /** 열려 있는 시트. null이면 논문·대화만 보인다. */
@@ -155,6 +161,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   depsReady: null,
   loading: false,
   error: null,
+  openFailure: null,
   sidecar: null,
   settings: null,
   sheet: null,
@@ -224,18 +231,29 @@ export const useProject = create<ProjectState>((set, get) => ({
     void window.knuaf.setSettings({ ui_prefs: prefs }).then(() => get().loadSettings())
   },
   open: async (root, opts) => {
-    set({ loading: true, error: null })
+    set({ loading: true, error: null, openFailure: null })
     const r = await window.knuaf.openProject(root)
     if (r.error) {
       const d = describeError(r.error)
       if (!opts?.local) set({ error: d })
-      set({ loading: false })
+      // 실패한 그 선택의 python·kind 와 재시도 대상 root 를 오류와 함께 보관한다(PY-D1-03).
+      // 이전 프로젝트의 store.sidecar 로 판단하면 첫 실패에서 버튼이 서지 않고, 다른 논문을
+      // 열었던 세션에서는 틀린 kind 로 판단한다.
+      set({ loading: false, openFailure: r.startupFailed && r.sidecar ? { root, sidecar: r.sidecar, code: r.error.code } : null })
       return d
     }
+    // 위에서 error 분기를 돌려보냈으므로 result 는 반드시 있다 — 없으면 계약 위반이므로
+    // 빈 폴더처럼 다루지 않고 명시적으로 실패한다.
+    if (!r.result) {
+      const d = describeError({ code: 'internal', message: 'project:open 응답에 result 가 없음' })
+      set({ loading: false, error: d })
+      return d
+    }
+    const opened = r.result
     const peek = await window.knuaf.peekProject(root)
     const settings = get().settings
     set({
-      root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null,
+      root, hasProject: opened.hasProject, sidecar: opened.sidecar, status: null, peek, depsReady: null,
       // 폴더마다 다른 취향이므로 폴더가 바뀌면 여기서 다시 읽는다(전역 settings 는 그대로).
       paperClosed: settings?.ui_prefs?.[root]?.paperClosed === true
     })
@@ -250,10 +268,10 @@ export const useProject = create<ProjectState>((set, get) => ({
     set({ events: [], sections: null, materials: null, artifacts: null, buildTree: null, projectLoad: null, focusedSection: null, paneView: 'chat' })
     canonPoll = setInterval(() => { void get().watchCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
-    const nested = (r.result as { nestedProject?: string | null }).nestedProject
+    const nested = opened.nestedProject
     if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
     await get().loadSettings()
-    if (r.result.hasProject) await get().refresh()
+    if (opened.hasProject) await get().refresh()
     else { set({ loading: false }); set({ sections: null }) }
     // 준비는 폴더를 여는 순간 백그라운드로 시작하고 실패만 표면화한다(03-화면/01 결정).
     // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
@@ -336,7 +354,8 @@ export const useProject = create<ProjectState>((set, get) => ({
     if (!root) return
     try { const d = await rpc.doctor(root); set({ depsReady: !!d.deps?.ready }) } catch { set({ depsReady: null }) }
   },
-  clearError: () => set({ error: null }),
+  // 오류 카드를 닫으면 그 요청의 실패 정보도 같이 지운다 — 버튼이 사라진 뒤 재시도 대상만 남지 않게.
+  clearError: () => set({ error: null, openFailure: null }),
   helper: { open: false, status: null, result: null, error: null },
   openHelper: async () => {
     set({ helper: { open: true, status: null, result: null, error: null } })
