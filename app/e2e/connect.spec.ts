@@ -9,8 +9,9 @@ import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
 import { writeCliShim } from './fixtures/fake-codex'
 import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
+import { useChat } from '../src/renderer/src/store/chat'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
-import type { ConnectionStatus } from '../src/shared/chat'
+import type { ConnectionStatus, Provider } from '../src/shared/chat'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
@@ -296,6 +297,243 @@ test('다시 열기 뒤 취소는 새 로그인 프로세스까지 끝낸다 (P2
 })
 
 // ---------------------------------------------------------------- 취소한 로그인 시도
+
+/** 타이머를 세는 가짜 시계 — 공급자별 폴링이 서로를 지우는지 본다. */
+function countingTimers(): { timers: Set<unknown>; restore: () => void } {
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  const timers = new Set<unknown>()
+  globalThis.setInterval = ((fn: () => void, ms?: number) => { const t = realSetInterval(fn, ms); timers.add(t); return t }) as unknown as typeof setInterval
+  globalThis.clearInterval = ((t?: unknown) => { timers.delete(t); return realClearInterval(t as never) }) as unknown as typeof clearInterval
+  return { timers, restore: () => { for (const t of timers) realClearInterval(t as never); globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval } }
+}
+
+/**
+ * 연결 IPC 대역 — 로그인은 **공급자별로 보류**해 두고, 시험이 원하는 순서로 성공시킨다.
+ * `status` 는 늘 "아직 연결 안 됨"이라고 답한다(폴링이 스스로 끝나지 않게).
+ */
+function pendingConnections(): {
+  release: (provider: Provider, value: unknown) => void
+  restore: () => void
+} {
+  const waiting = new Map<Provider, (v: unknown) => void>()
+  const realWindow = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: { connect: {
+      status: async () => ({ result: { installed: true, connected: false, version: null, detail: '', probe: 'ok' } }),
+      login: (provider: Provider) => new Promise((resolve) => { waiting.set(provider, resolve) }),
+      cancel: async () => ({ result: true }),
+      reopen: async () => ({ result: true })
+    } }
+  }
+  return {
+    release: (provider, value) => { waiting.get(provider)?.(value) },
+    restore: () => { (globalThis as { window?: unknown }).window = realWindow }
+  }
+}
+
+test('한 공급자의 로그인 시작은 다른 공급자의 폴링·시도 번호를 건드리지 않는다 (W2 D1)', async () => {
+  // W1 재현 ②: Claude 로그인을 시작하는 것만으로 GPT 의 로그인 응답이 무효가 되고 폴링이
+  // 사라져, GPT 가 실제로 연결됐는데도 행이 "로그인 중"에 멈췄다.
+  const clock = countingTimers()
+  const ipc = pendingConnections()
+  try {
+    const store = useConnect.getState()
+    store.stopPolling()
+    const codexRun = store.login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    const claudeRun = store.login('claude')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useConnect.getState().loggingIn, '두 로그인이 동시에 진행 중이어야 한다').toEqual({ codex: true, claude: true })
+
+    ipc.release('codex', { result: true })
+    await codexRun
+    // GPT 응답이 버려지지 않았다 — 그 공급자의 폴링이 생겼다.
+    expect(clock.timers.size, 'GPT 로그인 응답이 Claude 시작 때문에 버려졌다').toBe(1)
+    ipc.release('claude', { result: true })
+    await claudeRun
+    // 둘 다 저마다의 타이머를 갖는다 — 하나가 다른 하나를 지우지 않는다.
+    expect(clock.timers.size).toBe(2)
+  } finally {
+    useConnect.getState().stopPolling()
+    clock.restore()
+    ipc.restore()
+  }
+})
+
+test('한 공급자 취소는 다른 공급자의 폴링을 멈추지 않는다 (W2 D1)', async () => {
+  const clock = countingTimers()
+  const ipc = pendingConnections()
+  try {
+    const store = useConnect.getState()
+    store.stopPolling()
+    const codexRun = store.login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    ipc.release('codex', { result: true })
+    await codexRun
+    const claudeRun = store.login('claude')
+    await new Promise((r) => setTimeout(r, 0))
+    ipc.release('claude', { result: true })
+    await claudeRun
+    expect(clock.timers.size).toBe(2)
+
+    await store.cancel('codex')
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+    expect(clock.timers.size, 'GPT 취소가 Claude 의 기다림까지 끊었다').toBe(1)
+  } finally {
+    useConnect.getState().stopPolling()
+    clock.restore()
+    ipc.restore()
+  }
+})
+
+/** 손으로 돌리는 타이머 — 콜백을 모아 두고 시험이 원하는 순서로 한 번씩 돌린다. */
+function manualTimers(): { timers: Map<unknown, () => void>; runAll: () => Promise<void>; restore: () => void } {
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  const timers = new Map<unknown, () => void>()
+  globalThis.setInterval = ((fn: () => void) => { const t = {}; timers.set(t, fn); return t }) as unknown as typeof setInterval
+  globalThis.clearInterval = ((t?: unknown) => { timers.delete(t); return 0 }) as unknown as typeof clearInterval
+  return {
+    timers,
+    runAll: async () => {
+      for (const fn of [...timers.values()]) fn()
+      for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0))   // tick 의 await 를 흘려보낸다
+    },
+    restore: () => { globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval }
+  }
+}
+
+test('같은 방문에서 팝오버 로그인으로 대체된 폴더 로그인도 busy 를 남기지 않는다 (R2-C01 2차)', async () => {
+  // 확인 판정서의 1~4 순서 그대로: 폴더 로그인 보류 → (폴더·공급자 그대로) 팝오버가 같은
+  // 공급자로 새 로그인 시작·성공 → 옛 폴더 응답 해제 → 새 감시가 연결을 확인해 로그인 완료.
+  // 조기 반환이 `busy` 해제까지 건너뛰면, 로그인은 끝났는데도 보내기·로그인·다시 확인이 잠긴다.
+  const clock = manualTimers()
+  const realWindow = (globalThis as { window?: unknown }).window
+  let releaseChatLogin: (v: unknown) => void = () => {}
+  const chatLogin = new Promise<unknown>((resolve) => { releaseChatLogin = resolve })
+  let releaseConnectLogin: (v: unknown) => void = () => {}
+  const connectLogin = new Promise<unknown>((resolve) => { releaseConnectLogin = resolve })
+  /** 폴링 tick 이 물을 때 답 — 3단계에서 로그인이 끝난 뒤로 바뀐다. */
+  let connected = false
+  const status = () => ({ result: { installed: true, connected, version: null, detail: '', probe: 'ok' } })
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: {
+      chat: {
+        login: () => chatLogin,
+        snapshot: async () => ({ result: { root: '/fake/paper', provider: 'codex', state: 'idle', messages: [] } }),
+        status: async () => status(),
+        draft: async () => ({ result: '' })
+      },
+      connect: {
+        status: async () => status(),
+        login: () => connectLogin,
+        cancel: async () => ({ result: true }),
+        reopen: async () => ({ result: true })
+      }
+    }
+  }
+  const chatBefore = useChat.getState()
+  try {
+    useConnect.getState().stopPolling()
+    useChat.setState({ root: '/fake/paper', provider: 'codex', visit: 0, busy: false })
+
+    // ① 폴더 화면의 로그인 — 응답을 보류한다.
+    const folderLogin = useChat.getState().login()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useChat.getState().busy, '폴더 로그인이 시작되지 않았다').toBe(true)
+
+    // ② 폴더도 공급자도 그대로인 채, 계정 팝오버가 같은 공급자로 새 로그인을 시작해 성공한다.
+    const popoverLogin = useConnect.getState().login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseConnectLogin({ result: true })
+    await popoverLogin
+    expect(clock.timers.size, '새 로그인의 감시가 생기지 않았다').toBe(1)
+
+    // ③ 이제야 ①의 옛 응답이 도착한다 — 폴링은 새 시도의 것이므로 만들지 않는다.
+    releaseChatLogin({ result: true })
+    await folderLogin
+    expect(clock.timers.size, '옛 응답이 새 감시를 갈아 끼웠다').toBe(1)
+    expect(useChat.getState().busy, '대체된 폴더 로그인이 busy 를 남겼다').toBe(false)
+
+    // ④ 새 감시가 연결을 확인하면 로그인이 끝난다 — 감시도 표시도 남지 않는다.
+    connected = true
+    await clock.runAll()
+    expect(clock.timers.size, '연결을 확인한 감시가 남았다').toBe(0)
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+    expect(useConnect.getState().codex.state).toBe('connected')
+    expect(useChat.getState().busy).toBe(false)
+  } finally {
+    useConnect.getState().stopPolling()
+    useChat.setState({ ...chatBefore, visit: 0, busy: false })
+    clock.restore()
+    ;(globalThis as { window?: unknown }).window = realWindow
+  }
+})
+
+test('폴더 로그인의 옛 응답은 계정 팝오버가 시작한 새 감시를 갈아 끼우지 않는다 (R2-C01)', async () => {
+  // 판정서 R2-C01 의 순서 그대로: 폴더 로그인 응답을 보류 → 공급자 전환 → 새 connect.login 성공
+  // → 옛 응답 해제. 옛 코드는 여기서 startPoll 을 불러 새 타이머를 교체했고, 그 타이머는 첫 tick
+  // 에서 "공급자가 바뀌었다"를 보고 스스로 꺼져 감시가 0개가 됐다.
+  const clock = manualTimers()
+  const realWindow = (globalThis as { window?: unknown }).window
+  let releaseChatLogin: (v: unknown) => void = () => {}
+  const chatLogin = new Promise<unknown>((resolve) => { releaseChatLogin = resolve })
+  let releaseConnectLogin: (v: unknown) => void = () => {}
+  const connectLogin = new Promise<unknown>((resolve) => { releaseConnectLogin = resolve })
+  const okStatus = { result: { installed: true, connected: false, version: null, detail: '', probe: 'ok' } }
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: {
+      chat: {
+        login: () => chatLogin,
+        snapshot: async () => ({ result: { root: '/fake/paper', provider: 'claude', state: 'idle', messages: [] } }),
+        status: async () => okStatus,
+        draft: async () => ({ result: '' })
+      },
+      connect: {
+        status: async () => okStatus,
+        login: () => connectLogin,
+        cancel: async () => ({ result: true }),
+        reopen: async () => ({ result: true })
+      }
+    }
+  }
+  const chatBefore = useChat.getState()
+  try {
+    useConnect.getState().stopPolling()
+    useChat.setState({ root: '/fake/paper', provider: 'codex', visit: 0, busy: false })
+
+    const folderLogin = useChat.getState().login()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useChat.getState().busy, '폴더 로그인이 시작되지 않았다').toBe(true)
+
+    // ② 그 사이 학생이 다른 공급자로 옮긴다.
+    await useChat.getState().load('/fake/paper', 'claude')
+    expect(useChat.getState().provider).toBe('claude')
+
+    // ③ 계정 팝오버가 같은 공급자(codex)로 새 로그인을 시작해 성공한다 — 새 감시가 생긴다.
+    const popoverLogin = useConnect.getState().login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseConnectLogin({ result: true })
+    await popoverLogin
+    expect(clock.timers.size, '새 로그인의 감시가 생기지 않았다').toBe(1)
+
+    // ④ 이제야 ①의 옛 응답이 도착한다.
+    releaseChatLogin({ result: true })
+    await folderLogin
+    expect(clock.timers.size, '옛 응답이 새 감시를 갈아 끼웠다').toBe(1)
+
+    // ⑤ 그 타이머를 한 번 돌려도 살아 있어야 한다 — 옛 코드는 여기서 스스로 꺼졌다.
+    await clock.runAll()
+    expect(clock.timers.size, '새 감시가 첫 tick 에서 사라졌다').toBe(1)
+    expect(useConnect.getState().loggingIn.codex, '새 시도의 로그인 중 표시가 유지되지 않았다').toBe(true)
+  } finally {
+    useConnect.getState().stopPolling()
+    useChat.setState({ ...chatBefore, visit: 0, busy: false })
+    clock.restore()
+    ;(globalThis as { window?: unknown }).window = realWindow
+  }
+})
 
 test('취소 뒤 늦은 로그인 응답은 폴링을 되살리지 않는다 (P2-R1-04)', async () => {
   // 타이머를 세는 가짜 시계 — 취소 뒤에도 폴링이 남는지 본다.

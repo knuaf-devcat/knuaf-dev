@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
-import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
+import { fakeCodexEnv, scratch, writeFakeClaude } from './fixtures/fake-codex'
 
 const OUT = process.env.KNUAF_QA_SHOTS_DIR ?? resolve('/Users/nara/knuaf-dev/docs/design/gui-2026-10-opus-v5/impl/shots-qa')
 const noShots = process.env.KNUAF_QA_SHOTS !== '1' || !existsSync(resolve(OUT, '..'))
@@ -30,6 +30,7 @@ for (const scheme of ['light', 'dark'] as const) {
     mkdirSync(OUT, { recursive: true })
     const dir = scratch()
     const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+    writeFakeClaude(join(dir, 'bin'))   // 저장된 선택(codex)+둘 다 연결 → 재실행 첫 화면이 폴더 단계(W2 D2)
     const root = synthProject()
     const shot = async (page: Page, name: string): Promise<void> => {
       await settled(page)

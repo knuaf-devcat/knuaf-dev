@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { isPreparing, waitPrepared } from './prep'
-import { connInfoOf, startPoll, stopPoll, type ConnState } from './connect'
+import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, type ConnState } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
@@ -138,7 +138,9 @@ export const useChat = create<ChatState>((set, get) => ({
   appendDraft: (text) => get().insertPath(text),
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
-    stopPoll()   // 폴더가 바뀌면 이전 로그인 기다림은 끝난다(규칙은 store/connect 한 곳에 있다)
+    // 폴더·공급자가 바뀌면 **이전 대화의** 로그인 기다림만 끝난다(규칙은 store/connect 한 곳에 있다).
+    // 첫 화면이 다른 공급자의 로그인을 지켜보고 있어도 여기서 끊기지 않는다(W2 D1).
+    stopPoll(get().provider)
     // 초안을 비우는 것은 폴더가 바뀔 때뿐이다 — A 에 쓰다 만 답변이 B 에 그대로
     // 보이는 것을 막는 게 목적이다(GUI-01). 같은 폴더의 재로드(공급자 전환, 첫 로드가
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
@@ -206,13 +208,32 @@ export const useChat = create<ChatState>((set, get) => ({
   login: async () => {
     const { root, provider } = get()
     if (!root) return
-    stopPoll()
+    // 이 방문(visit)과 이 공급자의 시도 표를 들고 시작한다. 응답은 브라우저 왕복 뒤에 오므로,
+    // 그 사이 학생이 다른 폴더·공급자로 떠났거나 같은 공급자의 새 로그인을 시작했을 수 있다.
+    const mine = beginLoginAttempt(provider)
+    const visitAtStart = get().visit
+    stopPoll(provider)   // 같은 공급자의 이전 기다림만 끝낸다 — 다른 공급자의 로그인은 건드리지 않는다
     set({ busy: true, error: null })
     const r = await window.knuaf.chat.login(root, provider) as Reply<true>
+    /**
+     * 옛 응답은 지금 화면의 것이 아니다 — 상태도 폴링도 건드리지 않는다(R2-C01).
+     * 예전에는 무조건 `startPoll` 을 불러, 늦게 도착한 폴더 로그인 응답이 그 사이 계정 팝오버가
+     * 시작한 **새** 로그인의 감시를 갈아 끼웠다. 그 새 타이머는 첫 tick 에서 "공급자가 바뀌었다"를
+     * 보고 스스로 꺼져, 실제로는 로그인 중인데 감시가 하나도 남지 않았다.
+     *
+     * 폴더·공급자를 떠났으면 `load` 가 이미 `busy` 를 풀었다 — 여기서 다시 건드리지 않는다.
+     */
+    if (get().visit !== visitAtStart || get().provider !== provider) return
+    /**
+     * 같은 방문·같은 공급자에서 이 응답만 새 시도(계정 팝오버)로 대체됐다면, 폴링·상태·오류는
+     * 새 시도의 것이다. 그래도 **내 방문의 busy 는 내가 내린다** — 팝오버 로그인은 `useChat.busy`
+     * 를 풀지 않으므로, 여기서 두면 로그인이 끝난 뒤에도 보내기·로그인·다시 확인 단추가 잠긴다.
+     */
+    if (!loginAttemptLive(provider, mine)) { set({ busy: false }); return }
     set({ busy: false, error: messageOf(r) })
     if ('error' in r && r.error) return
     // 브라우저 로그인은 오래 걸린다 — 3초마다, 3분까지. 이 폴더의 연결 상태를 다시 본다.
-    startPoll(async () => {
+    startPoll(provider, async () => {
       if (get().provider !== provider) return true   // 공급자가 바뀌었으면 이 기다림은 끝난 것이다
       await get().refreshStatus()
       return get().status?.connected === true

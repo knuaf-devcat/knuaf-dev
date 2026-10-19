@@ -38,8 +38,14 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
     refreshAll: s.refreshAll, stopPolling: s.stopPolling
   })))
   const [step, setStep] = useState<'connect' | 'folder'>('connect')
-  /** 로그인을 시킨 공급자 — 그 로그인이 성공하면 그 선택을 기록한다(로그인 자체가 선택이다). */
-  const loginTarget = useRef<Provider | null>(null)
+  /**
+   * 로그인을 시작한 공급자들 — 그 로그인이 성공하면 그중 하나가 선택 후보가 된다.
+   * 하나가 아니라 **집합**인 이유(W2 D3, R1-D02): 선택 없이 둘을 연달아 로그인하면,
+   * 단일 값이던 시절에는 마지막에 시작한 쪽만 성공을 알아채 다른 쪽 성공이 버려졌다.
+   */
+  const loginTargets = useRef<Set<Provider>>(new Set())
+  /** 선택 확정(비동기 설정 쓰기 + 재조회)이 도는 동안 — 두 성공이 겹쳐 두 번 저장하지 않게. */
+  const confirming = useRef(false)
   /** 건너뛰기 판정은 한 번만 한다 — 상태가 오갈 때마다 화면이 튀지 않게. */
   const settled = useRef(false)
   /**
@@ -63,22 +69,45 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
     select(p)
   }
 
-  // 고른 적이 있고 그 공급자가 연결돼 있으면 ①을 건너뛴다(IMPL-PLAN §4-3 건너뛰기 규칙).
+  /**
+   * 1단계를 건너뛰는 조건(W2 D2, R1-D01): 저장된 선택이 연결돼 있고 **다른 공급자도** 연결돼
+   * 있을 때만. 하나만 연결돼 있으면 이 화면에 남는다 — 둘 다 연결하려는 학생에게서 다른 쪽
+   * 로그인 단추를 빼앗지 않는다.
+   *
+   * 판정은 **양쪽의 최초 확인이 모두 끝난 뒤 한 번**이다. 저장된 쪽 응답만 먼저 와서 판정하면
+   * 같은 입력이 조회 순서에 따라 다른 화면이 된다(설계 검토 R1-D01).
+   */
   useEffect(() => {
     const stored = storedChoice.current
     if (settled.current || !stored) return
-    if (stateOf(stored) === 'checking') return
+    if (stateOf('codex') === 'checking' || stateOf('claude') === 'checking') return
     settled.current = true
-    if (canAdvance(stored, stateOf)) { select(stored); setStep('folder') }
+    const other: Provider = stored === 'codex' ? 'claude' : 'codex'
+    if (canAdvance(stored, stateOf) && stateOf(other) === 'connected') { select(stored); setStep('folder') }
   }, [codex, claude, loggingIn])
 
-  // 로그인이 끝나면 그 공급자를 고른 것으로 기록한다.
+  /**
+   * 로그인이 끝나면 그 공급자를 고른 것으로 기록한다 — 단, **아직 연결된 선택이 없을 때만**
+   * (W2 D3). 이미 연결된 공급자를 골라 둔 상태에서 다른 쪽을 추가로 연결하면 선택은 그대로
+   * 두고 그 행에 "이걸로 시작"이 뜬다. 두 번째 연결이 학생 모르게 대화 공급자를 바꾸지 않는다.
+   *
+   * 후보는 공급자별로 모으고(동시 로그인), 끝난 후보(연결·실패·취소)는 지운다. 두 성공이
+   * 겹치면 먼저 성공한 쪽이 확정된다 — `confirming` 이 중복 저장을 막는다.
+   */
   useEffect(() => {
-    const target = loginTarget.current
-    if (!target || stateOf(target) !== 'connected') return
-    loginTarget.current = null
-    void remember(target)
-  }, [codex, claude, loggingIn])
+    const candidates = loginTargets.current
+    if (!candidates.size) return
+    const connected = [...candidates].filter((p) => stateOf(p) === 'connected')
+    for (const p of [...candidates]) {
+      if (connected.includes(p)) continue
+      if (!loggingIn[p] && stateOf(p) !== 'checking') candidates.delete(p)   // 실패·취소로 끝난 후보
+    }
+    if (!connected.length || confirming.current) return
+    for (const p of connected) candidates.delete(p)
+    if (selected && stateOf(selected) === 'connected') return   // 이미 연결된 선택은 보존한다
+    confirming.current = true
+    void remember(connected[0]).finally(() => { confirming.current = false })
+  }, [codex, claude, loggingIn, selected])
 
   /**
    * 전진 조건은 하나다 — **고른 것이 지금 연결돼 있다**(P2-R1-03). 저장된 선택만 보고 넘어가면
@@ -123,7 +152,7 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
               /* 상태 문구·행동 단추는 계정 팝오버와 **같은 부품**이다(ConnectRow). 여기서만
                  "권장/실험 중" 표시와 "이걸로 시작"이 붙는다. */
               <ConnectRow key={p} provider={p} badges={<ConnectBadges provider={p} />}
-                onLogin={(who) => { loginTarget.current = who }}
+                onLogin={(who) => { loginTargets.current.add(who) }}
                 suffix={stateOf(p) === 'connected' && p === selected ? ONBOARD.chosenSuffix : undefined}
                 extra={stateOf(p) === 'connected' && selected !== p
                   ? { label: ONBOARD.startWith, run: () => void remember(p).then(() => setStep('folder')) }

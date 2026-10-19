@@ -53,28 +53,77 @@ type Reply<T> = { result: T } | { error: { code: string; message: string } }
 const POLL_MS = 3_000
 const POLL_LIMIT_MS = 180_000
 
+/** 로그인 감시 타이머 핸들 — 런타임(DOM/Node)에 따라 모양이 달라 이름을 한 번만 붙인다. */
+type PollTimer = ReturnType<typeof setInterval>
+
 /**
- * 로그인을 지켜보는 폴링 **하나**. 첫 화면(전역 연결)과 폴더 화면(`useChat.login`)이 같은
- * 규칙을 쓴다 — 두 곳에 타이머를 두면 한쪽만 바뀐다(설계 §4-3: "폴링은 이리로 옮긴다").
- * `tick` 이 true 를 돌려주면(연결됨) 멈춘다. 폴더를 바꾸면 `stopPoll()` 로 끊는다.
+ * 로그인을 지켜보는 폴링 — **공급자마다 하나**. 첫 화면(전역 연결)과 폴더 화면
+ * (`useChat.login`)이 같은 규칙을 쓴다 — 두 곳에 타이머를 두면 한쪽만 바뀐다
+ * (설계 §4-3: "폴링은 이리로 옮긴다").
+ *
+ * 공급자별인 이유(W2 D1): 예전에는 전역 타이머 하나여서 Claude 로그인을 시작하는 순간
+ * GPT 로그인 감시가 사라졌다. 실제로는 GPT 가 연결됐는데도 화면은 "로그인 중"에 멈췄다.
+ * 한 공급자의 시작·취소는 다른 공급자의 타이머를 건드리지 않는다.
+ *
+ * `tick` 이 true 를 돌려주면(연결됨) 멈춘다. 폴더를 바꾸거나 화면을 떠나면 `stopPoll()` —
+ * 인자 없이 부르면 전부 멈춘다.
  */
-let poll: ReturnType<typeof setInterval> | null = null
-export function stopPoll(): void { if (poll) { clearInterval(poll); poll = null } }
-export function startPoll(tick: () => Promise<boolean>): void {
-  stopPoll()
+const polls = new Map<Provider, PollTimer>()
+export function stopPoll(provider?: Provider): void {
+  if (provider) {
+    const timer = polls.get(provider)
+    if (timer) { clearInterval(timer); polls.delete(provider) }
+    return
+  }
+  for (const timer of polls.values()) clearInterval(timer)
+  polls.clear()
+}
+export function startPoll(provider: Provider, tick: () => Promise<boolean>): void {
+  stopPoll(provider)
   const deadline = Date.now() + POLL_LIMIT_MS
-  poll = setInterval(() => {
-    void (async () => { if (await tick() || Date.now() > deadline) stopPoll() })()
+  const timer = setInterval(() => {
+    void (async () => {
+      const done = await tick()
+      // 기다리는 사이 새 시도가 이 타이머를 갈아 끼웠으면 이 응답은 지금 것의 것이 아니다.
+      if (polls.get(provider) !== timer) return
+      if (done || Date.now() > deadline) stopPoll(provider)
+    })()
   }, POLL_MS)
+  polls.set(provider, timer)
 }
 
 /**
- * 로그인 시도 번호. 취소가 이 번호를 올리면, **이미 진행 중이던** 로그인 IPC 의 늦은 응답은
- * 무효다(P2-R1-04). 취소는 그 순간 살아 있는 타이머만 없앨 수 있어서, 응답이 뒤늦게
- * 도착해 폴링을 다시 만들면 취소가 화면에서만 일어난 것처럼 보인다 — Codex 의 로그인
- * 응답은 브라우저 열기까지 기다리므로 이 순서가 실제로 난다.
+ * 로그인 시도 번호 — **공급자마다**. 취소·새 시도가 그 공급자의 번호를 올리면, **이미 진행
+ * 중이던** 그 공급자의 로그인 IPC 늦은 응답은 무효다(P2-R1-04). 취소는 그 순간 살아 있는
+ * 타이머만 없앨 수 있어서, 응답이 뒤늦게 도착해 폴링을 다시 만들면 취소가 화면에서만 일어난
+ * 것처럼 보인다 — Codex 의 로그인 응답은 브라우저 열기까지 기다리므로 이 순서가 실제로 난다.
+ *
+ * 공급자별인 이유(W2 D1): 전역 번호 하나였을 때는 Claude 로그인을 시작하는 것만으로
+ * GPT 의 유효한 로그인 응답이 무효 처리돼, GPT 가 실제로 연결됐는데도 `loggingIn` 이
+ * true 인 채 남았다.
  */
-let attempt = 0
+const attempts = new Map<Provider, number>()
+
+/**
+ * 로그인 시도 소유권 — 첫 화면(`useConnect.login`)과 폴더 화면(`useChat.login`)이 **같은 표**를
+ * 쓴다. 두 화면이 같은 공급자의 로그인을 따로 시작할 수 있으므로, 나중에 시작한 쪽이 이기고
+ * 먼저 시작한 쪽의 늦은 응답은 무효다(R2-C01).
+ *
+ * 시작은 번호를 올려 이번 시도의 표를 받고, 응답이 온 뒤 `loginAttemptLive` 로 아직 자기 것인지
+ * 묻는다. 표가 바뀌었으면(취소·새 시도) 그 응답은 상태도 폴링도 건드리지 않는다.
+ */
+export function beginLoginAttempt(provider: Provider): number {
+  const mine = (attempts.get(provider) ?? 0) + 1
+  attempts.set(provider, mine)
+  return mine
+}
+export function loginAttemptLive(provider: Provider, mine: number): boolean {
+  return (attempts.get(provider) ?? 0) === mine
+}
+/** 그 공급자의 진행 중 로그인 응답을 무효로 만든다(취소). */
+export function invalidateLoginAttempt(provider: Provider): void {
+  attempts.set(provider, (attempts.get(provider) ?? 0) + 1)
+}
 
 /**
  * 지금 대화할 공급자 — 학생이 고른 것(`provider_choice`, 세션에서 고른 것)이 먼저다.
@@ -133,20 +182,22 @@ export const useConnect = create<ConnectState>((set, get) => ({
   },
   refreshAll: async () => { await Promise.all([get().refresh('codex'), get().refresh('claude')]) },
   login: async (provider) => {
-    const mine = ++attempt
-    stopPoll()
+    // 시도 번호와 타이머는 **그 공급자 것만** 건드린다(W2 D1) — 다른 쪽 로그인을 시작해도
+    // 진행 중이던 로그인의 응답이 무효가 되거나 그 감시가 사라지지 않는다.
+    const mine = beginLoginAttempt(provider)
+    stopPoll(provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: true } }))
     const r = await window.knuaf.connect.login(provider) as Reply<true>
-    // 그 사이에 취소했거나 새 시도가 시작됐으면 이 응답은 지금 화면의 것이 아니다 —
+    // 그 사이에 이 공급자를 취소했거나 새 시도가 시작됐으면 이 응답은 지금 화면의 것이 아니다 —
     // 상태를 바꾸지도, 폴링을 다시 만들지도 않는다(P2-R1-04).
-    if (mine !== attempt) return
+    if (!loginAttemptLive(provider, mine)) return
     if ('error' in r) {
       set({ loggingIn: { ...get().loggingIn, [provider]: false } })
       set(one(provider, { state: 'failed', detail: r.error?.message ?? '', version: null }))
       return
     }
     // 로그인이 끝나면 기다림 표시도 내린다.
-    startPoll(async () => {
+    startPoll(provider, async () => {
       await get().refresh(provider)
       const done = displayState(get()[provider], get().loggingIn[provider]) === 'connected'
       if (done) set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
@@ -154,8 +205,8 @@ export const useConnect = create<ConnectState>((set, get) => ({
     })
   },
   cancel: async (provider) => {
-    attempt++   // 진행 중이던 로그인 응답을 무효로 만든다
-    stopPoll()
+    invalidateLoginAttempt(provider)   // 이 공급자의 진행 중 로그인 응답을 무효로 만든다
+    stopPoll(provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
     await window.knuaf.connect.cancel(provider)
     // 취소 뒤의 사실은 다시 물어서 말한다 — "취소했어요"를 상태로 단정하지 않는다.

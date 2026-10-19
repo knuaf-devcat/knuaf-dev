@@ -25,6 +25,7 @@ export function writeCliShim(dir: string, name: string, unixBody: string, winBod
 }
 
 export const FAKE_SERVER = resolve(__dirname, 'fake-codex-server.mjs')
+export const FAKE_CLAUDE = resolve(__dirname, 'fake-claude-server.mjs')
 
 /** 질문 원문 — `skills/knuaf-dev/references/interview-ui.md` 의 질문 화면 형식 그대로. */
 export const QUESTION_1 = `[Q3-2] Ⅲ장 판매 현황 · Ⅵ장 매출 계산에 쓰여요
@@ -112,13 +113,33 @@ export function scratch(): string {
  * 흉내 내는 것은 `claude auth status` 뿐이다(claude.ts status() 가 읽는 전부). 실제 Claude
  * 연결(SDK·작업 실행)은 여기서 띄우지 않는다.
  */
+const CLAUDE_STATUS = {
+  connected: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }),
+  loggedOut: JSON.stringify({ loggedIn: false, authMethod: null, apiProvider: null })
+}
+
 export function writeFakeClaude(dir: string, loggedIn = true): void {
-  const body = loggedIn
-    ? { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }
-    : { loggedIn: false, authMethod: null, apiProvider: null }
+  const body = loggedIn ? CLAUDE_STATUS.connected : CLAUDE_STATUS.loggedOut
   writeCliShim(dir, 'claude',
-    `printf '%s\\n' '${JSON.stringify(body)}'`,
-    `echo ${JSON.stringify(body)}`)
+    `printf '%s\\n' '${body}'`,
+    `echo ${body}`)
+}
+
+/**
+ * 로그인 상태가 **파일에 따라 바뀌는** 가짜 `claude` — `auth login` 이 그 파일을 만들고,
+ * `auth status` 는 파일이 있으면 연결됨으로 답한다. 로그인 전이(로그인 전 → 폴링이 연결을
+ * 알아챔)를 앱 안에서 재현하는 데 쓴다. 실제 Claude·실제 계정은 건드리지 않는다.
+ *
+ * **셸에서 인자를 판정하지 않는다.** 이 앱은 윈도우에서 `.cmd` 를 `cmd.exe` 로 감싸고 npm shim
+ * 처럼 `%*` 재파싱을 가정해 인자를 두 번 이스케이프한다(`main/win.ts`). 그래서 `.cmd` 안의
+ * `if "%2"=="status"` 는 이스케이프가 남은 값과 만나 절대 참이 되지 않고, CLI 가 아무것도
+ * 출력하지 않아 연결이 "확인 실패"가 된다(윈도우 CI 실패). `fake-codex` 와 같이 node 로
+ * `%*` 를 그대로 넘겨 양쪽 OS 에서 같은 인자를 받는다.
+ */
+export function writeStatefulClaude(dir: string, state: string): void {
+  writeCliShim(dir, 'claude',
+    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_CLAUDE)} ${JSON.stringify(state)} "$@"`,
+    `"${process.execPath}" "${FAKE_CLAUDE}" "${state}" %*`)
 }
 
 /**
