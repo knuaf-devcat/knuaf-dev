@@ -19,6 +19,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { synthProject } from './helpers'
+import { fakeCodexEnv, scratch, writeFakeClaude } from './fixtures/fake-codex'
 
 const app = resolve(__dirname, '..')
 const repo = resolve(app, '..')
@@ -26,10 +27,11 @@ const scripts = join(repo, 'skills', 'knuaf-dev', 'scripts')
 const python = process.env.KNUAF_PYTHON ?? join(repo, '.venv-dev', 'bin', 'python')
 
 /** 앱을 숨김 실행으로 띄운다 — helpers.launch() 와 달리 창 크기를 손대지 않는다. */
-async function openApp(userData: string): Promise<{ electronApp: ElectronApplication; page: Page }> {
+async function openApp(userData: string, extraEnv: Record<string, string> = {}): Promise<{ electronApp: ElectronApplication; page: Page }> {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
-    KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData, KNUAF_E2E_HIDDEN: '1'
+    KNUAF_PYTHON: python, KNUAF_SCRIPTS_DIR: scripts, KNUAF_USER_DATA: userData, KNUAF_E2E_HIDDEN: '1',
+    ...extraEnv
   }
   delete env.ELECTRON_RUN_AS_NODE
   const electronApp = await electron.launch({ args: [join(app, 'out', 'main', 'index.js'), `--user-data-dir=${userData}`], env })
@@ -65,12 +67,17 @@ test('같은 userData 로 두 번 켜도 창 크기가 같다 — 앱은 창 크
   // 본문이 있는 논문을 등록해 둔 상태 — 형님이 본 조건(로그인 + 폴더 등록 뒤 재실행)에서
   // 가장 "열릴 만한" 상태다. 그래도 저절로 열리지 않고 창 크기도 달라지지 않는다.
   const userData = seeded(join(mkdtempSync(join(tmpdir(), 'kd-relaunch-')), 'userdata'), [synthProject()])
+  // 저장된 선택(codex)+codex 만 연결이면 1단계(AI 연결)가 서고, 둘 다 연결이면 폴더 단계다
+  // (W2 D2). 이 시험이 보는 것은 창 크기뿐이지만, 전제는 "이미 지난 학생"으로 맞춰 둔다.
+  const bin = join(scratch(), 'bin')
+  writeFakeClaude(bin)
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
 
-  const first = await openApp(userData)
+  const first = await openApp(userData, env)
   const a = await measureWindow(first.electronApp, first.page)
   await first.electronApp.close()
 
-  const second = await openApp(userData)
+  const second = await openApp(userData, env)
   const b = await measureWindow(second.electronApp, second.page)
   await second.electronApp.close()
 

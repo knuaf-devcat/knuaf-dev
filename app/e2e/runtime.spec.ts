@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { launch, synthProject } from './helpers'
-import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
+import { fakeCodexEnv, scratch, writeFakeClaude } from './fixtures/fake-codex'
 import { fakeRuntime, writeOldPython } from './fixtures/fake-runtime'
 
 const FOLDER_STEP = 'text=논문을 담을 폴더를 골라요'
@@ -18,6 +18,9 @@ const WIN = process.platform === 'win32'
 /** PATH 맨 앞에 낡은 `python3` 를 둔 환경 + 가짜 런타임 명세·서버 주소. */
 function envWithOldPython(dir: string, extra: Record<string, string> = {}): Record<string, string> {
   const base = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  // 저장된 선택(codex)이 연결돼 있어도, 다른 AI(Claude)가 끊겨 있으면 첫 화면은 1단계에 선다
+  // (W2 D2). 이 스펙은 **2단계(폴더)** 에서 시작하므로 둘 다 연결된 전제를 만든다.
+  writeFakeClaude(join(dir, 'bin'))
   const pyBin = join(dir, 'pybin')
   writeOldPython(pyBin)
   // `KNUAF_PYTHON: ''` 로 helper 의 기본 주입을 끈다 — 그 값이 있으면 kind 가 env 가 되어
@@ -119,6 +122,7 @@ test('직접 지정한 실행기(env)가 원인이면 준비 버튼을 세우지
   const userData = userDataWithRecent(dir, root)
   const old = join(dir, 'pybin', 'python3')
   writeOldPython(join(dir, 'pybin'))
+  writeFakeClaude(join(dir, 'bin'))   // 폴더 단계 전제 = 둘 다 연결(W2 D2)
   const { electronApp, page } = await launch({
     userData, waitFor: FOLDER_STEP,
     env: {
