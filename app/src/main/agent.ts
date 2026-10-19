@@ -7,9 +7,11 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
+import { pathKeyOf } from './chat/contracts'
+import { renameWithRetry } from './safeWrite'
 
 // ---------------------------------------------------------------- types
 
@@ -89,13 +91,85 @@ function isExecutableFile(p: string): boolean {
   }
 }
 
-/** First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null. */
-export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
+export interface FindExecutableOptions {
+  /** 테스트가 갈아 끼우는 플랫폼(기본은 hostPlatform()). */
+  platform?: NodeJS.Platform
+  /**
+   * PATH **앞에** 둘 디렉터리. 주지 않으면 동봉 자리(bundledDirs)를 쓴다 — 이 기본값이
+   * 첫 화면(`connect:status`)과 로그인·채팅(`ChatService`)까지 같은 규칙을 퍼뜨리는 통로다.
+   * `KNUAF_AGENT_PATH_ONLY=1` 이면 어느 쪽이든 무시한다("도구 없음" 화면 시험 이음매).
+   */
+  leadingDirs?: string[]
+}
+
+// 시험 이음매 두 개 — 단위 시험이 플랫폼과 동봉 위치를 주입한다(제품 경로는 손대지 않는다).
+let platformOverride: NodeJS.Platform | null = null
+
+/** 호스트 플랫폼. 시험이 윈도우 분기를 돌릴 수 있게 갈아 끼울 수 있다(돌려주면 복원). */
+export function hostPlatform(): NodeJS.Platform {
+  return platformOverride ?? process.platform
+}
+
+export function setAgentPlatformForTest(platform: NodeJS.Platform | null): NodeJS.Platform | null {
+  const prev = platformOverride
+  platformOverride = platform
+  return prev
+}
+
+/**
+ * 동봉한 CLI 를 찾을 자리의 **기본값**. 패키지에서는 `process.resourcesPath`, 개발 트리에서는
+ * `out/main` 기준 `../../resources`(python.ts 의 APP_ROOT 와 같은 기준)를 본다.
+ * 윈도우가 아니면 빈 배열 — 맥 설치본에는 동봉하지 않기로 했다(형님 범위 결정).
+ */
+function defaultBundledDirs(platform: NodeJS.Platform): string[] {
+  if (platform !== 'win32') return []
+  const roots: string[] = []
+  const resources = (process as { resourcesPath?: string }).resourcesPath
+  if (typeof resources === 'string' && resources) roots.push(join(resources, 'codex'))
+  if (typeof __dirname === 'string') roots.push(join(__dirname, '..', '..', 'resources', 'codex'))
+  return roots.map((root) => join(root, 'vendor', 'x86_64-pc-windows-msvc', 'bin'))
+}
+
+let bundledDirsProvider: (platform: NodeJS.Platform) => string[] = defaultBundledDirs
+
+/** 시험 이음매: 동봉 자리 공급자를 갈아 끼우고 이전 것을 돌려준다. */
+export function setBundledDirsProvider(fn: (platform: NodeJS.Platform) => string[]): (platform: NodeJS.Platform) => string[] {
+  const prev = bundledDirsProvider
+  bundledDirsProvider = fn
+  return prev
+}
+
+/** 동봉 자리(PATH 앞에 놓일 디렉터리들). 모든 소비 경로가 이 함수를 거친다. */
+export function bundledDirs(platform: NodeJS.Platform = hostPlatform()): string[] {
+  return bundledDirsProvider(platform)
+}
+
+/**
+ * First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null.
+ *
+ * 순서는 **동봉본 → PATH → EXTRA_DIRS** 다. 동봉본을 먼저 두는 이유: 학생 PC 에 다른 버전의
+ * codex 가 깔려 있어도 앱이 시험한 조합으로 동작한다.
+ *
+ * `KNUAF_AGENT_PATH_ONLY=1` 은 PATH 만 본다 — 시험용 이음매다. Finder 로 띄운 앱은 셸의
+ * PATH 를 물려받지 않아(/usr/bin:/bin:/usr/sbin:/sbin) 아래 EXTRA_DIRS 가 사실상 유일한
+ * 발견 경로인데, 그래서 시험에서 PATH 를 비워도 개발 기계에서는 진짜 codex 가 계속
+ * 발견됐다. "도구 없음" 화면은 그 상태를 재현할 방법이 있어야 시험된다.
+ */
+export function findExecutable(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+  opts: FindExecutableOptions = {}
+): string | null {
+  const platform = opts.platform ?? hostPlatform()
   const home = env.HOME ?? env.USERPROFILE ?? ''
-  const sep = process.platform === 'win32' ? ';' : ':'
-  const fromPath = (env.PATH ?? '').split(sep).filter(Boolean)
-  const dirs = [...fromPath, ...EXTRA_DIRS(home)]
-  const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
+  const sep = platform === 'win32' ? ';' : ':'
+  // 윈도우에서 실제 키는 `Path` 인 경우가 많다 — 복사된 env(`AgentCtx.env`·시험 입력)에서도
+  // 같은 규칙으로 읽어야 도구를 찾는다(검토 W1D-R1-02). 맥은 종전 그대로 `PATH`.
+  const fromPath = (env[pathKeyOf(env, platform)] ?? '').split(sep).filter(Boolean)
+  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1'
+    ? fromPath
+    : [...(opts.leadingDirs ?? bundledDirs(platform)), ...fromPath, ...EXTRA_DIRS(home)]
+  const names = platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
   const seen = new Set<string>()
   for (const dir of dirs) {
     if (seen.has(dir)) continue
@@ -106,6 +180,23 @@ export function findExecutable(name: string, env: Record<string, string | undefi
     }
   }
   return null
+}
+
+/**
+ * 설치본에 동봉한 Codex CLI 의 bin 디렉터리. **윈도우에서만** 본다 — 맥 설치본에는 동봉하지
+ * 않기로 했고(형님 범위 결정), 맥은 지금처럼 학생이 직접 설치한 것을 쓴다.
+ *
+ * 동봉본은 자기 패키지 레이아웃(`codex-package.json`·`codex-path/rg.exe`·`codex-resources/`)을
+ * 스스로 찾으므로 bin 디렉터리만 알려 주면 rg·sandbox 도구도 함께 산다.
+ * 개발 트리(out/)에서는 `resources/codex/…` 가 없으면 그냥 넘어간다(다음 후보로).
+ */
+export function bundledAgentDirs(
+  ctx: Pick<AgentCtx, 'appRoot' | 'isPackaged' | 'resourcesPath'>,
+  platform: NodeJS.Platform = hostPlatform()
+): string[] {
+  if (platform !== 'win32') return []
+  const base = ctx.isPackaged ? ctx.resourcesPath : join(ctx.appRoot, 'resources')
+  return [join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')]
 }
 
 /** `<path> --version`, trimmed first line; null on failure or after 8s. */
@@ -236,7 +327,8 @@ export function retireSupersededSkills(target: string): string[] {
     let dest = join(dir, `${kind}-${name}-${stamp()}`)
     let i = 1
     while (existsSync(dest)) dest = join(dir, `${kind}-${name}-${stamp()}-${i++}`)
-    renameSync(old, dest)
+    // 윈도우에서 잠깐 막히면(EPERM/EBUSY/EACCES) 짧게 다시 시도한다 — 폴더 이동이라 폴백은 없다.
+    renameWithRetry(old, dest)
     moved.push(dest)
   }
   return moved
@@ -256,7 +348,7 @@ export function installSkill(source: string, target: string, version: string): I
     backup = join(dir, `${kind}-${stamp()}`)
     let i = 1
     while (existsSync(backup)) backup = join(dir, `${kind}-${stamp()}-${i++}`)
-    renameSync(target, backup)
+    renameWithRetry(target, backup)
   }
 
   mkdirSync(target, { recursive: true })
@@ -310,7 +402,59 @@ export function agentBinDirs(o: Pick<LaunchScriptOptions, 'venvBin' | 'bundledBi
   return dirs
 }
 
-export function buildLaunchScript(o: LaunchScriptOptions): string {
+export function buildLaunchScript(o: LaunchScriptOptions, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? buildLaunchScriptWin(o) : buildLaunchScriptPosix(o)
+}
+
+/** 실행물 확장자 — 맥·리눅스는 `.command`(Terminal 이 열어 준다), 윈도우는 `.cmd`. */
+export function launchScriptExt(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? '.cmd' : '.command'
+}
+
+/** 배치 파일에서 `%` 는 변수 확장이다 — 글자 그대로 넣으려면 `%%` 로 적는다. */
+function batLiteral(s: string): string {
+  return s.replace(/%/g, '%%')
+}
+/** 배치의 `cd`·`set` 처럼 따옴표 **안에** 넣는 값 — `%` 만 `%%` 로 막으면 된다. */
+function batQuote(s: string): string {
+  return `"${batLiteral(s)}"`
+}
+/** 배치에서 cmd 메타문자 — `%` 는 `%%` 로 따로 막으므로 여기 없다(배치에서 `^%` 는 안 통한다). */
+const BAT_META = /([()\][!^"`<>&|;, *?])/g
+
+/**
+ * 배치의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
+ * 막는다(`win.ts` 의 `escapeCommand` 와 같은 규칙 — `%` 는 배치 확장이라 `%%`).
+ * 두 층으로 막으면 첫 cmd 해석 뒤에도 `^` 가 남아 실행 파일 이름을 찾지 못한다
+ * (W1C-R1-01 확인. cross-spawn `parse.js` 도 명령에는 `escape.command` 만 쓴다).
+ */
+function batCommand(s: string): string {
+  return batLiteral(s).replace(BAT_META, '^$1')
+}
+
+/**
+ * 배치 파일의 **실행 줄**에 넣을 인자 하나. 확장 단계가 명령줄과 달라 `win.ts` 의 함수를
+ * 쓰지 않는다(W1C-R1-01). 순서가 중요하다:
+ *   1. `%` → `%%` — 배치 확장은 여기서만 막을 수 있다.
+ *   2. MSVCRT 인용 — `"` 앞과 끝의 역슬래시를 두 배로.
+ *   3. cmd 메타문자를 `^` 로 — **두 번**. 대상(`claude.cmd`/`codex.cmd`)이 npm shim 이라
+ *      `%*` 로 한 번 더 파싱되기 때문이다(`win.ts` 주석의 cross-spawn 규칙과 같은 이유).
+ */
+function batArg(s: string): string {
+  let a = batLiteral(s)
+  a = a.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"')
+  a = a.replace(/(?=(\\+?)?)\1$/, '$1$1')
+  a = `"${a}"`
+  a = a.replace(BAT_META, '^$1')
+  a = a.replace(BAT_META, '^$1')
+  return a
+}
+/** cmd 인자는 **한 줄**이라야 한다 — 첫 프롬프트의 줄바꿈을 한 칸으로 눌러 담는다. */
+function oneLine(s: string): string {
+  return s.replace(/\s*\n+\s*/g, ' ').trim()
+}
+
+function buildLaunchScriptPosix(o: LaunchScriptOptions): string {
   const pathParts = agentBinDirs(o).map(sq)
   pathParts.push('"$HOME/.local/bin"', '"$PATH"')
 
@@ -338,6 +482,37 @@ export function buildLaunchScript(o: LaunchScriptOptions): string {
   ].join('\n')
 }
 
+/**
+ * 윈도우 대응 실행물 — `.command`(bash) 대신 `.cmd`(배치)다. 같은 일을 한다: 작업 폴더로
+ * 이동하고, 프로젝트 .venv·번들 파이썬 자리를 PATH 앞에 두고, 같은 환경변수를 세우고,
+ * 같은 가드레일(`--setting-sources project,local` / 전역 knuaf-dev 사본 끄기)로 도우미를 띄운다.
+ *
+ * 다른 곳 둘: cmd 에는 `exec` 가 없고(그냥 실행한다), **한 인자에 줄바꿈을 담을 수 없다** —
+ * 첫 프롬프트의 줄바꿈은 한 칸으로 눌러 한 줄로 만든다(문장 뜻은 그대로다).
+ */
+function buildLaunchScriptWin(o: LaunchScriptOptions): string {
+  // 윈도우에는 홈브루 자리가 없다(agentBinDirs 의 그 둘은 맥 전용) — venv·번들만 앞에 둔다.
+  const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
+  const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
+  const execLine = o.agent === 'claude'
+    ? `${batCommand(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion')} ${batArg(oneLine(o.firstPrompt))}`
+    : `${batCommand(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff)}` : ''}`
+
+  return [
+    '@echo off',
+    // 지연 확장을 끈다 — `!` 가 든 경로·문장이 글자 그대로 가게(레지스트리 설정과 무관하게).
+    'setlocal DisableDelayedExpansion',
+    `cd /d ${batQuote(o.root)} || exit /b 1`,
+    `set "PATH=${dirs.join(';')}${dirs.length ? ';' : ''}%PATH%"`,
+    'set "KNUAF_DOC_APP=1"',
+    'set "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1"',
+    `echo ${batLiteral(BANNER)}`,
+    'echo.',
+    execLine,
+    ''
+  ].join('\r\n')
+}
+
 // ---------------------------------------------------------------- 7. launch
 
 export function firstPromptFor(revision: number | null, root?: string): string {
@@ -350,7 +525,7 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
   const writeFile = deps.writeFile ?? ((p, data, mode) => writeFileSync(p, data, { encoding: 'utf-8', mode }))
   const chmod = deps.chmod ?? chmodSync
   mkdirSync(o.supportDir, { recursive: true })
-  const scriptPath = join(o.supportDir, `launch-${randomBytes(4).toString('hex')}.command`)
+  const scriptPath = join(o.supportDir, `launch-${randomBytes(4).toString('hex')}${launchScriptExt()}`)
   writeFile(scriptPath, buildLaunchScript(o), 0o755)
   chmod(scriptPath, 0o755) // writeFile mode is masked by umask; make sure it is executable
   if (!o.dryRun) {
@@ -366,8 +541,9 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
 /** `root` is the open project; with no project open the skill reports 'missing'. */
 export async function getStatus(ctx: AgentCtx, root: string | null): Promise<AgentStatus> {
   const env = ctx.env ?? process.env
+  const leadingDirs = bundledAgentDirs(ctx)
   const probe = async (name: AgentKind): Promise<AgentBinary> => {
-    const path = findExecutable(name, env)
+    const path = findExecutable(name, env, { leadingDirs })
     return { found: !!path, path, version: path ? await probeVersion(path) : null }
   }
   const [claude, codex] = await Promise.all([probe('claude'), probe('codex')])
@@ -394,7 +570,7 @@ export const agentApi = {
   },
 
   launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {
-    const agentPath = findExecutable(o.kind, ctx.env ?? process.env)
+    const agentPath = findExecutable(o.kind, ctx.env ?? process.env, { leadingDirs: bundledAgentDirs(ctx) })
     if (!agentPath) throw new Error(`${o.kind} 실행 파일을 찾지 못함 (PATH에 없음)`)
     const venv = ctx.venvPython(o.root)
     const bundled = ctx.bundledPython?.() ?? null

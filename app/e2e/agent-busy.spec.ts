@@ -1,21 +1,25 @@
 import { test, expect } from '@playwright/test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { launch, openProject, plantStaleLock, synthProject } from './helpers'
+import { writeCliShim } from './fixtures/fake-codex'
 
 // 도우미 채팅 실행 중에는 sidecar 쓰기가 거절된다 — 동시 쓰기는 도우미의 저장과 경합한다.
 // 실행 중 상태는 핸드셰이크에 응답하지 않는 가짜 codex로 만든다 — send() 가 acquire 한
 // 뒤 status() 에서 멈추는 동안 busy 가 잡힌다.
 test('a running chat turn rejects sidecar writes with agent_busy, then recovers', async () => {
   const bindir = mkdtempSync(join(tmpdir(), 'kd-bin-'))
-  writeFileSync(join(bindir, 'codex'), '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
+  // 핸드셰이크에 응답하지 않는 가짜 codex — **절대 경로 node** 로 살아만 있는다.
+  // 이 시험은 PATH 를 좁히므로(system32 없음) `ping` 같은 셸 도구에 기대면 윈도우에서
+  // 즉시 죽어 busy 가 잡히지 않는다(CI 3차).
+  writeCliShim(bindir, 'codex', 'sleep 300', `"${process.execPath}" -e "setInterval(()=>{},1000)"`)
   const root = synthProject({ withContent: false })
   plantStaleLock(root) // gives lock.unlock something real to release on the second attempt
-  const { electronApp, page } = await launch({ env: { PATH: `${bindir}:/usr/bin:/bin` } })
+  const { electronApp, page } = await launch({ env: { PATH: [bindir, '/usr/bin', '/bin'].join(delimiter) } })
   try {
     await openProject(page, root)
-    await page.getByRole('heading', { name: '내 논문' }).waitFor()
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
     // send() 는 가짜 서버의 initialize 응답을 영원히 기다린다 — 그동안 owner 를 쥔다.
     void page.evaluate((r) => window.knuaf.chat.send(r, 'codex', '홀드', crypto.randomUUID()), root).catch(() => {})

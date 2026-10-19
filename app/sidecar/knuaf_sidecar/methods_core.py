@@ -141,6 +141,11 @@ def project_sections(ctx, params):
     return out
 
 
+def _section_payload(core, root, sid, entry):
+    text = core.local(root, entry["path"]).read_text(encoding="utf-8")
+    return {"id": sid, "title": entry.get("title"), "path": entry.get("path"), "draft": core.draft(text), "raw_chars": len(text)}
+
+
 def section_read(ctx, params):
     core = _core()
     root = _root(params)
@@ -148,9 +153,16 @@ def section_read(ctx, params):
     p = core.load(root)
     if sid not in p["sections"]:
         raise RpcError("not_found", "절 없음: %s" % sid)
-    s = p["sections"][sid]
-    text = core.local(root, s["path"]).read_text(encoding="utf-8")
-    return {"id": sid, "title": s.get("title"), "path": s.get("path"), "draft": core.draft(text), "raw_chars": len(text)}
+    return _section_payload(core, root, sid, p["sections"][sid])
+
+
+def section_read_all(ctx, params):
+    """Registered sections in paper order — the pane's first paint in one call."""
+    core = _core()
+    root = _root(params)
+    p = core.load(root)
+    ordered = sorted(p["sections"].items(), key=lambda kv: (kv[1].get("order", 0), kv[0]))
+    return [_section_payload(core, root, sid, s) for sid, s in ordered]
 
 
 def project_export(ctx, params):
@@ -507,6 +519,7 @@ def register(server):
     server.register("project.question", project_question)
     server.register("project.sections", project_sections)
     server.register("section.read", section_read)
+    server.register("section.read_all", section_read_all)
     server.register("project.export", project_export, write=True)
     server.register("project.history", project_history)
     server.register("project.restore", project_restore, write=True)

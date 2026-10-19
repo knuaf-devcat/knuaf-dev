@@ -1,13 +1,17 @@
-# knuaf-dev runtime dependencies — declared, not discovered.
+# knuaf-dev runtime dependencies - declared, not discovered.
+# ASCII only. pip reads a -r file with the *locale* encoding, so one non-ASCII
+# byte breaks the install on a Korean Windows (cp949) or Western Windows
+# (cp1252) machine with UnicodeDecodeError - that is how the Windows installer
+# build failed. Keep every comment here plain ASCII.
 # Install into the project's own environment:
-#   python3 -m venv <작업폴더>/.venv
-#   <작업폴더>/.venv/bin/python -m pip install -r <이 파일>
+#   python3 -m venv <work-folder>/.venv
+#   <work-folder>/.venv/bin/python -m pip install -r <this file>
 # Offline wheelhouse: add --no-index --find-links <wheels-dir>
 # Details: references/package-install.md
 openpyxl>=3.1,<4
 python-docx>=1.1,<2
 pypdf>=6,<7
-# pywin32 releases are build numbers (306, 307, 308…), not semver, so an upper
+# pywin32 releases are build numbers (306, 307, 308, ...), not semver, so an upper
 # bound pins one build: <307 meant "exactly 306", which has no wheel for
 # Python 3.13 and broke the Windows install. Only win32com.client.DispatchEx
 # is used, and that is stable across these builds.

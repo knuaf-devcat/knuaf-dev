@@ -249,6 +249,13 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   ipcMain.handle('chat:respond', (_e, root: string, provider: Provider, id: string, allow: boolean) => { try { chat.respond(root, provider, id, allow); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:stop', async (_e, root: string, provider: Provider) => { try { await chat.stop(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
 
+  // 폴더 없이 쓰는 연결 — 첫 실행 화면(온보딩)이 폴더를 고르기 전에 쓴다. root 인자가 없다.
+  // 대화·스킬 계약은 그대로다: 이 연결로는 아무것도 보낼 수 없다(service.ts 전역 연결 주석).
+  ipcMain.handle('connect:status', async (_e, provider: Provider) => { try { return { result: await chat.globalStatus(provider) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('connect:login', async (_e, provider: Provider) => { try { await chat.globalLogin(provider); return { result: true } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('connect:cancel', async (_e, provider: Provider) => { try { await chat.cancelLogin(provider); return { result: true } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('connect:reopen', async (_e, provider: Provider) => { try { await chat.reopenLogin(provider); return { result: true } } catch (e) { return chatFail(e) } })
+
   ipcMain.handle('guide:open', () => { openGuide(); return true })
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, logs: app.getPath('logs'), userData: app.getPath('userData'), electron: process.versions.electron, node: process.versions.node }))
   ipcMain.handle('fs:is-dir', (_e, p: string) => { try { return statSync(p).isDirectory() } catch { return false } })

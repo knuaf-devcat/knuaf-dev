@@ -80,17 +80,67 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       # live-*.spec.ts need a real Claude/Codex login and are excluded without KNUAF_LIVE=1.
-      # Screenshot specs regenerate committed PNGs, so they are for local runs only.
+      # 창 촬영(window-shots)은 맥 전용 `screencapture` 라 config 의 testIgnore 가 뺀다.
+      # 화면 캡처(screenshots.spec.ts 포함)는 CI 에서도 돌려 `KNUAF_SHOT_DIR` 에 남기고 아래에서
+      # 아티팩트로 올린다 — 사람이 내려받아 시안과 나란히 본다. 로컬 기본값은 docs/images 그대로다.
       #
-      # macOS only for now: 26 of 32 specs already pass on Windows, but 6 assert
-      # POSIX-only things (path separators in the packaged skill layout, the 0o111
-      # execute bit, the macOS-only `.command` launch script). Porting those is a
-      # separate piece of work; typecheck and build still run on Windows above.
-      - if: runner.os == 'macOS'
-        run: pnpm exec playwright test --grep-invert "screenshots|real window capture"
+      # e2e runs on macOS and Windows alike. `KNUAF_PYTHON` must be an absolute path — the app
+      # tests `existsSync(KNUAF_PYTHON)` in choosePython, so a bare name is ignored and it falls
+      # back to a PATH python; narrow-PATH specs (those that plant a fake codex) would then hit
+      # macOS' stock 3.9.6 and fail project:open. On Windows the interpreter is python.exe.
+      - name: e2e (macOS)
+        if: runner.os == 'macOS'
+        run: pnpm exec playwright test --grep-invert "real window capture" --output test-results/e2e-artifacts
         env:
-          # 절대경로여야 한다. 앱은 choosePython 에서 existsSync(KNUAF_PYTHON) 으로 검사하므로
-          # 맨이름 "python" 은 통째로 무시되고 폴백으로 내려간다 — 번들 파이썬이 없는 CI 에서는
-          # PATH 의 python3 로 떨어지고, PATH 를 좁히는 스펙(가짜 codex 를 심는 둘)에서는
-          # macOS 기본 3.9.6 이 걸려 project:open 이 실패한다.
           KNUAF_PYTHON: ${{ env.pythonLocation }}/bin/python
+          KNUAF_SHOT_DIR: test-results/ui-shots
+      - name: e2e (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm exec playwright test --grep-invert "real window capture" --output test-results/e2e-artifacts
+        env:
+          KNUAF_PYTHON: ${{ env.pythonLocation }}\python.exe
+          KNUAF_SHOT_DIR: test-results/ui-shots
+      # 실패했을 때만 Playwright 의 흔적(trace·스크린샷·error-context)을 남긴다. 기본은 러너와 함께
+      # 사라져서 CI 전용 실패를 나중에 볼 수 없었다(맥에서만 깨진 실제 드래그 시험이 그랬다 —
+      # 스크린샷·trace 가 러너 안에만 있었다). 통과한 실행에서는 아무것도 올리지 않는다.
+      - name: e2e failure traces (macOS)
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-macos
+          path: app/test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: e2e failure traces (Windows)
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-windows
+          path: app/test-results/e2e-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      # 시안 대조용 캡처 — 시험이 실패해도 남긴다(`always()`). 이름에 OS 를 넣어 구분한다.
+      - name: UI captures (macOS)
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots-macos
+          path: |
+            app/test-results/ui-shots
+            app/test-results/onboarding-shots
+            app/test-results/p3-shots
+            app/test-results/p1-shots
+          if-no-files-found: warn
+          retention-days: 14
+      - name: UI captures (Windows)
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots-windows
+          path: |
+            app/test-results/ui-shots
+            app/test-results/onboarding-shots
+            app/test-results/p3-shots
+            app/test-results/p1-shots
+          if-no-files-found: warn
+          retention-days: 14

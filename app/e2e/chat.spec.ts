@@ -1,14 +1,16 @@
 // Unit tests for src/main/chat/service.ts with an injected fake AgentConnection.
 // Plain Playwright `test()` in Node: no Electron and no real agent processes.
 import { expect, test } from '@playwright/test'
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { skillSource, VERSION_FILE } from '../src/main/agent'
-import { autoAllow, describeTool, lostToolCalls } from '../src/main/chat/claude'
+import { autoAllow, describeTool, looksLikePath, lostToolCalls } from '../src/main/chat/claude'
 import { checkLabel } from '../src/renderer/src/copy'
-import { subscriptionEnv } from '../src/main/chat/contracts'
+import { pathKeyOf, subscriptionEnv } from '../src/main/chat/contracts'
+import { winSpawn } from '../src/main/win'
 import type { AgentConnection } from '../src/main/chat/contracts'
 
 const appRoot = resolve(__dirname, '..')
@@ -36,6 +38,17 @@ function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => 
   })
 }
 
+/**
+ * PATH 값 읽기. 윈도우는 이름의 대소문자를 구분하지 않고 실제 키가 `Path` 인 경우가 많으므로
+ * 대소문자 무시로 찾는다. 맥·리눅스에서는 `PATH` 와 `Path` 가 **서로 다른 변수**이므로 그대로
+ * `PATH` 만 읽는다 — 여기서 대소문자를 무시하면 맥 시험이 거짓 실패한다(검토 W1D-R1-01).
+ */
+function pathOf(env: NodeJS.ProcessEnv): string {
+  if (process.platform !== 'win32') return env.PATH ?? ''
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH')
+  return (key ? env[key] : '') ?? ''
+}
+
 // ~/.claude/CLAUDE.md의 @import가 외부 경로를 가리키면 학생에게 영어 보안 프롬프트
 // ("Allow external CLAUDE.md file imports?")가 뜬다 — 앱이 띄우는 도우미의 환경에서는
 // 메모리 파일을 아예 읽지 않는다. 스킬(.claude/skills/knuaf-dev) 탐색과는 무관하다.
@@ -45,20 +58,181 @@ test('subscriptionEnv puts the agent bin dirs on PATH', () => {
   // "env: node: No such file or directory" 만 본다. 바이너리를 찾아내는 것과
   // 그 바이너리가 인터프리터를 찾는 것은 다른 문제다 — findExecutable 은 codex 를
   // 찾아내고도 이 지점에서 실패했다.
-  const dirs = subscriptionEnv().PATH!.split(':')
-  for (const d of ['/opt/homebrew/bin', '/usr/local/bin']) expect(dirs).toContain(d)
+  const dirs = pathOf(subscriptionEnv()).split(delimiter)
+  // 홈브루 자리는 맥 전용이다(contracts.ts 의 AGENT_PATH_DIRS 가 win32 에서 빈 배열).
+  if (process.platform !== 'win32') for (const d of ['/opt/homebrew/bin', '/usr/local/bin']) expect(dirs).toContain(d)
   // 프로젝트 .venv 와 번들 CPython 이 앞자리에 온다. 학생 맥의 기본 python3 는 3.9 라
   // 스킬의 최소 조건(3.10)에 못 미치고, 이게 없으면 앱은 번들 3.12 로 도는데 도우미만
   // 쓸 수 있는 Python 을 못 찾는다.
-  const withPy = subscriptionEnv(['/p/.venv/bin', '/app/python/bin']).PATH!.split(':')
+  const withPy = pathOf(subscriptionEnv(['/p/.venv/bin', '/app/python/bin'])).split(delimiter)
   expect(withPy.slice(0, 2)).toEqual(['/p/.venv/bin', '/app/python/bin'])
-  // 원래 PATH 를 덮어쓰지 않고 앞에 붙이기만 한다.
-  for (const d of (process.env.PATH ?? '').split(':').filter(Boolean)) expect(dirs).toContain(d)
+  // 원래 PATH 를 덮어쓰지 않고 앞에 붙이기만 한다 — 윈도우에서는 실제 키(`Path`)의 값이
+  // 그대로 살아 있어야 한다(CI 3차에서 이 값이 통째로 사라졌다).
+  for (const d of pathOf(process.env).split(delimiter).filter(Boolean)) expect(dirs).toContain(d)
+})
+
+/**
+ * 형님 승인 W1 연결 기제 ② 전용 단언.
+ *
+ * `delimiter` 와 `AGENT_PATH_DIRS` 는 모듈이 로드될 때 그 플랫폼 값으로 정해지므로, 한
+ * 프로세스에서 두 플랫폼을 **불러 볼 수 없다**. 그래서 양쪽 기대값을 문자열로 명시해 두고
+ * 지금 호스트의 것과 견준다 — 윈도우 CI 가 `;` 쪽을, 맥이 `:` 쪽을 실행한다.
+ */
+test('subscriptionEnv 는 PATH 를 플랫폼 구분자로 잇는다 (W1 ②)', () => {
+  const extras = ['/p/.venv/bin', '/app/python/bin']
+  // 윈도우에서는 실제 키가 `Path` 다 — 대소문자 무관하게 읽어야 시스템 PATH 를 잃지 않는다.
+  const orig = pathOf(process.env)
+  // 윈도우: 홈브루 자리가 없다(AGENT_PATH_DIRS = []).
+  const expectedWin = ['/p/.venv/bin', '/app/python/bin', orig].filter(Boolean).join(';')
+  // 맥·리눅스: 홈브루 자리가 앞에 붙는다(contracts.ts 의 AGENT_PATH_DIRS).
+  const expectedPosix = ['/p/.venv/bin', '/app/python/bin', '/opt/homebrew/bin', '/usr/local/bin', orig].filter(Boolean).join(':')
+  const win = process.platform === 'win32'
+  const env = subscriptionEnv(extras)
+  expect(pathOf(env)).toBe(win ? expectedWin : expectedPosix)
+  // 윈도우에서 대소문자만 다른 PATH 키가 둘 남으면 자식이 어느 쪽을 볼지 알 수 없다 — 하나여야 한다.
+  // 맥에서는 `PATH` 와 `Path` 가 서로 다른 변수라 둘 다 있는 것이 맞다(검토 W1D-R1-01).
+  if (win) expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), 'PATH 키가 중복됐다').toHaveLength(1)
+  // 구분자 자체도 못 박는다 — 윈도우 `;`, 그 밖 `:`.
+  expect(delimiter).toBe(win ? ';' : ':')
+
+  if (win) {
+    // `C:\…` 안의 `:` 가 갈라지지 않는다 — 이음매가 `;` 라서다(`:` 로 이으면 여기서 쪼개진다).
+    const drive = 'C:\\Program Files\\내 앱\\bin'
+    const path = pathOf(subscriptionEnv([drive]))
+    expect(path.startsWith(`${drive};`)).toBe(true)
+    expect(path.split(';')[0]).toBe(drive)
+    expect(path.split(';')[0].endsWith('bin')).toBe(true)
+  } else {
+    const dir = '/p/.venv/bin'
+    const path = pathOf(subscriptionEnv([dir]))
+    expect(path.startsWith(`${dir}:`)).toBe(true)
+    expect(path.split(':')[0]).toBe(dir)
+  }
+})
+
+test('윈도우에서는 기존 PATH 키(대소문자 무시)에 이어 쓴다 (W1 ②, CI 3차)', () => {
+  // 실물 윈도우 환경처럼 키가 `Path` 인 경우 — 새 `PATH` 키를 만들면 시스템 PATH 를 잃는다.
+  expect(pathKeyOf({ Path: 'C:\\Windows' }, 'win32')).toBe('Path')
+  expect(pathKeyOf({ PATH: 'C:\\x' }, 'win32')).toBe('PATH')
+  expect(pathKeyOf({ PATHx: 'C:\\x' }, 'win32'), '다른 이름은 건드리지 않는다').toBe('PATH')
+  expect(pathKeyOf({}, 'win32')).toBe('PATH')
+
+  // 혼합 키: Node 는 자식에게 사전순 첫 키(`PATH`)만 넘긴다 — 하나로 정리하고 그 키를 쓴다
+  // (검토 W1D-R1-02). 삽입 순서가 아니라 사전순이 기준이다.
+  for (const mixed of [{ Path: 'C:\\system', PATH: 'C:\\override' }, { PATH: 'C:\\override', Path: 'C:\\system' }]) {
+    const env: NodeJS.ProcessEnv = { ...mixed }
+    expect(pathKeyOf(env, 'win32')).toBe('PATH')
+    expect(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH'), '중복 키가 남았다').toEqual(['PATH'])
+  }
+
+  // 맥·리눅스는 종전 그대로 `PATH` 이고, 아무 키도 지우지 않는다(`Path` 는 별개 변수다).
+  expect(pathKeyOf({ Path: 'C:\\x' }, 'darwin')).toBe('PATH')
+  expect(pathKeyOf({}, 'darwin')).toBe('PATH')
+  const mac: NodeJS.ProcessEnv = { PATH: '/usr/bin', Path: '/separate' }
+  expect(pathKeyOf(mac, 'darwin')).toBe('PATH')
+  expect(Object.keys(mac).filter((k) => k.toUpperCase() === 'PATH'), '맥에서 키를 지웠다').toEqual(['PATH', 'Path'])
 })
 
 test('subscriptionEnv disables CLAUDE.md memory loading', () => {
   const env = subscriptionEnv()
   expect(env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1')
+})
+
+/**
+ * 형님 승인 W1 연결 기제 ①. 윈도우에서 npm 이 깐 codex·claude 는 `.cmd` 이고, Node 는
+ * 셸 없이 그것을 띄우지 못한다(EINVAL, Node ≥20.12 — CVE-2024-27980 처방). `.cmd`·`.bat` 만
+ * `cmd.exe /d /s /c` 로 감싼다 — 그 밖은 손대지 않는다.
+ *
+ * 인용은 **cmd 파서와 MSVCRT argv 복원을 둘 다** 만족해야 한다(W1C-R1-01). 규칙은
+ * cross-spawn `lib/util/escape.js` 와 같고, npm shim(`%*` 재파싱)이라 메타문자를 두 번 막는다.
+ */
+test('윈도우 `.cmd`·`.bat` 만 cmd.exe 로 감싼다 (W1 ①)', () => {
+  const shim = 'C:\\Users\\학생\\AppData\\Roaming\\npm\\claude.cmd'
+  // ComSpec 지정·미지정을 시험이 직접 통제한다(W1C-R1-02) — 제품은 그 값을 그대로 쓴다.
+  // `.cmd`·`.bat` 두 확장자 모두 **같은 통제 안에서** 각각의 기대 명령을 단언한다.
+  const saved = { ComSpec: process.env.ComSpec, comspec: process.env.comspec }
+  try {
+    delete process.env.ComSpec
+    delete process.env.comspec
+    expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('cmd.exe')
+    expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('cmd.exe')
+    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe'
+    expect(winSpawn(shim, ['auth', 'status'], 'win32').command).toBe('C:\\Windows\\System32\\cmd.exe')
+    expect(winSpawn('C:\\x\\a.bat', [], 'win32').command).toBe('C:\\Windows\\System32\\cmd.exe')
+  } finally {
+    for (const k of ['ComSpec', 'comspec'] as const) {
+      const v = saved[k]
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+
+  const w = winSpawn(shim, ['auth', 'status'], 'win32')
+  // 지연 확장 끔(`!`), AutoRun 무시(`/d`), 바깥 따옴표 한 쌍 벗기기(`/s`).
+  expect(w.args.slice(0, 3)).toEqual(['/v:off', '/d', '/s'])
+  expect(w.args[3]).toBe('/c')
+  // `/s` 가 벗길 바깥 따옴표 한 쌍 — 빠지면 명령이 잘린다.
+  expect(w.args[4].startsWith('"') && w.args[4].endsWith('"')).toBe(true)
+  // 두 파서를 함께 만족하는 인용: `^` 한 번 + npm shim 이라 한 번 더.
+  expect(w.args[4]).toContain('^^^"auth^^^"')
+  expect(w.options).toEqual({ windowsVerbatimArguments: true, windowsHide: true })
+
+  // `.exe` 와 맥·리눅스는 **그대로** 간다(감싸지 않는다 — 맥 동작 불변).
+  expect(winSpawn('C:\\x\\claude.exe', ['auth'], 'win32')).toEqual({ command: 'C:\\x\\claude.exe', args: ['auth'], options: {} })
+  for (const c of ['/opt/homebrew/bin/claude', '/x/codex.cmd', '/x/a.bat']) {
+    expect(winSpawn(c, ['auth', 'status'], 'darwin')).toEqual({ command: c, args: ['auth', 'status'], options: {} })
+  }
+})
+
+/** 검토 W1C-R1-01 반례 A — Codex 설정값의 `&` 가 따옴표 밖으로 나오면 명령이 갈라진다. */
+test('설정값·경로의 cmd 메타문자가 명령으로 새지 않는다 (W1 ①, 반례 A)', () => {
+  const home = 'C:\\Users\\A&B'
+  const config = `skills.config=[{path="${home}\\.codex\\skills\\knuaf-dev\\SKILL.md",enabled=false}]`
+  const line = winSpawn('C:\\tools\\codex.cmd', ['-c', config, 'app-server'], 'win32').args[4]
+  const inner = line.slice(1, -1)   // 바깥 한 쌍(`/s` 가 벗긴다)은 구조용이다
+  // 모든 `&`·`"` 가 `^` 바로 뒤에 있다 — 따옴표만으로는 cmd 가 막지 못한다.
+  expect(inner).not.toMatch(/(^|[^^])&/)
+  expect(inner).not.toMatch(/(^|[^^])"/)
+  // 실행 파일 경로의 공백도 `^` 로 막혀 한 토큰으로 남는다(두 번 이스케이프라 `^` 가 겹친다).
+  const spaced = winSpawn('C:\\Program Files\\npm\\codex.cmd', ['model=gpt-5'], 'win32').args[4]
+  expect(spaced).toMatch(/Program\^+ Files/)
+})
+
+test('cmd 로 안전하게 표현할 수 없는 값은 실행 전에 거절한다 (W1 ①)', () => {
+  // `%` 는 cmd 명령줄에서 확장을 막을 수 없다 — 경로에 `%OS%` 가 있으면 다른 경로가 된다(반례 B).
+  expect(() => winSpawn('C:\\tools\\%OS%\\codex.cmd', ['app-server'], 'win32')).toThrow(/%/)
+  expect(() => winSpawn('C:\\x\\claude.cmd', ['100%'], 'win32')).toThrow(/%/)
+  expect(() => winSpawn('C:\\x\\claude.cmd', ['a\nb'], 'win32')).toThrow()
+  // 맥에서는 같은 값이 그대로 간다(줄바꿈도 `%` 도 정상 인자다).
+  expect(winSpawn('/x/claude', ['a\nb', '100%'], 'darwin').args).toEqual(['a\nb', '100%'])
+})
+
+/**
+ * 검토 W1C-R1-01 의 **실행** 반례. 윈도우에서는 실제로 `.cmd` 를 띄워, 받은 argv 가 원래
+ * 배열과 같은지와 `&` 뒤의 부수 명령이 실행되지 않았는지를 본다. 맥에서는 문자열 조립 단언만
+ * 돈다 — skip 이 아니라 플랫폼별 단언이다.
+ */
+test('cmd 를 거쳐도 argv 가 그대로 도착하고 부수 명령이 실행되지 않는다 (W1 ①, 실행)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kd-cmdshim-'))
+  const argvFile = join(dir, 'argv.json')
+  const marker = join(dir, 'PWNED.txt')
+  const recorder = join(dir, 'recorder.mjs')
+  const shim = join(dir, 'probe.cmd')
+  writeFileSync(recorder, `import { writeFileSync } from 'node:fs'\nwriteFileSync(process.env.ARGV_OUT, JSON.stringify(process.argv.slice(2)))\n`, 'utf-8')
+  // npm shim 과 같은 모양 — `%*` 로 인자를 그대로 넘긴다(그래서 메타문자를 두 번 막는다).
+  writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${recorder}" %*\r\n`, 'utf-8')
+  const evil = `x&echo PWNED>"${marker}"`
+  const args = ['plain', '공백 있는 한글', 'a&b', 'a^b', 'a!b', 'he said "hi"', 'semi;colon', 'paren(1)', 'star*?', evil]
+  const spec = winSpawn(shim, args, 'win32')
+  // 조립 단언(두 플랫폼 공통) — 부수 명령이 될 `&` 가 막혔다.
+  expect(spec.args[4].slice(1, -1)).not.toMatch(/(^|[^^])&/)
+  if (process.platform !== 'win32') return
+
+  const child = spawn(spec.command, spec.args, { env: { ...process.env, ARGV_OUT: argvFile }, ...spec.options })
+  const code = await new Promise<number | null>((r) => child.on('exit', r))
+  expect(code, '가짜 .cmd 가 실패했다').toBe(0)
+  expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'argv 가 원래 배열과 다르다').toEqual(args)
+  expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
 })
 
 async function settled(svc: ChatService, root: string) {
@@ -395,12 +569,48 @@ test('등록된 출처 파일은 폴더 밖이어도 읽을 수 있다', () => {
   // 학생이 "재무 엑셀은 여기 있어요"라고 알려준 파일은 폴더 밖에 있을 수 있다.
   // 이름을 댄 파일까지 매번 묻는 것은 학생 자신의 답변을 못 믿는 것과 같다.
   // 다만 "이 경로는 안다"는 뜻일 뿐이므로 셸 실행에는 적용하지 않는다.
-  const xlsx = '/Users/s/바탕화면/재무계획.xlsx'
+  // 제품의 "등록된 출처" 목록은 `realOrSelf(resolve(root, p))` 로 만들어진다(registeredSources).
+  // 그래서 여기 넘기는 값도 같은 규칙(resolve)으로 만들어야 윈도우에서도 같은 문자열이 된다.
+  const xlsx = resolve('/Users/s/바탕화면/재무계획.xlsx')
   expect(autoAllow(ROOT, 'Read', { file_path: xlsx })).toBe(false)
   expect(autoAllow(ROOT, 'Read', { file_path: xlsx }, [xlsx])).toBe(true)
   expect(autoAllow(ROOT, 'Read', { file_path: '/Users/s/바탕화면/다른것.xlsx' }, [xlsx])).toBe(false)
   // 목록에 있어도 셸은 별개다.
   expect(autoAllow(ROOT, 'Bash', { command: `cat "${xlsx}"` }, [xlsx])).toBe(false)
+})
+
+/**
+ * 형님 승인 W1 연결 기제 ③ (보안). 윈도우는 구분자가 둘(`/`·`\`)이고 드라이브 문자·UNC 가
+ * 따로 있는데, `/` 만 보면 `D:\…` 가 "평범한 낱말"로 읽혀 폴더 밖 검사를 통째로 건너뛴다.
+ */
+test('경로 판정은 구분자 무관이다 — 윈도우 `D:\`·UNC·드라이브 문자 (W1 ③)', () => {
+  // 맥 판정 불변: 여기서 `\` 는 파일명에 들어갈 수 있는 글자라 경로가 아니다.
+  for (const a of ['a\\b', 'build\\probe.docx', 'D:\\x', 'C:foo', '\\\\srv\\share']) {
+    expect(looksLikePath(a, 'darwin'), a).toBe(false)
+  }
+  expect(looksLikePath('a/b', 'darwin')).toBe(true)
+  expect(looksLikePath('.', 'darwin')).toBe(true)
+  expect(looksLikePath('..', 'darwin')).toBe(true)
+  // 윈도우: `\`·드라이브 문자·UNC 를 전부 경로로 본다.
+  for (const a of ['D:\\참고자료\\재무계획.xlsx', 'C:/x', 'C:foo', '\\\\srv\\share\\x', 'build\\probe.docx']) {
+    expect(looksLikePath(a, 'win32'), a).toBe(true)
+  }
+  // 평범한 낱말·플래그는 두 플랫폼 모두 경로가 아니다(묻지 않고 통과하는 쪽은 그대로).
+  for (const a of ['doctor', '--version', '-c', 'project,local', '']) {
+    expect(looksLikePath(a, 'win32'), a).toBe(false)
+    expect(looksLikePath(a, 'darwin'), a).toBe(false)
+  }
+})
+
+test('폴더 밖 윈도우 경로를 읽는 셸은 자동 허용하지 않는다 (W1 ③)', () => {
+  // 이 판정은 그 플랫폼의 `resolve` 가 있어야 의미가 있다 — 맥에서는 `D:\…` 가 그냥 파일명이고
+  // 폴더 안 상대경로로 접히는 것이 맞다(맥 판정 불변). 그래서 윈도우에서만 단언한다.
+  if (process.platform !== 'win32') return
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "D:\\참고자료\\재무계획.xlsx"' })).toBe(false)
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "C:\\Users\\s\\.ssh\\id_rsa"' })).toBe(false)
+  expect(autoAllow(ROOT, 'Bash', { command: 'cat "\\\\srv\\공유\\남의논문.md"' })).toBe(false)
+  // 폴더 안 윈도우 경로는 그대로 통과해야 한다(과잉 차단 방지).
+  expect(autoAllow(ROOT, 'Bash', { command: `cat "${ROOT}\\sources\\a.md"` })).toBe(true)
 })
 
 test('모르는 도구는 묻는다', () => {
@@ -420,7 +630,8 @@ test('한글 마무리 항목도 이름으로 불린다', () => {
 test('물을 때는 원시 JSON 이 아니라 사람 말로 말한다', () => {
   const out = describeTool('Write', { file_path: '/etc/hosts' }, ROOT)
   expect(out.title).toBe('논문 폴더 밖의 파일을 건드리려고 해요')
-  expect(out.detail).toContain('/etc/hosts')
+  // 안내문이 보여 주는 경로는 제품이 `resolve` 한 절대경로다 — 윈도우에서는 `D:\etc\hosts`.
+  expect(out.detail).toContain(resolve('/etc/hosts'))
   expect(out.title).not.toContain('{')
   const sh = describeTool('Bash', { command: `cat ${ROOT}/sources/a.md | wc -l` }, ROOT)
   expect(sh.title).toBe('컴퓨터에서 명령을 실행하려고 해요')

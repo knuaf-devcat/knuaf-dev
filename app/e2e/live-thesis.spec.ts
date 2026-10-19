@@ -43,7 +43,7 @@ test('full thesis run on claude chat', async () => {
   }, [root, text] as const)
   try {
     await openProject(page, root)
-    await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+    await page.waitForSelector('.chat-pane', { timeout: 30_000 })
     // 검증 실행 — 판정 불가한 명령까지 매번 묻게 두면 드라이버가 멈춘다. 임시 폴더를
     // 신뢰 처리하면 canUseTool 이 unjudgeable 명령도 통과시킨다.
     await page.evaluate((r) => window.knuaf.trustProject(r, true), root)

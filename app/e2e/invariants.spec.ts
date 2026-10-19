@@ -37,10 +37,21 @@ function koreanStrings(file: string): string[] {
   return hits
 }
 
-// 기존 위반이 270건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
+// 기존 위반이 263건 있다 — 전부 고치는 건 별도 작업이라, 여기서는 "늘지 않는다"를
 // 건다. 하나라도 줄이면 이 숫자도 같이 줄일 것(0이면 toEqual([])로 바꾼다).
 // 271 → 270: 사이드바에 박혀 있던 앱 이름을 src/shared/name.ts 로 옮겼다.
-const KNOWN_USER_STRING_VIOLATIONS = 270
+// 270 → 263(단계 2 합류): Chat.tsx 의 "시작하기"·"이어서 하기"(6)를 copy.ts 의
+// `CHAT.firstTurn`·`firstTurnNext` 로, 폴더 없음 화면의 "최근 폴더"(1)를 `CHAT.recentTitle`
+// 로 옮겼다 — 두 화면(첫 실행 2단계·재방문)이 같은 부품(FolderPicker)을 쓰게 되면서다.
+// 263 → 223(단계 3-B): 사이드바(Sidebar.tsx)가 사라졌다(-9: "먼저 폴더를 여세요"·
+// "폴더를 열어 주세요"·"화면" 등). Sheet 의 닫기 이름을 copy.ts `CLOSE_LABEL` 로 옮겼고(-1),
+// 새로 생긴 화면 조각(TitleBar·Workspace·PaperPane·Popover·FilesPopover·MaterialsPopover·
+// SheetOver·Workspace)은 한글 문자열을 하나도 두지 않았다 — 문구는 전부 copy.ts 에 있다.
+// 223 → 222(2차 QA N-R02): ProjectCard 를 한 줄 목록으로 바꾸며 기록 번호 칩(`N번째 기록`)을
+// 뺐다(-1). 남은 한글은 그대로다.
+// 2차 QA 수정 B 가 새 컴포넌트(components/ReviewQuote.tsx)의 문구 7개를 더했다(222+7=229).
+// 그 차수엔 copy.ts 가 A 워커 소유라 옮기지 못했고, 이 통합에서 그 7개를 copy.ts 로 옮겨 다시 222.
+const KNOWN_USER_STRING_VIOLATIONS = 222
 
 test('user-facing strings live in copy.ts', () => {
   const hits: string[] = []
@@ -70,7 +81,7 @@ test('the built app is named what the app calls itself', () => {
 
 test('reduced motion collapses transitions but keeps the spinner', async () => {
   const { electronApp, page } = await launch({ reducedMotion: 'reduce' })
-  const dur = await page.locator('nav .nav-item').first().evaluate((el) => getComputedStyle(el).transitionDuration)
+  const dur = await page.locator('.titlebar .tbtn').first().evaluate((el) => getComputedStyle(el).transitionDuration)
   expect(dur.split(',').map((s) => parseFloat(s)).every((d) => d <= 0.00001)).toBe(true)
   await electronApp.close()
 })
@@ -116,64 +127,74 @@ test('reduced motion keeps the intro readable', async () => {
 test('hard rules hold across screens', async () => {
   const root = synthProject()
   const { electronApp, page } = await launch()
-  // The folder-less state is 내 논문 itself: one folder CTA, and no path entry anywhere on
-  // the student-facing screen (the only path input lives in 설정 > 고급).
-  await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
-  await expect(page.locator('text=논문 작업 폴더를 골라 주세요')).toBeVisible()
+  // 폴더 없음 첫 화면은 두 단계 부품(FirstRun)이 덮는다 — 길잡이 한 줄이 있고, 학생 화면에는
+  // 경로 입력칸이 어디에도 없다(유일한 경로 입력은 설정 > 고급).
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await expect(page.locator('.chat-pane .onb-way')).toBeVisible()
   expect(await page.locator('main input[aria-label="폴더 경로"]').count()).toBe(0)
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
-  // The primary nav is exactly the five approved destinations — no 그룹 내비, no footer helper.
-  const navLabels = await page.locator('nav .nav-item').allInnerTexts()
-  expect(navLabels.map((t) => t.trim())).toEqual(['내 논문', '자료', '결과물', '점검', '설정'])
+  // v5: 왼쪽 사이드바 다섯 목적지가 사라졌다 — 목적지 목록(nav) 자체가 없다.
+  expect(await page.locator('nav').count()).toBe(0)
+  // 제목줄은 논문 이름 · 지금(단계) · AI 계정 · 설정 넷뿐이다(DESIGN §1-3).
+  const bar = (await page.locator('.titlebar .tbtn').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).join(' | ')
+  expect(bar).toContain('지금')
+  expect(bar, '계정 자리가 무엇을 쓰는 AI 인지 말해야 한다').toMatch(/ChatGPT 연결됨|Claude 연결됨|AI 연결 안 됨/)
+  expect(await page.locator('.titlebar .tbtn.icon').count()).toBe(1)
 
-  // 내 논문 controls must not ask for JSON/model/path input either (same rule as 도구).
-  expect(await page.locator('.chat-seg').count()).toBe(0)
+  // 대화 화면 controls must not ask for JSON/model/path input either (same rule as 도구).
+  expect(await page.locator('.chat-pane .tbar-seg, .chat-pane .segmented').count()).toBe(0)
   expect(await page.locator('main input[aria-label="폴더 경로"]').count()).toBe(0)
-  const chatCtrls = (await page.locator('main label, main .field > span, main button').allInnerTexts()).join('\n')
+  const chatCtrls = (await page.locator('.chat-pane label, .chat-pane .field > span, .chat-pane button').allInnerTexts()).join('\n')
   expect(chatCtrls).not.toMatch(/JSON|모델/)
 
   // The independent-review notice must reach the publish/save points even when the student
   // never opens 점검 — the notice lives at the moment of the attempt, not behind a screen.
   await navTo(page, '결과물')
-  await expect(page.locator('text=독립검토 미실행')).toBeVisible()
+  await expect(page.locator('text=다른 사람 검토 기록이 아직 없어요')).toBeVisible()
   // 파일 만들기: 제출용 버튼은 관문이 막혀도 활성 — 경고가 관문이지 버튼 잠금이 아니다(#4).
-  const submitBtn = page.locator('button:has-text("제출용 파일 만들기")')
+  const submitBtn = page.locator('.make-row:has-text("제출용 후보 만들기") button')
   await expect(submitBtn).toBeEnabled()
   await submitBtn.click()
-  await expect(page.locator('text=독립검토 미실행').first()).toBeVisible()
+  await expect(page.locator('text=다른 사람 검토 기록이 아직 없어요').first()).toBeVisible()
   // The same notice reaches the 고급 도구 발행 지점 (설정 > 고급 도구 > 검토본보내기).
   await navTo(page, '설정')
   await openPreset(page, 'tools:export')
   await page.selectOption('details[data-preset="tools:export"] select', 'submission_candidate')
-  await expect(page.locator('details[data-preset="tools:export"] >> text=독립검토 미실행')).toBeVisible()
+  await expect(page.locator('details[data-preset="tools:export"] >> text=다른 사람 검토 기록이 아직 없어요')).toBeVisible()
   const labels = (await page.locator('details[data-preset="tools:export"] label, details[data-preset="tools:export"] .field > span').allInnerTexts()).join('\n')
   expect(labels).not.toMatch(/JSON|모델/)
 
   await navTo(page, '점검')
-  await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
+  await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
 
   // four lanes by name, no percentage progress, no single done badge
   for (const t of ['자동 점검', '다른 사람 검토', '파일 확인', '교수님 승인']) await expect(page.getByText(t, { exact: true })).toBeVisible()
   expect(await page.locator('[role=progressbar], progress').count()).toBe(0)
   expect(await page.locator('main').innerText()).not.toMatch(/\d+\s*%/)
-  await expect(page.locator('text=아직 독립검토 기록이 없어요')).toBeVisible()
+  // 그 문구는 이제 여러 자리(만들기 고지·결과물 시트·점검 행)에 나온다 — 점검 행으로 좁히되,
+  // **고지 요소 자체가 보이는지**를 본다(확인 1회째: toContainText 는 숨은 요소도 통과한다).
+  const notice = page.locator('[data-screen="checkup"] .lanes .ln').filter({ hasText: '다른 사람 검토' })
+    .getByText('아직 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.')
+  await expect(notice, '점검 행의 고지가 보이지 않는다').toBeVisible()
   expect(await page.locator('button:has-text("완료")').count()).toBe(0)
 
   // no skip / N-A controls anywhere on 점검
   expect(await page.locator('button:has-text("건너뛰기"), button:has-text("해당 없음")').count()).toBe(0)
 
-  // 논문 차례: read-only — the 사이드바 TOC opens the section in a Sheet, never an editor.
-  await expect(page.locator('nav .toc-head')).toHaveText('논문 차례')
-  await page.locator('nav .toc-item').first().click()
-  await expect(page.locator('dialog').getByText('읽기 전용').first()).toBeVisible()
-  expect(await page.locator('dialog textarea, dialog [contenteditable="true"], main textarea, main [contenteditable="true"]').count()).toBe(0)
+  // 논문 차례: read-only — 종이 칸이 저장된 글을 그대로 보여 주고, 편집기가 어디에도 없다.
+  // (v4 는 사이드바 차례 → 읽기 전용 Sheet 였다. 그 자리를 종이 칸이 대신한다.)
+  await navTo(page, '내 논문')
+  await expect(page.locator('.paperpane .sheet')).toContainText('농장A의 재배 면적은 600평이다')
+  expect(await page.locator('.paperpane textarea, .paperpane [contenteditable="true"]').count()).toBe(0)
   // GUI-09 — 본문 텍스트가 a11y 트리에 노드로 들어 있는지 고정한다. 스냅샷은
   // VoiceOver 가 아니므로 실기 읽기 확인은 사람 몫으로 남는다.
-  // (닫힌 Sheet 도 <dialog>로 DOM 에 남으므로 open 인 것만 본다.)
-  expect(await page.locator('dialog[open]').ariaSnapshot()).toContain('농장A의 재배 면적은 600평이다')
-  await page.click('dialog >> button[aria-label="닫기"]')
+  expect(await page.locator('.paperpane').ariaSnapshot()).toContain('농장A의 재배 면적은 600평이다')
+  // 차례는 종이 머리의 장 이름 ▾ 팝오버가 연다.
+  await page.locator('.paper-head .chap').click()
+  await expect(page.locator('.paper-head .popover .pop-row').first()).toContainText('머리말')
+  await page.keyboard.press('Escape')
 
   // troubleshoot (설정 > 문제 해결): release only for a stale same-host lock; sanctioned Kordoc sentence only
   await navTo(page, '설정')

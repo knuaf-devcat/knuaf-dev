@@ -1,0 +1,149 @@
+name: build-installers
+# 설치본이 **만들어지는지**만 확인하는 워크플로다. 배포하지 않는다(W2-R1-01).
+#
+# - 트리거: `feat/**` push 중 **설치본에 영향을 주는 파일이 바뀐 경우**(아래 `paths`)와
+#   `workflow_dispatch`. 수동 실행은 이 파일이 기본 브랜치에 있어야 동작한다 —
+#     gh workflow run build-installers.yml --ref <branch>
+# - 비밀값: **하나도 받지 않는다.** 이 파일에 `secrets.` 참조가 없고, 서명 자동 탐색도 끈다
+#   (`CSC_IDENTITY_AUTO_DISCOVERY=false`). 공증은 명령에서 끈다(`--config.mac.notarize=false`).
+#   자격이 없으므로 공증 제출 경로 자체가 열리지 않는다.
+# - 발행: `--publish never`, 권한은 `contents: read` 뿐이다 — Release 자산·태그를 만들 수 없다.
+# - 결과: 워크플로 아티팩트(`installers-macos` / `installers-windows`)만.
+on:
+  # 기본 브랜치에 이 파일이 없으면 `workflow_dispatch` 는 거절된다
+  # (`HTTP 404: workflow not found on the default branch`). 그래서 설치본에 영향을 주는
+  # 파일이 바뀐 `feat/**` push 에서도 돈다. 배포 경로(`release.yml`)는 태그 전용 그대로다.
+  push:
+    branches: ["feat/**"]
+    paths:
+      # 설치본에 들어가는 입력 전체를 덮는다 — 화이트리스트를 쪼개면 빠뜨리는 구멍이 생긴다
+      # (`app/src/**`·`app/sidecar/**`·`electron.vite.config.ts` 등). 권한·비밀값·발행 성질은
+      # 이 목록과 무관하게 그대로다(`contents: read`·`secrets` 0·`--publish never`).
+      - "app/**"
+      - "skills/knuaf-dev/**"
+      - "docs/학생용-사용안내.*"
+      - ".github/workflows/build-installers.yml"
+      - ".github/workflows/release.yml"
+  # main 에 합쳐진 뒤에는 손으로도 돌린다.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # 러너에 인증서가 있어도 서명·공증으로 넘어가지 않게 한다.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm prepare:resources
+      # dist:mac 과 같은 빌드지만 공증을 끈다(`--config.mac.notarize=false`).
+      - run: pnpm exec electron-builder --mac --publish never --config.mac.notarize=false
+      - name: 체크섬
+        working-directory: app/dist
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt
+      - name: 아티팩트
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-macos
+          path: |
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/SHA256SUMS-macos.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm prepare:resources
+      - run: pnpm exec electron-builder --win --publish never
+
+      # 동봉한 Codex CLI 가 설치본 안에 실제로 들어갔고 실행되는지 본다. 로그인·AI 호출은 하지
+      # 않는다(`--version` 만). 버전은 스크립트의 고정 상수에서 읽어 온다 — 한 곳만 고치면 된다.
+      - name: 동봉 Codex CLI 확인
+        working-directory: app
+        shell: pwsh
+        run: |
+          $want = (Select-String -Path 'scripts\fetch-codex.mjs' -Pattern "const DEFAULT_VERSION = '([^']+)'" | Select-Object -First 1).Matches[0].Groups[1].Value
+          if (-not $want) { Write-Error "fetch-codex.mjs 에서 동봉 버전을 읽지 못했다"; exit 1 }
+
+          $root = Join-Path (Get-Location) 'dist\win-unpacked'
+          if (-not (Test-Path $root)) { Write-Error "win-unpacked 가 없다: $root"; exit 1 }
+          $vendor = Join-Path $root 'resources\codex\vendor\x86_64-pc-windows-msvc'
+          foreach ($rel in @('bin\codex.exe', 'codex-path\rg.exe', 'codex-resources\codex-command-runner.exe', 'codex-package.json')) {
+            $p = Join-Path $vendor $rel
+            if (-not (Test-Path $p)) { Write-Error "동봉 파일이 없다: $p"; exit 1 }
+            Write-Host "동봉 확인: $rel"
+          }
+          foreach ($rel in @('LICENSE', 'NOTICE', 'LICENSE-ripgrep-MIT', 'UNLICENSE-ripgrep', 'BUNDLE.txt', '.complete')) {
+            $p = Join-Path $root (Join-Path 'resources\codex' $rel)
+            if (-not (Test-Path $p)) { Write-Error "고지문·완료 표식이 없다: $p"; exit 1 }
+            Write-Host "고지 확인: $rel"
+          }
+
+          $ver = (& (Join-Path $vendor 'bin\codex.exe') --version 2>&1 | Out-String).Trim()
+          $code = $LASTEXITCODE
+          Write-Host "codex --version (exit $code) → $ver"
+          if ($code -ne 0) { Write-Error "동봉 codex.exe --version 실패"; exit 1 }
+          if ($ver -notmatch [regex]::Escape($want)) { Write-Error "동봉 버전이 $want 가 아니다: $ver"; exit 1 }
+
+      - name: 체크섬
+        working-directory: app/dist
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Filter *.exe -File
+          if (-not $files) { Write-Error "설치본(*.exe)이 만들어지지 않았습니다"; exit 1 }
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)"
+          }
+          $lines | Set-Content -Encoding ascii SHA256SUMS-windows.txt
+          Get-Content SHA256SUMS-windows.txt
+      - name: 아티팩트
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-windows
+          path: |
+            app/dist/*.exe
+            app/dist/SHA256SUMS-windows.txt
+          if-no-files-found: warn
+          retention-days: 14

@@ -7,12 +7,15 @@ name: release
 # 없으면 electron-builder가 서명을 건너뛰고 after-sign.mjs가 임시(ad-hoc) 서명만 한다.
 # 그 빌드는 Gatekeeper가 막으므로 릴리스 본문에 해제 방법을 함께 싣는다.
 #
-# Windows는 아직 없다. 앱의 Windows 동작이 검증된 적이 없어서, 설치본을 만들어 두면
-# 열리지 않는 파일을 배포하게 된다. 이식이 끝나면 여기에 job을 추가한다.
+# Windows 설치본(NSIS)은 아래 `windows` job 이 만든다 — W1 에서 윈도우 e2e 가 초록이 된 뒤
+# 추가했다. 서명 인증서가 없어(형님 결정) 서명 설정·시크릿을 쓰지 않는다. 처음 실행의
+# SmartScreen 경고는 docs/설치-안내-Windows.md 안내로 넘긴다.
+# 태그 배포 **전용**이다. 설치본이 만들어지는지 확인만 하려면 `.github/workflows/
+# build-installers.yml`(workflow_dispatch 전용, 비밀값·서명·공증 없음)을 쓴다 —
+# 이 워크플로를 브랜치에서 수동 실행하면 서명·공증 자격이 쓰일 수 있기 때문이다(W2-R1-01).
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -132,7 +135,7 @@ jobs:
 
       - name: 체크섬 생성
         working-directory: app/dist
-        run: shasum -a 256 *.dmg *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt
 
       - name: 릴리스 초안 올리기
         if: startsWith(github.ref, 'refs/tags/v')
@@ -157,10 +160,98 @@ jobs:
             echo "## 확인"
             echo
             echo "이 빌드는 서명 상태를 빌드가 직접 판정해 기록합니다 — 정식 서명: \`$SIGNED\`."
-            echo "파일 무결성은 \`SHA256SUMS.txt\` 로 확인할 수 있습니다."
+            echo "파일 무결성은 \`SHA256SUMS-macos.txt\`(macOS)·\`SHA256SUMS-windows.txt\`(Windows) 로 확인할 수 있습니다."
           } > notes.md
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
-            *.dmg *.zip SHA256SUMS.txt
+            *.dmg *.zip SHA256SUMS-macos.txt
+
+  # 윈도우 설치본(NSIS, 서명 없음). 맥 job 과 같은 트리거·같은 검증(verify) 뒤에 돈다.
+  # dist:win = build → prepare:resources(번들 CPython·휠하우스·아이콘·안내 PDF·스킬) →
+  # electron-builder --win. fetch:python 은 PBS_TARGET 기본값이 x86_64-pc-windows-msvc 이고,
+  # build:wheelhouse 는 번들 python.exe 로 win_amd64 휠을 받는다(pywin32 포함).
+  windows:
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 맥 job 과 같은 확인 — 버전이 네 군데 흩어져 있다.
+      - name: 태그와 선언된 버전이 같은지 확인
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $fail = 0
+          foreach ($f in @('app/package.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json')) {
+            $got = python -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" $f
+            if ($got -ne $tag) { Write-Host "::error file=$f::버전 불일치 — 태그 $tag / 파일 $got"; $fail = 1 }
+          }
+          exit $fail
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      # 위 버전 확인용 python. 번들 런타임(3.12)은 fetch:python 이 따로 받는다.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+
+      # 서명 없음 — CSC_*/APPLE_* 를 넘기지 않는다(formac job 과 달리 env 자체가 없다).
+      - name: 설치본 빌드
+        working-directory: app
+        run: pnpm dist:win
+
+      - name: 체크섬 생성
+        working-directory: app/dist
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Filter *.exe -File
+          if (-not $files) { Write-Error "설치본(*.exe)이 만들어지지 않았습니다"; exit 1 }
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)"
+          }
+          # 맥 체크섬(`SHA256SUMS-macos.txt`)을 덮어쓰지 않도록 이름을 나눈다(W2-R1-02).
+          $lines | Set-Content -Encoding ascii SHA256SUMS-windows.txt
+          Get-Content SHA256SUMS-windows.txt
+
+      # 설치본이 실제로 만들어졌는지 아티팩트로 확인한다(workflow_dispatch 로도 돌 수 있다).
+      - name: 설치본 아티팩트
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            app/dist/*.exe
+            app/dist/SHA256SUMS-windows.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # 맥 job 이 초안을 만든다(두 job 은 병렬이다). 초안이 나타난 뒤 자산만 더한다.
+      - name: 릴리스 초안에 설치본 붙이기
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: app/dist
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $ready = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            gh release view $tag --json isDraft 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 10
+          }
+          if (-not $ready) { Write-Error "초안 릴리스가 10분 안에 나타나지 않았습니다 ($tag)"; exit 1 }
+          gh release upload $tag *.exe SHA256SUMS-windows.txt --clobber

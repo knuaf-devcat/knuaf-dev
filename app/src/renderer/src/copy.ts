@@ -1,4 +1,5 @@
 import { APP_NAME } from '../../shared/name'
+import { fileStateOf, isReviewExport, reviewBasisOf, type LoadLike } from '../../shared/files'
 /**
  * copy.ts — every user-facing string of the companion app in one place.
  *
@@ -446,8 +447,8 @@ export const LANE_COPY: LaneCopy[] = [
     id: 'content_review',
     title: '다른 사람 검토',
     description: '작성자와 다른 검토자가 원문과 대조한 기록이에요.',
-    readyText: '독립검토 기록이 있어요.',
-    notReadyText: '아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
+    readyText: '다른 사람 검토 기록이 있어요.',
+    notReadyText: '아직 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
   },
   {
     id: 'output_review',
@@ -497,7 +498,7 @@ export const EMPTY: Record<string, { title: string; body: string; action?: strin
   },
   artifacts: {
     title: '아직 결과물이 없어요',
-    body: '도우미가 build 폴더에 파일을 만들면 여기에 나타나요.'
+    body: '도우미가 논문 파일을 만들면 여기에 나타나요.'
   }
 }
 
@@ -513,6 +514,26 @@ export const EMPTY: Record<string, { title: string; body: string; action?: strin
  */
 export const CHECKUP = {
   title: '점검',
+  /** 논문 칸을 덮는 한 장의 이름(시안 ⑫, DESIGN §4-5). */
+  sheetTitle: '제출 전 점검',
+  /** 시트 머리의 작은 글자. 기록 번호를 보이는 몇 안 되는 자리다(DESIGN §5). */
+  head: (n: number) => `지금 논문 · ${n}번째 기록`,
+  // 시트 세 덩어리(시안 ⑫). 문구는 화면에 있던 것을 그대로 옮겼다.
+  fileTitle: '제출할 파일',
+  fileNone: '아직 만든 파일이 없어요',
+  fileSame: '지금 논문과 같아요',
+  fileStale: '고친 내용이 빠져 있어요',
+  fileUnknown: '지금 논문과 같은지 앱이 몰라요',
+  finishTitle: '한글에서 내가 직접 할 것',
+  finishWho: '앱이 대신 못 해요',
+  lanesWho: '하나로 합치지 않아요',
+  copyRequest: '부탁 문장 복사',
+  copied: '복사했어요',
+  workTitle: '도우미에게 할 말',
+  /** 기술 기록(등록 현황·완료 안내)은 기본 화면에 두지 않는다(DESIGN §5 쉬운 말). */
+  recordDetail: '기록 자세히',
+  /** 시트 머리의 다시 읽기 — 옛 점검 화면의 그 단추다. */
+  refresh: '새로고침',
   todoTitle: '내가 해야 할 일',
   fixTitle: '고칠 곳',
   pendingTitle: '아직 확인 못 한 것',
@@ -541,7 +562,7 @@ export const CHECKUP = {
   finishHowNote: '이 일은 한글 프로그램에서 직접 확인·고치는 일이에요. 끝내고 나면 도우미에게 알려 주세요.',
   passedTitle: (n: number) => `통과한 검사 ${n}건`,
   laneLines: {
-    machineFail: (n: number) => `실패 ${n}건 있음 — 위 고칠 곳 참고`,
+    machineFail: (n: number) => `실패 ${n}건 있음 — "자세히"에 고칠 곳이 있어요`,
     machineBlocked: (n: number) => `아직 확인 못 한 ${n}건 있음`,
     machinePass: (n: number) => `통과 ${n}건`,
     reviewDone: '기록 있음',
@@ -579,6 +600,77 @@ export const COMPLETION: Record<string, string> = {
 /** Data boundary: the agent providers see the project; the app itself phones nowhere. */
 export const PRIVACY_NOTE = 'AI 도우미를 연결하면 답변과 작업 폴더의 내용이 선택한 제공업체(OpenAI 또는 Anthropic)로 전송돼요. 앱 자체는 그 외 어디에도 자료를 보내지 않아요.'
 
+// ---------------------------------------------------------------------------
+// 첫 실행 (AI 연결 → 논문 폴더) · 폴더 고르기
+// ---------------------------------------------------------------------------
+
+/**
+ * 폴더 고르기 — 첫 실행 2단계와 재방문(폴더 없음) 화면이 같은 줄을 쓴다(`FolderPicker`).
+ * 두 화면에서 다른 것은 제목·부제뿐이다.
+ */
+export const FOLDER = {
+  newName: '새로 시작',
+  newBody: '빈 폴더를 만들어요',
+  newAction: '새 폴더 만들기',
+  recentName: '쓰던 논문 이어 쓰기',
+  recentBody: '전에 쓰던 폴더를 열어요',
+  recentAction: '폴더 열기',
+  recents: '최근'
+} as const
+
+/**
+ * 첫 실행 화면(DESIGN §6). 순서는 AI 연결 ① → 논문 폴더 ② 이고, 기술 이름(Codex·Claude Code)은
+ * 설치가 필요할 때만 괄호로 붙인다(§5 — 기본 화면에는 쓰지 않는다).
+ */
+export const ONBOARD = {
+  guideConnect: 'AI 연결',
+  guideConnectDone: 'AI 연결 ✓',
+  guideFolder: '논문 폴더',
+  guideStart: '시작',
+  connectTitle: '먼저, 쓰고 있는 AI를 연결해요',
+  connectIntro: '평소 쓰는 ChatGPT나 Claude 계정 하나면 돼요. 이 앱은 AI 이용권을 따로 팔지 않아요 — 도우미는 내 계정으로 일해요.',
+  recommended: '권장',
+  claudeExperimental: '아직 실험 중인 연결이에요',
+  chosenSuffix: ' · 고른 AI예요',
+  installGuide: '설치 안내',
+  loginAs: (name: string) => `${name}로 로그인`,
+  reopenBrowser: '브라우저 다시 열기',
+  cancel: '취소',
+  startWith: '이걸로 시작',
+  connectNext: '다음 — 논문 폴더 고르기',
+  connectWaiting: '연결이 확인되면 다음으로 갈 수 있어요.',
+  /** 개인정보 줄 바로 아래 한 줄 — 앞은 보통 글자, 뒤만 링크다(시안 A). */
+  howToChooseLead: '둘 다 있나요?',
+  howToChooseLink: '어느 쪽이 좋은지 보기',
+  toolHint: '연결 도구를 설치한 뒤 이 화면으로 돌아와 "다시 확인"을 눌러 주세요.',
+  folderTitle: '논문을 담을 폴더를 골라요',
+  folderIntro: '논문 글과 자료가 이 폴더에 모여요. 이미 가진 원고나 엑셀이 있는 폴더도 괜찮아요 — 원래 파일은 건드리지 않아요.',
+  folderBack: '← AI 연결',
+  /** "화면 오른쪽 위" — 제목줄의 계정 자리다(시안 B). 이 문장은 그 자리가 생기기를 기다렸다. */
+  folderFoot: '폴더를 이 창에 끌어다 놓아도 열려요. 연결한 AI는 나중에 화면 오른쪽 위에서 바꿀 수 있어요.'
+} as const
+
+/** 연결 도구 이름 — 설치가 필요할 때만, 그리고 어느 도구인지 구분할 때만 화면에 나온다. */
+export const CONNECT_TOOL: Record<'codex' | 'claude', string> = { codex: 'Codex', claude: 'Claude Code' }
+export const PROVIDER_NAME: Record<'codex' | 'claude', string> = { codex: 'ChatGPT', claude: 'Claude' }
+
+/**
+ * 연결 상태 한 줄 — 관찰한 것만 말한다. 확인하지 못한 것을 연결됨·끊김으로 꾸미지 않는다(R5 §6.3).
+ * `failed`(도구는 있는데 대답을 못 들음)와 `unknown`(요청 자체가 실패)을 "로그인이 필요해요"로
+ * 접지 않는다 — 그 구분이 `ConnectionStatus.probe` 다.
+ */
+export function connectStateLine(provider: 'codex' | 'claude', state: string): string {
+  switch (state) {
+    case 'checking': return '연결 상태를 확인하고 있어요'
+    case 'no-tool': return `연결 도구(${CONNECT_TOOL[provider]})를 먼저 설치해요`
+    case 'need-login': return `${PROVIDER_NAME[provider]} 계정 로그인이 필요해요`
+    case 'logging-in': return '브라우저에서 로그인한 뒤 이 창으로 돌아와 주세요'
+    case 'connected': return '연결됐어요'
+    case 'failed': return '연결 상태를 확인하지 못했어요'
+    default: return '연결 상태를 알 수 없어요'
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Fixed sentences (SKILL.md:8, :15, :24, :34; parser-setup.md:12)
@@ -610,8 +702,8 @@ export const READ_ONLY_NOTE = '읽기 전용이에요. 수정은 도우미와의
 
 /** SKILL.md:34 — when no independent review exists, say so first, always. */
 export const INDEPENDENT_REVIEW_MISSING = {
-  title: '독립검토 미실행',
-  body: '아직 독립검토 기록이 없어요. 자동 점검 통과가 이를 대신하지 않아요.'
+  title: '다른 사람 검토 기록이 아직 없어요',
+  body: '자동 점검 통과가 이를 대신하지 않아요.'
 } as const
 
 // ---------------------------------------------------------------------------
@@ -746,6 +838,8 @@ export const CHAT = {
   // 단축키는 툴팁으로 — placeholder는 실제 기능만 말한다(05-어휘교체표 §10).
   placeholder: '답변을 입력하세요',
   placeholderHint: 'Enter 보내기 · Shift+Enter 줄바꿈',
+  /** 입력칸 아래 한 줄 — 시안 P/L 그대로(아이스 그레이 아님, 조용한 글). */
+  disclaimer: '도우미도 틀릴 수 있어요. 수치와 출처는 꼭 확인하세요.',
   send: '보내기',
   emptyTitle: '아직 대화가 없어요',
   emptyBody: '도우미와 나눈 대화가 여기 쌓여요.',
@@ -758,14 +852,18 @@ export const CHAT = {
   // 빈 대화 시작 버튼 — "시작하기"/"이어서 하기" 문자열을 학생 대신 보낸다(agent.ts firstPrompt와 같은 문자열).
   startNew: '새로 시작하기',
   resume: '쓰던 논문 이어하기',
-  pickHelperTitle: '어느 도우미로 시작할까요?',
-  pickHelperBody: '한 번 고르면 기억해요. 바꾸려면 설정에서 바꿀 수 있어요.',
-  pickCodexTitle: 'ChatGPT 채팅으로 시작',
-  pickCodexBody: '앱 안에서 대화해요. 진행 상황을 앱이 정확히 보여줘요.',
-  pickClaudeTitle: 'Claude Code로 시작',
+  /**
+   * 도우미에게 실제로 보내는 첫 마디. 버튼 글자(`startNew`·`resume`)와 다르다 — 그쪽은
+   * "무엇을 하는지"를 말하고, 이쪽은 스킬이 받는 문장이다(`firstPromptFor` 와 같은 문자열).
+   */
+  firstTurn: '시작하기',
+  firstTurnNext: '이어서 하기',
+/**
+   * 빈 대화(자동 시작이 안 된 경우) — AI 는 첫 실행·계정 팝오버에서 고른다. 여기서 다시 고르게
+   * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
+   */
+  emptyChangeAi: '다른 AI로 바꾸려면 오른쪽 위 계정에서 바꿀 수 있어요',
   // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
-  pickClaudeBody: '앱 안에서 대화해요. 아직 실험 중인 연결 방식이에요.',
-  claudeStart: 'Claude Code로 시작',
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',
   needLoginTitleFor: (p: string) => `${p === 'claude' ? 'Claude' : 'ChatGPT'} 로그인이 필요해요`,
@@ -783,6 +881,8 @@ export const CHAT = {
   activityFile: (name: string) => `최근 파일 ${name}`,
   activityFix: (n: number) => `자동 점검 고칠 곳 ${n}건 — 점검에서 확인할 수 있어요`,
   noFolderTitle: '논문 작업 폴더를 골라 주세요',
+  /** 폴더 없음 화면의 "최근" 목록 제목 — 첫 실행 화면과 같은 부품이 쓴다(FolderPicker). */
+  recentTitle: '최근 폴더',
   noFolderIntro: '새 빈 폴더도 괜찮고, 이미 쓰던 폴더도 괜찮아요. 고른 폴더에 도우미용 파일이 자동으로 준비돼요.',
   noFolderBody: '폴더를 끌어다 놓아도 돼요.',
   openFolder: '폴더 열기…',
@@ -792,10 +892,42 @@ export const CHAT = {
   draftCopyHintWait: '도우미가 연결되면 여기에서 바로 보낼 수 있어요. 지금은 복사해 둘 수 있어요.',
   draftCopy: '복사',
   draftCopied: '복사했어요',
+  // --- 아래 칸: 질문 카드(설계 §3-1) -----------------------------------------
+  /** 카드의 화면 낭독 이름. `[Q3-2]` 원문 번호를 그대로 쓴다. */
+  questionGroup: (id: string) => `도우미 질문 ${id}`,
+  questionOptions: '보기',
+  questionArrived: '도우미가 질문했어요.',
+  /** 앱이 보기 끝에 늘 붙이는 줄 — 도우미가 알아보는 "미정"과 다른 일이다. */
+  directInput: '직접 입력',
+  backToOptions: '보기에서 고르기',
+  optionKeysTail: '눌러도 돼요 · 누르면 바로 보내요',
+  freeHintBack: '되돌아가기',
+  freePlaceholder: '내 말로 답해요. 질문과 다른 이야기도 괜찮아요',
+  /** 카드가 떠 있는 동안 대화 원문에서 보기 목록을 접는다 — 같은 보기가 두 번 보이면 헷갈린다. */
+  foldHint: (n: number) => `보기 ${n}개는 아래 카드에 있어요`,
+  unfold: '여기에 펼치기',
+  // --- 아래 칸: 허락 카드(설계 §3-2) -----------------------------------------
+  askTitle: '도우미가 허락을 기다려요',
+  /** 명령·상세를 접어 두는 자리 — 쉬운 말 이유는 앞에, 명령·경로는 작게 보이고 상세만 여기로. */
+  askDetail: '무엇을 바꾸는지 보기',
+  // --- I-02 ① 표시만: 입력칸 `+` 오른쪽 칩과 그 팝오버 -----------------------
+  /** 지금 연결된 AI 이름 뒤에 붙는 칩 글자(예: `ChatGPT · 생각 깊이 기본 ▾`). */
+  depthChip: '생각 깊이 기본',
+  modelChipTitle: '이 논문의 도우미',
+  depthTitle: '생각 깊이',
+  depthDefault: '기본값',
+  /** 값은 지어내지 않는다 — 지금은 그 사용자의 CLI 기본값이 쓰인다는 사실만 말한다. */
+  depthFollows: (name: string) => `내 ${name} 설정을 따라요`,
+  depthSoon: '곧 고를 수 있어요',
+  // --- 아래 칸: 작업 중 한 줄(설계 §3) --------------------------------------
+  runningLine: '도우미가 작업 중이에요',
 }
 
 export const MATERIALS = {
   title: '자료',
+  loading: '불러오는 중…',
+  /** 참고자료가 목록보다 많을 때의 꼬리(팝오버는 최대 5개만 보여 준다 — 설계자 답 Q3). */
+  moreFiles: (n: number) => `외 ${n}개`,
   currentTitle: '현재 작성물',
   manuscriptLabel: '현재 원고',
   financeLabel: '재무 파일',
@@ -832,6 +964,8 @@ export const ARTIFACTS = {
   checkNone: '자동 점검 기록 없음',
   savedTo: '저장했어요',
   previewTitle: '미리보기',
+  /** 목록에서 아직 아무 파일도 고르지 않았을 때. */
+  pickOne: '왼쪽 목록에서 파일을 골라 주세요.',
   // 파일 만들기 — 목록 위 한 단, 버튼만(경로 입력 0). 비활성은 "입력이 없어 실행 자체가
   // 불가능한 경우"뿐이고 이유를 캡션으로 말한다(04-결과물 결정). 제출용 버튼은 게이트가
   // 막혀 있어도 활성 — 누르는 순간이 고지의 자리다(Q1·#4 기각).
@@ -839,7 +973,7 @@ export const ARTIFACTS = {
     title: '파일 만들기',
     review: '검토본 만들기',
     reviewBody: '지금 원고를 검토용 파일로 묶어요',
-    docx: '논문 DOCX 만들기',
+    docx: '논문 파일(워드) 만들기',
     docxBody: '도우미가 만든 본문을 논문 양식으로 묶어요',
     /**
      * 표지 정보(paper-input.json)가 없어 앞머리를 못 붙이는 경우. 본문만으로도
@@ -853,7 +987,7 @@ export const ARTIFACTS = {
      * 없는 것은 원고가 아니라 합쳐진 본문 파일이므로, 그걸 만드는 버튼을 가리킨다.
      */
     docxNoInput: '아직 합쳐진 본문 파일이 없어요. 위의 "검토본 만들기"를 먼저 눌러 주세요',
-    submit: '제출용 파일 만들기',
+    submit: '제출용 후보 만들기',
     submitBody: '학교 제출용 후보를 만들어요 — 누르면 검토 상태를 먼저 알려줘요',
     xlsx: '재무 엑셀 만들기',
     xlsxBody: '단계가 여럿이라 "설정 > 고급 도구"의 재무 엑셀에서 진행해요',
@@ -864,11 +998,15 @@ export const ARTIFACTS = {
      * 학생이 도우미를 재촉하게 했다(시험주행 발견 18).
      */
     xlsxNoInput: '학교 재무 양식 파일이 아직 없어요. 도우미에게 양식 파일 위치를 알려 주면 여기서 이어서 만들어요',
-    gateBlocked: '제출용 파일을 만들 수 없어요. 먼저 필요한 것',
+    gateBlocked: '제출용 후보를 만들 수 없어요. 먼저 필요한 것',
     gateDetails: '자세히',
     advancedOpen: '고급 도구에서 직접 실행',
     /** 실패했는데 스크립트가 이유를 안 남긴 경우 — 제목만 띄우고 끝내지 않는다(GUI-08). */
     failNoReason: '도구가 이유를 남기지 않았어요. "자세히"의 실행 기록을 확인해 주세요.',
+    /** 만들기가 끝나지 않았을 때의 제목. */
+    failTitle: '만들기가 끝나지 않았어요',
+    /** 만들기는 됐지만 통과하지 못한 검사가 남았을 때(자세히 안의 한 줄). */
+    unverified: (n: number) => `아직 통과하지 않은 검사 ${n}건`,
     xlsxGoto: '고급 도구에서 이어서 만들기',
     madeTitle: '만들어진 파일'
   }
@@ -902,6 +1040,190 @@ export const NAV = {
   savedNth: (n: number) => `${n}번째 기록` // revision은 apply마다 오른다 — 학생의 저장 행위만이 아님(gg_core.py:872)
 }
 
+/** 모든 닫기 단추의 화면 낭독 이름 — 한 곳에서만 적는다(화면 조각마다 다르면 낭독이 흔들린다). */
+export const CLOSE_LABEL = '닫기'
+
+// ---------------------------------------------------------------------------
+// 제목줄 (DESIGN §1-3·§2)
+// ---------------------------------------------------------------------------
+
+/**
+ * 제목줄 — 논문 ▾ · 지금 ▾ · 계정 · ⚙ (DESIGN §1-3).
+ *
+ * 시안이 그린 것은 자리와 글자뿐이다. "논문 ▾"과 "계정"을 눌렀을 때 열리는 팝오버의 내용은
+ * 시안·DESIGN 어디에도 없다 — 그 둘은 `impl/QUESTIONS-P3B.md`에 적어 책임자에게 올렸고,
+ * 여기 문구는 그 자리에 들어간 **최소한**이다(되돌리기 쉬운 한 곳).
+ */
+export const TITLEBAR = {
+  paperNone: '논문 열기',
+  paperMenuTitle: '다른 논문 열기',
+  recentPapers: '최근 논문',
+  openOther: '다른 폴더 열기…',
+  noRecent: '최근에 연 논문이 없어요',
+  /** 첫 대화는 한 칸 — 옆 칸이 왜 비어 있는지 한 줄로 말한다(시안 ③). */
+  paperLater: '내 논문 · 첫 장을 쓰면 옆에 열려요',
+  /** 좁은 창의 바꾸기(⑯). */
+  segChat: '대화',
+  segPaper: '내 논문',
+  /** 종이를 닫는 자리 — 닫으면 다시 저절로 열리지 않는다. */
+  paperClose: '내 논문 닫기',
+  paperOpen: '내 논문 열기',
+  accountTitle: '내 AI 계정 — 앱은 AI를 팔지 않아요',
+  accountNone: 'AI 연결 안 됨',
+  /** 제목줄 오른쪽 — 지금 대화하는 AI. 관찰한 것만 말한다(`connectStateLine` 과 같은 규칙). */
+  accountConnected: (name: string) => `${name} 연결됨`,
+  /** 계정 팝오버에서 다른 공급자로 옮기는 한 줄. */
+  switchTo: (name: string) => `${name}로 바꾸기`,
+  settingsTitle: '설정',
+  nowLabel: '지금',
+  nowOpen: '전체 과정 보기',
+  nowClose: '전체 과정 닫기',
+  nowTitle: '전체 과정'
+} as const
+
+// ---------------------------------------------------------------------------
+// 종이 칸 (DESIGN §2, 시안 ④~⑯)
+// ---------------------------------------------------------------------------
+
+/**
+ * 종이 칸. **저장된 글만** 그린다 — 답을 보냈다고 문단을 미리 그리지 않는다(DESIGN §2).
+ * 빈 장은 제목만 흐리게 두고, 장식용 장 번호·칠한 썸네일은 쓰지 않는다.
+ */
+export const PAPER = {
+  /** 칸의 화면 낭독 이름. */
+  paneLabel: '내 논문',
+  tocTitle: '차례 — 누르면 그 장으로 가요',
+  /** 장 상태 말. 숫자로 세지 않는다("7장 중 2장" 금지, DESIGN §2). */
+  stateDone: '초안 다 씀',
+  stateWriting: '쓰는 중',
+  stateEmpty: '아직',
+  /** 등록된 절이 하나도 없을 때. 가짜 차례를 만들지 않는다(R4 원칙). */
+  empty: '아직 등록된 장이 없어요',
+  emptyBody: '도우미와 대화를 시작하면 장이 하나씩 여기에 쌓여요.',
+  /** 아직 본문이 없는 장의 빈 자리 한 줄. */
+  emptyLine: '아직 쓴 글이 없어요',
+  /** 질문 원문에 장이 적혀 있을 때만, 그 장 끝에 한 줄(DESIGN §2). */
+  questionSlot: '지금 질문의 답은 이 장에 쓰여요',
+  writingTag: '도우미가 쓰는 중',
+  materialsCount: (n: number) => `자료 ${n}`,
+  filesCount: (n: number) => `파일 ${n}`,
+  /** 파일에 다시 만들어야 할 것이 있을 때만 옆에 붙는 호박색 점의 이름(낭독용). */
+  staleTitle: '다시 만들어야 할 파일이 있어요'
+} as const
+
+/**
+ * 다섯 단계 (DESIGN §2, 시안 ⑬) — "지금"은 하나다. 번호 원 스테퍼·퍼센트·등간격 게이지는
+ * 쓰지 않는다: 제목줄 한 줄 + 열면 목록.
+ *
+ * 사실 한 줄은 **이미 아는 것만** 말한다(단계 판정 입력과 같은 것들이다) — 모르는 개수를
+ * 지어내지 않는다. 그래서 2단계는 질문 수/장 상태로, 5단계는 한글 마무리 개수로 말한다.
+ */
+export const STAGES = {
+  names: ['준비', '인터뷰·장 쓰기', '검토본', '결과물', '제출 점검·마무리'],
+  head: '전체 과정 — 꼭 한 칸씩만 가지는 않아요',
+  fact: {
+    ready: (connected: boolean, hasProject: boolean) =>
+      `${connected ? 'AI 연결됨' : 'AI 연결 안 됨'} · ${hasProject ? '논문 폴더 있음' : '논문 폴더 없음'}`,
+    write: (questions: number, allReady: boolean) =>
+      questions > 0 ? `도우미 질문 ${questions}개가 답을 기다려요`
+        : allReady ? '장 초안을 다 썼어요'
+          : '도우미와 장을 쓰는 중',
+    review: (reviewExport: number | null) =>
+      reviewExport !== null ? `${reviewExport}번째 기록 기준으로 만들었어요` : '아직 안 만들었어요',
+    output: (stale: boolean, hasDocx: boolean) =>
+      stale ? '고친 내용이 파일에 빠져 있어요' : hasDocx ? '논문 파일을 만들었어요' : '아직 안 만들었어요',
+    finish: (n: number) => `한글에서 직접 할 것 ${n}개 · 확인 네 가지`
+  }
+} as const
+
+/**
+ * 파일 하나의 현재성 한 줄 (DESIGN §2).
+ * 검토본은 그 파일의 개정 번호로만 말하고(`build/<N>/review/…` → N), 나머지는 정본의
+ * `outputs[*].stale` **만** 본다 — 기록 번호를 비교해 짐작하지 않는다(v2 §4-1).
+ */
+export function fileStatusText(path: string, load: LoadLike | null): string {
+  const basis = reviewBasisOf(path)
+  if (basis !== null) return FILES_POPOVER.reviewBasis(basis)
+  if (isReviewExport(path)) return FILES_POPOVER.unknown   // review 폴더인데 번호를 못 읽는 모양
+  const state = fileStateOf(path, load)
+  return state === 'same' ? FILES_POPOVER.same : state === 'stale' ? FILES_POPOVER.stale : FILES_POPOVER.unknown
+}
+
+/** 파일 팝오버(⑩⑮) — 만들기 4줄 + 만든 파일. */
+export const FILES_POPOVER = {
+  makeTitle: '만들기',
+  /** 오른쪽 단추는 늘 "만들기" 하나 — 왼쪽 줄 이름을 되풀이하지 않는다(DESIGN §4, 대조 D1-6). */
+  makeAction: '만들기',
+  /** 만드는 중 한 줄(팝오버 그 줄 아래·종이 머리 아래). */
+  making: '만드는 중…',
+  /** 결과 줄에서 파일을 여는 단추(절대경로를 붙여 연다). */
+  open: '열기',
+  /** 만드는 중에 멈추는 단추(팝오버 그 줄 아래). */
+  cancel: '취소',
+  madeTitle: '만든 파일 — 누르면 열려요',
+  madeNone: '아직 없어요',
+  revealFolder: '폴더에서 보기',
+  openAll: '결과물 전체 보기',
+  /** 검토본은 개정 번호 기준으로만 말한다(파일에 등록되지 않은 것도 있어서). */
+  reviewBasis: (n: number) => `${n}번째 기록 기준`,
+  same: '지금 논문과 같아요',
+  stale: '고친 내용이 빠져 있어요',
+  unknown: '지금 논문과 같은지 앱이 몰라요'
+} as const
+
+/** 자료 팝오버(⑬ 머리) — 요약만 보이고 전체는 시트로 연다(DESIGN §4-5). */
+export const MATERIALS_POPOVER = {
+  title: '자료',
+  current: '현재 작성물',
+  all: '자료 전체 보기',
+  noneYet: '아직 정해지지 않았어요'
+} as const
+
+// ---------------------------------------------------------------------------
+// 대화 이벤트 줄 (IMPL-PLAN §3 신규)
+// ---------------------------------------------------------------------------
+
+/**
+ * 도우미가 절을 저장한 사실을 대화에 한 줄로 그린다 — 절 제목은 `project.sections`에서
+ * 가져오므로 도우미 답변의 머리 배너(`> knuaf-dev …`)를 되뇌지 않는다.
+ * 대화 기록 파일에는 쓰지 않는다(앱이 그리는 표시일 뿐이다).
+ */
+export const CHAT_EVENT = {
+  wrote: (title: string) => `${title}${objectParticle(title)} 썼어요`,
+  goPaper: '종이에서 보기'
+} as const
+
+/**
+ * 목적격 조사 `을/를`. 마지막 글자가 한글 음절이면 받침을 보고 고르고, 그 밖(숫자·영문·
+ * 기호)은 `를`로 둔다. 절 제목에 조사를 붙여 문장을 만들 때만 쓴다.
+ */
+export function objectParticle(word: string): string {
+  const last = word.trim().slice(-1)
+  const code = last.charCodeAt(0)
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 > 0 ? '을' : '를'
+  return '를'
+}
+
+/**
+ * 종이 검토 — 골라서 고쳐 달라기(N-I03) · 고친 부분 보기(N-I04).
+ * 2차 QA 수정 B 가 `components/ReviewQuote.tsx` 안에 두었던 문구를 여기 한 곳으로 옮겼다
+ * (copy.ts 첫 줄 규칙 — 화면 문구는 한 곳에).
+ */
+export const REVIEW = {
+  /** 고른 문장 위 행동 막대. */
+  quote: '고쳐 달라기',
+  copy: '복사',
+  /** 종이 머리 토글. */
+  diffToggle: '고친 부분 보기',
+  diffToggleHint: '지운 문장과 새로 쓴 문장을 색으로 보여 줘요',
+  /** 인용 칩. */
+  quoteLead: (title: string) => `${title}에서 고른 문장`,
+  removeQuote: '인용 빼기',
+  quoteLabel: '고른 문장',
+  /** 학생 글이 비었을 때 보낼 말 — 무엇을 하려는지가 메시지에 남아야 한다. */
+  quoteFallback: '이 부분을 고쳐 줘'
+} as const
+
 /**
  * 설정 (03-화면/08) — 폴더 / 도우미 연결 / 문제 해결 / 고급 도구 / Python 실행기 / 앱 정보.
  * 문제 해결·고급 도구는 평소 닫힌 펼침 목록; 실패 경로의 딥링크가 해당 펼침을 연 채로 진입한다.
@@ -923,9 +1245,9 @@ export const SETTINGS = {
   folderNoneAfterFail: '아직 열려 있는 폴더가 없어요.',
   helperTitle: '도우미 연결',
   helperChatWhich: '어느 도우미와 채팅할까요?',
-  helperChatCodex: 'ChatGPT (Codex)',
-  helperChatClaude: 'Claude Code — 실험 중',
-  helperChatNote: 'Claude Code 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
+  helperChatCodex: 'ChatGPT',
+  helperChatClaude: 'Claude — 실험 중',
+  helperChatNote: 'Claude 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
   /**
    * 권한 묻기 기본값 — 기본은 '묻지 않기'다. 숨기지 않고 여기 보이는 설정으로 둔다.
    * tradeoff 는 무엇을 포기하는지 사실만 적는다: 도우미는 논문 폴더 밖의 PDF·웹 문서도 읽고,

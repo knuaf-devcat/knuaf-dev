@@ -1,10 +1,32 @@
 import { create } from 'zustand'
-import type { ProjectPeek, Settings, SidecarInfo, Status } from '../../../shared/types'
+import type { ArtifactItem, MaterialsData, ProjectPeek, SectionRow, Settings, SidecarInfo, Status } from '../../../shared/types'
+import type { StageBuildTree } from '../../../shared/stage'
+import type { ProjectLoad } from '../rpc'
 import { CHAT, describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
-import { useChat } from './chat'
+import { chatProvider, resolveChatMode, useChat } from './chat'
+import { chosenProvider, useConnect } from './connect'
+import type { Provider } from '../../../shared/chat'
 
-export type Screen = 'chat' | 'materials' | 'artifacts' | 'checkup' | 'settings'
+/**
+ * 지금 대화할 공급자 — **화면(`Chat`)이 계산하는 것과 같은 규칙**을 쓴다(store/connect 의
+ * `chosenProvider` → 옛 설정 `helper_mode`).
+ *
+ * 왜 여기서 필요한가: 폴더를 열 때 이 store 가 `load(root)` 를 먼저 부르는데, 공급자를 넘기지
+ * 않으면 스토어 기본값('codex')으로 읽고 화면이 곧바로 **다른 공급자로 한 번 더 읽어** 대화를
+ * 비운다(맥 CI 에서 드러난 재마운트의 한 원인). 같은 값을 넘겨 그 두 번째 읽기를 없앤다.
+ */
+function chatProviderNow(): Provider {
+  const settings = useProject.getState().settings
+  return chosenProvider(useConnect.getState().selected, settings) ?? chatProvider(resolveChatMode(null, settings))
+}
+
+/**
+ * v5에서는 **화면**이 아니라 **열린 시트**다(IMPL-PLAN §4-5). 사이드바 목적지 다섯이
+ * 사라지고, 자료·결과물·점검·설정은 논문 위에 덮이는 한 장이 됐다. 대화는 언제나 깔려
+ * 있으므로 "대화로 돌아가기"는 시트를 닫는 일(`closeSheet`)이다.
+ */
+export type Screen = 'materials' | 'artifacts' | 'checkup' | 'settings'
 
 /**
  * 설정 화면 안에서 펼침을 열 대상 — 'tools:excel' 같은 프리셋. 실패 피드백의
@@ -22,14 +44,64 @@ interface ProjectState {
   error: DescribedError | null
   sidecar: (SidecarInfo & { basePython?: string; wheelhouse?: string | null }) | null
   settings: Settings | null
-  screen: Screen
+  /** 열려 있는 시트. null이면 논문·대화만 보인다. */
+  sheet: Screen | null
   settingsFocus: SettingsFocus
   logs: { stream: string; line: string }[]
-  setScreen: (s: Screen) => void
+  openSheet: (s: Screen) => void
+  /** 시트를 닫는다 — v5의 "대화로 돌아가기"(자료의 "답변에 첨부", 점검의 "고쳐달라기" 등). */
+  closeSheet: () => void
   /** Navigate to 설정 with a disclosure preset open (deep link from failure feedback). */
   openSettings: (focus?: SettingsFocus) => void
   clearSettingsFocus: () => void
   loadSettings: () => Promise<void>
+  /**
+   * 등록된 절 목록. 종이 칸이 이 순서대로 본문을 그리고, "본문이 있는 장이 있는가"도
+   * 여기서 나온다(IMPL-PLAN §4-2). 정본 감시가 기록이 오르면 다시 읽는다.
+   */
+  sections: SectionRow[] | null
+  loadSections: () => Promise<void>
+  /**
+   * 자료·결과물 목록. 종이 머리의 "자료 N · 파일 N"과 팝오버, 그리고 시트가 **같은 것**을
+   * 본다 — 화면마다 따로 읽으면 한 곳만 갱신되고 숫자가 어긋난다.
+   */
+  materials: MaterialsData | null
+  artifacts: ArtifactItem[] | null
+  /** `build/` 개정 트리 — 검토본 기준 N(진행 규칙 §4-4)을 여기서 읽는다. */
+  buildTree: StageBuildTree | null
+  /** 정본 전체(`project.load`) — 파일 현재성은 여기 `outputs[*].stale` 뿐이다(v2 §4-1). */
+  projectLoad: ProjectLoad | null
+  loadLists: () => Promise<void>
+  /**
+   * 새로고침 횟수. 읽기(정본·자료·결과물)는 기록이 오르면 다시 하지만, **파일이 새로 생긴 것**
+   * (예: 표지 입력 `paper-input.json`)은 기록을 바꾸지 않는다 — 만들기 조건이 그것을 보려면
+   * 새로고침도 세어야 한다(검토 P3-R1-05).
+   */
+  refreshSeq: number
+  /** 창 **내부** 폭 — 배치 판정(`layoutOf`)의 입력. ResizeObserver가 채운다. */
+  windowWidth: number
+  setWindowWidth: (w: number) => void
+  /**
+   * 학생이 종이 칸을 닫았는지. 배치 중 **유일하게 저장하는 값**이다(IMPL-PLAN §4-2) —
+   * 닫으면 다시 저절로 열리지 않고, 앱을 다시 켜도 닫힌 채다.
+   */
+  paperClosed: boolean
+  setPaperClosed: (closed: boolean) => void
+  /**
+   * 좁은 창(`switch`)에서 지금 보고 있는 칸. 배치가 두 칸이면 쓰지 않는다.
+   * 저장하지 않는다 — 창을 넓히면 두 칸이 다 보이므로 기억할 것이 없다.
+   */
+  paneView: 'chat' | 'paper'
+  setPaneView: (v: 'chat' | 'paper') => void
+  /**
+   * 도우미가 절을 쓴 사실 — 앱이 그리는 **대화 이벤트 줄**이다(IMPL-PLAN §3).
+   * 대화 기록 파일(`chat-<provider>.json`)에는 쓰지 않는다. 절 제목은 `section.read`가 아니라
+   * `project.sections`에서 가져온다(도우미 글의 머리 배너를 되뇌지 않기 위함).
+   */
+  events: { id: string; sectionId: string; title: string; at: string }[]
+  /** 종이에서 어느 장으로 갈지 — 대화 이벤트 줄의 "종이에서 보기"가 세운다. */
+  focusedSection: string | null
+  focusSection: (id: string | null) => void
   /**
    * `local: true` — 실패를 전역 error 대신 반환값으로 돌려준다. 경로를 입력한 화면이
    * 제자리에서 알리게 하기 위함(GUI-04): 전역 error 는 Chat/Checkup 도 그리므로
@@ -63,6 +135,12 @@ interface ProjectState {
  */
 let canonPoll: ReturnType<typeof setInterval> | null = null
 function stopCanonPoll(): void { if (canonPoll) { clearInterval(canonPoll); canonPoll = null } }
+/**
+ * 절마다 직전에 본 본문 지문(`draft_hash`). **메모리에만** 둔다 — 저장하지 않는다.
+ * 이 값이 달라진 절이 "도우미가 방금 쓴 장"이다(대화 이벤트 줄). 폴더를 열면 비우므로
+ * 앱을 켠 직후 첫 읽기에서는 아무 일도 알리지 않는다.
+ */
+let sectionHashes: Record<string, string> | null = null
 /** 읽는 중에 또 읽지 않는다 — 감시 타이머가 사이드카를 겹쳐 띄우지 않게. */
 let statusInFlight = false
 /** 조용한 갱신이 잇따라 실패하면 그때는 말한다 — 한 번은 도우미가 쓰는 중일 수 있다. */
@@ -78,13 +156,72 @@ export const useProject = create<ProjectState>((set, get) => ({
   error: null,
   sidecar: null,
   settings: null,
-  screen: 'chat',
+  sheet: null,
   settingsFocus: null,
   logs: [],
-  setScreen: (screen) => { set({ screen, ...(screen === 'settings' ? {} : { settingsFocus: null }) }); location.hash = screen },
-  openSettings: (focus = null) => { set({ screen: 'settings', settingsFocus: focus }); location.hash = 'settings' },
+  sections: null,
+  materials: null,
+  artifacts: null,
+  buildTree: null,
+  projectLoad: null,
+  refreshSeq: 0,
+  windowWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
+  paperClosed: false,
+  paneView: 'chat',
+  events: [],
+  focusedSection: null,
+  openSheet: (sheet) => { set({ sheet, ...(sheet === 'settings' ? {} : { settingsFocus: null }) }); location.hash = sheet },
+  closeSheet: () => { set({ sheet: null, settingsFocus: null }); location.hash = '' },
+  openSettings: (focus = null) => { set({ sheet: 'settings', settingsFocus: focus }); location.hash = 'settings' },
   clearSettingsFocus: () => set({ settingsFocus: null }),
-  loadSettings: async () => set({ settings: await window.knuaf.getSettings() }),
+  loadSettings: async () => {
+    const settings = await window.knuaf.getSettings()
+    const root = get().root
+    // 종이 닫힘도 설정에서 읽는다 — 앱을 다시 켜도 학생이 닫아 둔 것은 닫힌 채다.
+    set({ settings, ...(root ? { paperClosed: settings?.ui_prefs?.[root]?.paperClosed === true } : {}) })
+  },
+  loadSections: async () => {
+    const root = get().root
+    if (!root) { set({ sections: null }); return }
+    try {
+      const rows = await rpc.sections(root)
+      if (get().root !== root) return
+      set({ sections: rows })
+      const prev = sectionHashes
+      sectionHashes = Object.fromEntries(rows.map((r) => [r.id, r.draft_hash]))
+      // 폴더를 연 뒤 첫 판정에서는 알리지 않는다 — 그때는 모든 절이 "처음 보는" 것이다.
+      if (!prev) return
+      const wrote = rows.filter((r) => prev[r.id] !== undefined && prev[r.id] !== r.draft_hash)
+      if (wrote.length) set((s) => ({ events: [...s.events, ...wrote.map((r) => ({ id: `${r.id}:${r.draft_hash}`, sectionId: r.id, title: r.title, at: new Date().toISOString() }))].slice(-20) }))
+    } catch {
+      // 읽지 못한 것을 "등록된 절이 없다"로 꾸미지 않는다 — null 은 모른다는 뜻이다.
+      if (get().root === root) set({ sections: null })
+    }
+  },
+  setWindowWidth: (windowWidth) => set({ windowWidth }),
+  loadLists: async () => {
+    const root = get().root
+    if (!root) { set({ materials: null, artifacts: null, buildTree: null, projectLoad: null }); return }
+    const [m, a, tree, load] = await Promise.all([
+      rpc.materials(root).catch(() => null),
+      rpc.artifacts(root).catch(() => null),
+      rpc.buildTree(root).catch(() => null),
+      rpc.load(root).catch(() => null)
+    ])
+    if (get().root !== root) return
+    set({ materials: m, artifacts: a ? a.items : null, buildTree: tree, projectLoad: load })
+  },
+  setPaneView: (paneView) => set({ paneView }),
+  focusSection: (focusedSection) => set({ focusedSection }),
+  setPaperClosed: (closed) => {
+    const root = get().root
+    set({ paperClosed: closed })
+    if (!root) return
+    const prefs = { ...(get().settings?.ui_prefs ?? {}) }
+    prefs[root] = { ...prefs[root], paperClosed: closed }
+    // 정본 폴더에는 쓰지 않는다 — 앱 설정에만 남긴다(IMPL-PLAN §4-2).
+    void window.knuaf.setSettings({ ui_prefs: prefs }).then(() => get().loadSettings())
+  },
   open: async (root, opts) => {
     set({ loading: true, error: null })
     const r = await window.knuaf.openProject(root)
@@ -95,22 +232,34 @@ export const useProject = create<ProjectState>((set, get) => ({
       return d
     }
     const peek = await window.knuaf.peekProject(root)
-    set({ root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null })
+    const settings = get().settings
+    set({
+      root, hasProject: r.result.hasProject, sidecar: r.result.sidecar, status: null, peek, depsReady: null,
+      // 폴더마다 다른 취향이므로 폴더가 바뀌면 여기서 다시 읽는다(전역 settings 는 그대로).
+      paperClosed: settings?.ui_prefs?.[root]?.paperClosed === true
+    })
+    // 시트는 폴더가 바뀌면 닫는다 — 다른 논문의 점검·자료가 떠 있으면 안 된다.
     // 이동은 성공이 확정된 여기서 한다 — 아래 refresh() 는 파이썬 스폰이라 몇 초
-    // 걸리는데, 그 사이 학생이 다른 메뉴를 누르면 늦게 온 setScreen 이 되돌려 버렸다.
-    get().setScreen('chat')
+    // 걸리는데, 그 사이 학생이 다른 것을 열면 늦게 온 이동이 되돌려 버렸다.
+    get().closeSheet()
     stopCanonPoll()
     quietFailures = 0
+    // 다른 논문의 이벤트 줄·직전 지문을 들고 가지 않는다.
+    sectionHashes = null
+    set({ events: [], sections: null, materials: null, artifacts: null, buildTree: null, projectLoad: null, focusedSection: null, paneView: 'chat' })
     canonPoll = setInterval(() => { void get().watchCanon() }, 2000)
     // 도우미가 하위 폴더에 init한 경우 — 빈 화면으로 두지 않고 어디에 만들었는지 알린다.
     const nested = (r.result as { nestedProject?: string | null }).nestedProject
     if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
     await get().loadSettings()
-    if (r.result.hasProject) await get().refresh(); else set({ loading: false })
+    if (r.result.hasProject) await get().refresh()
+    else { set({ loading: false }); set({ sections: null }) }
     // 준비는 폴더를 여는 순간 백그라운드로 시작하고 실패만 표면화한다(03-화면/01 결정).
     // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
     void get().prepareDeps(root)
-    void useChat.getState().load(root)
+    // 화면이 쓸 공급자를 **같이 넘긴다** — 안 넘기면 화면이 곧바로 다른 공급자로 다시 읽어
+    // 대화를 한 번 비운다(위 chatProviderNow 주석).
+    void useChat.getState().load(root, chatProviderNow())
     return null
   },
   /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */
@@ -166,7 +315,10 @@ export const useProject = create<ProjectState>((set, get) => ({
       const peek = await window.knuaf.peekProject(root)
       if (get().root !== root) return
       quietFailures = 0
-      set({ status, peek, hasProject: true, loading: false })
+      set({ status, peek, hasProject: true, loading: false, refreshSeq: get().refreshSeq + 1 })
+      // 종이 칸·머리가 같은 목록을 본다 — 화면마다 따로 읽으면 한 곳만 갱신된다.
+      void get().loadSections()
+      void get().loadLists()
     } catch (e) {
       // 조용한 갱신의 첫 실패는 삼킨다 — 도우미가 쓰는 중이면 곧 풀린다. 두 번째부터는
       // 말한다: 화면의 숫자가 디스크의 정본보다 뒤처진 채 조용히 남는 것이 가장 나쁘다.

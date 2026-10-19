@@ -12,6 +12,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "fetch:python": "node scripts/fetch-python.mjs",
+    "fetch:codex": "node scripts/fetch-codex.mjs",
     "build:wheelhouse": "node scripts/build-wheelhouse.mjs",
     "build:icons": "node scripts/build-icons.mjs",
     "build:guide": "node scripts/build-guide.mjs",
@@ -20,10 +21,11 @@
     "dist:win": "pnpm build && pnpm prepare:resources && electron-builder --win --publish never",
     "_comment:test:e2e": "e2e는 out/의 빌드 산출물을 띄운다 — build 없이 돌리면 낡은 코드를 검증한다(CI는 build를 선행한다).",
     "test:e2e": "pnpm build && playwright test",
-    "prepare:resources": "pnpm fetch:python && pnpm build:wheelhouse && pnpm build:icons && pnpm build:guide && pnpm stage:skill"
+    "prepare:resources": "pnpm fetch:python && pnpm fetch:codex && pnpm build:wheelhouse && pnpm build:icons && pnpm build:guide && pnpm stage:skill"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.275",
+    "markdown-it": "14.3.2",
     "pdfjs-dist": "6.3.289",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.54.0",
+    "@types/markdown-it": "14.2.0",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

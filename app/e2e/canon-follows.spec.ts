@@ -21,8 +21,13 @@ test('도우미가 저장하면 점검 화면이 새로고침 없이 따라온�
   try {
     await openProject(page, root)
     await navTo(page, '점검')
-    const badge = page.locator('header.toolbar .badge')
-    await expect(badge).toHaveText('1번째 기록', { timeout: 20_000 })
+    // 기록 번호가 보이는 자리는 점검 한 장의 **맨 아래 접힌 "기록 자세히"** 안이다(발주 R-04).
+    // 그 자리를 열고 같은 단언을 한다 — 약화가 아니라 자리 이동이다.
+    const record = page.locator('[data-screen="checkup"] details:has(.checkup-head)')
+    const openRecord = async (): Promise<void> => { await record.evaluate((d) => { (d as HTMLDetailsElement).open = true }) }
+    await openRecord()
+    const head = page.locator('[data-screen="checkup"] .checkup-head')
+    await expect(head).toContainText('지금 논문 · 1번째 기록', { timeout: 20_000 })
 
     // 도우미가 한 것과 같은 일 — 절을 하나 더 등록해 정본을 2번째 기록으로 올린다.
     writeFileSync(join(root, 'sections', '02.md'), '# Ⅱ. 농장 현황\n\n<!-- gg:draft:start -->\n농장A는 정읍에 있다.\n<!-- gg:draft:end -->\n', 'utf-8')
@@ -34,8 +39,12 @@ test('도우미가 저장하면 점검 화면이 새로고침 없이 따라온�
     expect(a.status, a.stdout + a.stderr).toBe(0)
 
     // 새로고침을 누르지 않는다.
-    await expect(badge, '정본이 올랐는데 점검 화면이 옛 기록에 머물렀다').toHaveText('2번째 기록', { timeout: 30_000 })
-    await expect(page.locator('nav .project-chip'), '사이드바도 같이 따라와야 한다').toContainText('2번째 기록')
+    await openRecord()
+    await expect(head, '정본이 올랐는데 점검 화면이 옛 기록에 머물렀다').toContainText('지금 논문 · 2번째 기록', { timeout: 30_000 })
+    // 사이드바가 하던 단언은 종이 칸으로 옮긴다 — 새로 등록한 절 제목이 저절로 나타나야 한다.
+    await navTo(page, '내 논문')
+    await expect(page.locator('.paperpane .sheet'), '정본이 올랐는데 종이가 따라오지 않았다')
+      .toContainText('Ⅱ. 농장 현황', { timeout: 30_000 })
   } finally {
     await electronApp.close()
   }

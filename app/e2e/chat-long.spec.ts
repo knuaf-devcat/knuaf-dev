@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, openProject, synthProject } from './helpers'
+import { launch, openProject, rewriteSection, splitReady, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 
 const BANNER = '> KNUAF-Dev · 창업논문 작성 도우미'
@@ -34,8 +34,8 @@ test('긴 답변은 접히고, 펼치면 전문이 그대로 있다 (발견 10)'
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
-    await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+    await openProject(page, root, splitReady)
+    await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
 
     const bubble = page.locator('.chat-msg.assistant').first()
     await expect(bubble).toBeVisible({ timeout: 30_000 })
@@ -54,19 +54,57 @@ test('긴 답변은 접히고, 펼치면 전문이 그대로 있다 (발견 10)'
   }
 })
 
-test('"방금 한 일"이 답변 머리글을 되뇌지 않는다 (발견 4)', async () => {
+test('같은 폴더를 다시 열어도 펼쳐 둔 긴 답변이 접히지 않는다 (재마운트 방지)', async () => {
+  // 맥 CI 공통 원인 처방: 같은 폴더를 다시 읽을 때 대화 목록을 통째로 비우면(재마운트) 그 사이
+  // 학생이 펼쳐 둔 답이 접히고, 재는 좌표·누른 자리가 낡는다.
   const root = synthProject()
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
-    await expect(page.locator('h1', { hasText: '내 논문' })).toBeVisible()
+    await openProject(page, root, splitReady)
+    const bubble = page.locator('.chat-msg.assistant').first()
+    await expect(bubble).toBeVisible({ timeout: 30_000 })
+    await bubble.getByRole('button', { name: /더 보기$/ }).click()
+    await expect(bubble, '펼치지 못했다').toContainText(TAIL)
 
-    const title = page.locator('.activity .title')
-    await expect(title).toBeVisible({ timeout: 30_000 })
-    const text = (await title.innerText()).trim()
-    expect(text, '머리글(배너) 줄을 그대로 집었다').not.toContain('knuaf-dev ·')
-    expect(text.startsWith('>'), '인용 줄을 제목으로 삼았다').toBe(false)
+    // 대화 목록에서 노드가 **지워지는지** 센다(다시 그려지면 0이 아니다).
+    await page.evaluate(() => {
+      const g = globalThis as unknown as { __removed: number }
+      g.__removed = 0
+      const host = document.querySelector('.chat-thread')
+      if (!host) throw new Error('대화 목록을 찾지 못했다')
+      new MutationObserver((rs) => { for (const r of rs) g.__removed += r.removedNodes.length }).observe(host, { childList: true, subtree: true })
+    })
+
+    // 같은 폴더를 다시 연다 — 다시 읽되 화면은 그대로여야 한다.
+    await openProject(page, root, splitReady)
+
+    await expect(bubble, '같은 폴더를 다시 열었더니 펼친 답이 접혔다').toContainText(TAIL, { timeout: 15_000 })
+    expect(await page.evaluate(() => (globalThis as unknown as { __removed: number }).__removed), '대화 목록이 다시 그려졌다')
+      .toBe(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('답변 머리글을 되뇌지 않는다 — 대화 이벤트 줄은 절 제목을 쓴다 (발견 4)', async () => {
+  const root = synthProject()
+  seedChat(root)
+  const { electronApp, page } = await launch()
+  try {
+    await openProject(page, root, splitReady)
+    await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
+
+    // "방금 한 일" 카드는 설계상 지웠다(DESIGN §1-3). 그 자리를 대신하는 것은 **대화 이벤트 줄**
+    // 이고, 그 줄은 도우미 답변에서 글자를 집어 오지 않는다 — `project.sections` 의 절 제목을 쓴다.
+    await expect(page.locator('.activity'), '지운 카드가 아직 그려진다').toHaveCount(0)
+
+    // 도우미가 절 본문을 저장하면(본문 지문이 바뀐다) 앱이 한 줄을 그린다.
+    rewriteSection(root, { body: '농장A의 재배 면적은 600평이다. 고친 문장이다.', expected: 1 })
+    const ev = page.locator('.chat-event')
+    await expect(ev, '절을 저장했는데 이벤트 줄이 없다').toBeVisible({ timeout: 30_000 })
+    await expect(ev).toContainText('Ⅰ. 머리말')
+    await expect(ev, '머리글(배너)을 제목으로 삼았다').not.toContainText('knuaf-dev')
   } finally {
     await electronApp.close()
   }

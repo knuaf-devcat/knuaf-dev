@@ -12,6 +12,7 @@ app/dist/
 app/resources/python/
 app/resources/wheelhouse/
 app/resources/skill/
+app/resources/codex/
 # OS
 .DS_Store
 *.tsbuildinfo

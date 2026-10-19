@@ -11,18 +11,19 @@ test('the how sheet gives the menu path and the school values', async () => {
   try {
     await openProject(page, root)
     await navTo(page, '점검')
-    await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
+    await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
     // 닫힌 Sheet 도 <dialog>로 DOM 에 남으므로 open 인 것만 본다.
     const sheet = page.locator('dialog[open]')
     // 여백 — 쪽 설정 경로와 여섯 수치
-    await page.locator('.item:has-text("여백 맞추기") button:has-text("방법 보기")').click()
+    // 한글 마무리 항목은 점검 한 장의 "한글에서 내가 직접 할 것" 목록(ul > li)에 있다.
+    await page.locator('li:has-text("여백 맞추기") button:has-text("방법 보기")').click()
     await expect(sheet).toContainText('쪽 설정')
     for (const v of ['위 20', '아래 15', '머리 15', '꼬리 15', '왼쪽 30', '오른쪽 30']) {
       await expect(sheet).toContainText(v)
     }
     await page.click('dialog[open] >> button[aria-label="닫기"]')
     // 글꼴 — 신명조와 확인 위치(글꼴 상자)
-    await page.locator('.item:has-text("글꼴 신명조 확인") button:has-text("방법 보기")').click()
+    await page.locator('li:has-text("글꼴 신명조 확인") button:has-text("방법 보기")').click()
     await expect(sheet).toContainText('신명조')
     await expect(sheet).toContainText('글꼴 상자')
   } finally {

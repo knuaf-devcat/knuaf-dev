@@ -2,10 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } from '../agent'
+import { readRecoverable, tmpOf, writeFileAtomic, type SafeWriteFs } from '../safeWrite'
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
 import type { ChatSnapshot, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
+
+/** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
+function parseChat(text: string, provider: Provider): ChatSnapshot {
+  const v = JSON.parse(text) as ChatSnapshot
+  if (!Array.isArray(v?.messages) || v.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
+  return v
+}
 
 export class ChatService {
   private snapshots = new Map<string, ChatSnapshot>()
@@ -37,7 +45,10 @@ export class ChatService {
     bundledPython?: () => string | null
     /** 학생이 "이 폴더에서는 계속 허용"을 고른 폴더인가. */
     isTrusted?: (root: string) => boolean
+    /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
+    fs?: SafeWriteFs
   }) {}
+  private get writeFs(): SafeWriteFs { return this.opts.fs ?? { writeFileSync, renameSync, unlinkSync, readFileSync: (p) => readFileSync(p, 'utf8') } }
   /** PATH 앞자리에 둘 인터프리터 bin 경로 — 프로젝트 .venv 가 번들보다 우선한다. */
   private pythonBinDirs(root: string): string[] {
     const venv = this.opts.venvPython?.(root) ?? null
@@ -62,7 +73,12 @@ export class ChatService {
   draft(root: string): string {
     const pending = this.draftPending.get(root)
     if (pending !== undefined) return pending   // 아직 안 쓴 값이 디스크보다 최신이다
-    try { return readFileSync(this.draftFile(root), 'utf8') } catch { return '' }
+    let got: ReturnType<typeof readRecoverable<string>>
+    try { got = readRecoverable(this.draftFile(root), (t) => t) } catch { return '' }
+    if (!got) return ''
+    // 저장이 막혀 `.tmp` 에만 남았던 글 — 다음 flush 가 제자리로 옮긴다(WIN-ONEDRIVE-R1-01).
+    if (got.from === 'tmp') this.setDraft(root, got.value)
+    return got.value
   }
   setDraft(root: string, text: string): void {
     this.draftPending.set(root, text)
@@ -74,34 +90,60 @@ export class ChatService {
     if (this.draftTimer) { clearTimeout(this.draftTimer); this.draftTimer = null }
     for (const [root, text] of this.draftPending) {
       const file = this.draftFile(root)
-      try {
-        if (!text) { unlinkSync(file); continue }
-        mkdirSync(dirname(file), { recursive: true })
-        const tmp = file + '.tmp'
-        writeFileSync(tmp, text, { mode: 0o600 }); renameSync(tmp, file)
-      } catch { /* 폴더가 사라졌거나 종료 중 — 초안 때문에 종료를 막지 않는다 */ }
+      if (!text) {
+        // 빈 값도 최신 초안이다 — 지우기가 막혔는데 대기를 비우면 이미 보낸 글이 `draft()` 로 되살아난다
+        // (WIN-ONEDRIVE-R1-02). 남은 `.tmp` 도 지운다: 그것도 되살리는 자리다.
+        let cleared = true
+        for (const path of [file, tmpOf(file)]) {
+          try { this.writeFs.unlinkSync(path) } catch (e) {
+            if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') continue
+            cleared = false
+            console.error(`[knuaf] 빈 초안을 지우지 못했어요: ${path} (${(e as NodeJS.ErrnoException)?.code ?? String(e)})`)
+          }
+        }
+        if (cleared) this.draftPending.delete(root)
+        continue
+      }
+      try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
+      // 던지지 않는 공용 쓰기(WIN-ONEDRIVE). **성공한 것만** 지운다 — 실패하면 대기 값으로 남겨
+      // 다음 flush 가 다시 시도하고, 그 사이 `draft()` 는 최신 글을 계속 돌려준다.
+      if (writeFileAtomic(file, text, { mode: 0o600, fs: this.writeFs }).ok) this.draftPending.delete(root)
     }
-    this.draftPending.clear()
   }
+  /**
+   * 대화 기록을 남기고 화면으로 내보낸다.
+   *
+   * 저장은 **던지지 않는** 공용 쓰기로 한다(WIN-ONEDRIVE): 윈도우에서 논문 폴더가 OneDrive
+   * 동기화 폴더면 `renameSync` 가 `EPERM` 으로 막히는데, 이 함수는 에이전트 이벤트 콜백에서
+   * 불리므로 예외가 올라가면 Electron 이 "A JavaScript error occurred in the main process"
+   * 창을 띄운다. 저장이 실패해도 **메모리의 스냅샷을 그대로 내보낸다** — 화면 흐름을 막지 않는다.
+   * 실패는 로그 한 줄로 강등한다(앱에 비치명 알림 자리가 없다 — §REPORT-WIN-ONEDRIVE).
+   */
   private publish(s: ChatSnapshot) {
-    const file = this.file(s.root, s.provider); mkdirSync(dirname(file), { recursive: true })
-    const tmp = file + '.tmp'; writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 }); renameSync(tmp, file)
+    const file = this.file(s.root, s.provider)
+    try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
+    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600, fs: this.writeFs, complete: (text) => { try { parseChat(text, s.provider); return true } catch { return false } } })
     this.opts.emit(structuredClone(s))
   }
   snapshot(root: string, provider: Provider): ChatSnapshot {
     const key = this.key(root, provider)
     let s = this.snapshots.get(key)
     if (!s) {
-      const file = this.file(root, provider)
-      if (existsSync(file)) {
-        // Corrupt state must not silently reset the interview or its session.
-        s = JSON.parse(readFileSync(file, 'utf8')) as ChatSnapshot
-        if (!Array.isArray(s.messages) || s.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
+      // Corrupt state must not silently reset the interview or its session.
+      // 저장이 막혀 완성본이 `.tmp` 에만 있으면 그것으로 되살린다(WIN-ONEDRIVE-R1-01).
+      const got = readRecoverable(this.file(root, provider), (text) => parseChat(text, provider))
+      if (got) {
+        s = got.value
         s.root = root; s.permission = undefined
+        // `.tmp` 에서 되살린 기록은 곧바로 다시 저장한다 — 이름 바꾸기가 풀렸으면 제자리로 간다.
+        let persist = got.from === 'tmp'
         if (s.state === 'running' || s.state === 'permission') {
           s.state = 'interrupted'; s.error = '앱이 작업 도중 종료됐어요. 마지막 답변은 자동 재전송하지 않았어요.'
           for (const m of s.messages) if (m.delivery === 'pending') m.delivery = 'uncertain'
           // Persist the recovered state at once so the renderer and the file agree after restart.
+          persist = true
+        }
+        if (persist) {
           this.snapshots.set(key, s)
           this.publish(s)
         }
@@ -140,6 +182,74 @@ export class ChatService {
     return this.connection(root, provider).status()
   }
   async login(root: string, provider: Provider) { await this.connection(root, provider).login() }
+
+  // ---------------------------------------------------------------- 전역 연결 (폴더 없이)
+  //
+  // 첫 실행은 폴더를 고르기 전에 "쓸 AI 를 연결"한다(IMPL-PLAN §4-3). 연결 대상은 CLI 전역
+  // 계정이고 cwd 와 무관하므로(root 를 받는 것과 무관하게 같은 답이 나온다) 폴더별 연결과
+  // **다른 맵**에 하나씩 둔다 — 키가 겹칠 자리가 없다.
+  //
+  // 이 연결은 상태 확인·로그인만 한다. 파일을 쓰는 일(스킬 설치)은 send() 안에서만
+  // 일어나고 send() 는 폴더 연결만 쓴다 — 그래서 여기서는 논문 폴더도, connect-probe
+  // 폴더도 건드리지 않는다. 그 성질을 깨려면 이 클래스에 새 메서드를 만들어야 한다.
+  private globalRoot: string | null = null
+  private globals = new Map<Provider, AgentConnection>()
+  /** 전역 연결의 cwd — 빈 폴더. 논문 폴더가 아직 없어도 CLI 가 설 자리가 필요하다. */
+  private connectRoot(): string {
+    if (!this.globalRoot) {
+      const dir = join(this.opts.userData, 'connect-probe')
+      mkdirSync(dir, { recursive: true })
+      this.globalRoot = dir
+    }
+    return this.globalRoot
+  }
+  private globalConnection(provider: Provider): AgentConnection {
+    let c = this.globals.get(provider)
+    if (!c) {
+      const root = this.connectRoot()
+      const options: AgentOptions = {
+        binary: '', root, skill: this.skillDir(root, provider),
+        env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
+        openExternal: this.opts.openExternal, trusted: () => false
+      }
+      if (this.opts.connectionFactory) {
+        c = this.opts.connectionFactory(provider, options)
+      } else {
+        const binary = findExecutable(provider)
+        if (!binary) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} 설치가 필요해요. 연결 설정의 설치 안내를 열어 주세요.`)
+        options.binary = binary
+        c = provider === 'codex' ? new CodexConnection(options) : new ClaudeConnection(options)
+      }
+      this.globals.set(provider, c)
+    }
+    return c
+  }
+  /**
+   * 폴더 없이 연결 상태를 본다. 설치가 없으면 `installed:false`, 있는데 핸드셰이크·계정
+   * 조회가 실패하면(`probe:'failed'`) — 확인하지 못한 것을 "로그인 필요"로 꾸미지 않는다.
+   */
+  async globalStatus(provider: Provider): Promise<ConnectionStatus> {
+    if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
+    try {
+      return await this.globalConnection(provider).status()
+    } catch (e) {
+      return { installed: true, connected: false, version: null, probe: 'failed', detail: e instanceof Error ? e.message : '연결 상태를 확인하지 못했어요.' }
+    }
+  }
+  async globalLogin(provider: Provider): Promise<void> { await this.globalConnection(provider).login() }
+  /** 취소 뒤에는 연결을 버린다 — 다음 확인이 새 프로세스로 상태를 다시 묻는다. */
+  async cancelLogin(provider: Provider): Promise<void> {
+    const c = this.globals.get(provider)
+    this.globals.delete(provider)
+    if (!c) return
+    if (c.cancelLogin) await c.cancelLogin()
+    else await c.stop()
+  }
+  async reopenLogin(provider: Provider): Promise<void> {
+    const c = this.globalConnection(provider)
+    if (c.reopenLogin) await c.reopenLogin()
+    else await c.login()
+  }
   async send(root: string, provider: Provider, text: string, requestId: string) {
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
     this.snapshot(root, provider)
@@ -252,7 +362,11 @@ export class ChatService {
     await this.connections.get(key)?.stop(); this.connections.delete(key)
     await this.runs.get(key)
   }
-  async close() { await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) })) }
+  async close() {
+    await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) }))
+    await Promise.all([...this.globals.values()].map((c) => c.stop()))
+    this.globals.clear()
+  }
 }
 
 /** Personal validation never writes the user's original thesis or the source backup. */

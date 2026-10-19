@@ -1,6 +1,22 @@
 import type { ArtifactItem, ArtifactPreview, Envelope, HistoryRow, LockInfo, MaterialsData, RpcError, RpcResult, SectionRow, Status } from '../../shared/types'
+import type { StageBuildTree } from '../../shared/stage'
 
 export type EventHandler = (event: string, data: unknown) => void
+
+/**
+ * `project.load` — 정본 전체. 파일 현재성은 여기 `outputs[*].stale` 뿐이다(v2 §4-1).
+ * `artifact.list` 의 `revision` 은 outputs 에 등록된 항목의 값이라 미등록 검토본에서 null 이
+ * 되므로 현재성 판단에 쓰지 않는다(검토 IMPL-R1-03).
+ */
+export interface ProjectOutput { path?: string | null; revision?: number | null; stale?: boolean }
+export interface ProjectLoad {
+  project: Record<string, unknown> & { outputs?: Record<string, ProjectOutput> }
+  revision: number
+  schema_version: number
+}
+
+/** `section.read_all` — 등록 순서대로 읽은 절 본문(section.read 와 같은 모양). */
+export interface SectionRead { id: string; title: string; path: string; draft: string; raw_chars?: number }
 
 export class RpcFailure extends Error {
   code: string
@@ -19,16 +35,23 @@ async function call<T>(method: string, params: Record<string, unknown> = {}, onE
 export const rpc = {
   call,
   status: (root: string) => call<Status>('project.status', { root }),
+  load: (root: string) => call<ProjectLoad>('project.load', { root }),
   checks: (root: string, scope: 'all' | 'submission' = 'all') => call<Status['checks']>('project.checks', { root, scope }),
   sections: (root: string) => call<SectionRow[]>('project.sections', { root }),
   readSection: (root: string, id: string) => call<{ id: string; title: string; path: string; draft: string }>('section.read', { root, id }),
+  readAllSections: (root: string) => call<SectionRead[]>('section.read_all', { root }),
   export: (root: string, kind: string) => call<{ path: string; kind: string }>('project.export', { root, kind }),
   history: (root: string) => call<HistoryRow[]>('project.history', { root }),
   restore: (root: string, revision: number, expected_revision: number) => call<{ revision: number; restored_from: number; pre_restore_snapshot: string; notice: string }>('project.restore', { root, revision, expected_revision }),
   lockInfo: (root: string) => call<LockInfo>('lock.info', { root }),
   unlock: (root: string) => call<{ released: boolean; owner: unknown; leftover: string | null; notice?: string }>('lock.unlock', { root }),
   doctor: (root: string) => call<Record<string, any>>('doctor.all', { root }),
-  buildTree: (root: string) => call<any>('fs.build_tree', { root }),
+  /**
+   * `build/` 아래 개정별 폴더. 검토본 기준 N 은 여기서 읽는다(진행 규칙 §4-4) —
+   * `artifact.list` 의 `revision` 은 미등록 검토본에서 null 이라 쓰지 않는다.
+   * 3-A 가 `StageBuildTree` 를 주고, 그 모양과 실제 응답이 같음은 3-A 의 변환 시험이 잠갔다.
+   */
+  buildTree: (root: string) => call<StageBuildTree>('fs.build_tree', { root }),
   materials: (root: string) => call<MaterialsData>('materials.list', { root }),
   artifacts: (root: string) => call<{ items: ArtifactItem[] }>('artifact.list', { root }),
   artifactPreview: (root: string, path: string) => call<ArtifactPreview>('artifact.preview', { root, path }),

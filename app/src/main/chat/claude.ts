@@ -5,6 +5,8 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { query, type Query, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
+import { winSpawn, killTree } from '../win'
+import type { ConnectionStatus } from '../../shared/chat'
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
 function outsideRoot(root: string, value: unknown): string | null {
@@ -79,9 +81,26 @@ function tokens(seg: string): string[] {
   return out
 }
 
+/**
+ * 이 낱말이 "경로처럼 생겼는가" — 폴더 밖 검사를 걸어야 하는지 정한다.
+ *
+ * 윈도우에는 구분자가 둘(`/`·`\`)이고 드라이브 문자(`C:`)·UNC(`\\server\share`)가 따로 있다.
+ * `/` 만 보면 `D:\…\재무계획.xlsx` 가 평범한 낱말로 읽혀 **폴더 밖 검사를 통째로 건너뛴다** —
+ * 폴더 밖 파일을 읽는 셸 명령이 묻지 않고 자동 허용되던 구멍이다(형님 승인 W1 연결 기제 ③).
+ *
+ * 맥에서는 종전 그대로 `/` 만 본다 — 거기서 `\` 는 **파일명에 들어갈 수 있는 글자**라
+ * 구분자로 읽으면 안 된다(맥 판정 불변).
+ */
+export function looksLikePath(a: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (a === '.' || a === '..') return true
+  if (a.includes('/')) return true
+  if (platform !== 'win32') return false
+  return a.includes('\\') || /^[A-Za-z]:/.test(a)
+}
+
 /** 경로처럼 생긴 인자는 전부 작업폴더 안이어야 한다. 플래그와 평범한 낱말은 통과. */
 function argsInRoot(root: string, args: string[]): boolean {
-  return args.every((a) => a.startsWith('-') || !(a.includes('/') || a === '.' || a === '..') || outsideRoot(root, a) === null)
+  return args.every((a) => a.startsWith('-') || !looksLikePath(a) || outsideRoot(root, a) === null)
 }
 
 /**
@@ -136,7 +155,7 @@ function bashOutside(root: string, raw: string): string[] | null {
   for (const seg of cmd.split(/\s*(?:\|\||&&|;|\|)\s*/)) {
     // 실행 파일 자체(/usr/bin/grep 등)는 뺀다 — argsInRoot 와 같은 범위.
     for (const a of tokens(seg).slice(1)) {
-      if (a.startsWith('-') || !(a.includes('/') || a === '.' || a === '..')) continue
+      if (a.startsWith('-') || !looksLikePath(a)) continue
       const o = outsideRoot(root, a)
       if (o && !out.includes(o)) out.push(o)
     }
@@ -235,19 +254,32 @@ export class ClaudeConnection implements AgentConnection {
   private autoAllowed(name: string, input: unknown): boolean {
     return autoAllow(this.options.root, name, input, registeredSources(this.options.root))
   }
-  async status() {
+  /**
+   * `auth status` 의 JSON 만이 로그인 여부의 근거다. 실행 실패·시간 초과·깨진 JSON 은
+   * "로그인 필요"가 아니라 "확인하지 못했어요"다 — 예전에는 셋 다 조용히 `connected:false`
+   * 로 접혀서, CLI 가 잠깐 멈추기만 해도 학생에게 로그인을 다시 시키는 문구가 떴다
+   * (IMPL-R1-04). `probe:'failed'` 가 그 구분이고, 폴더별 화면도 같은 필드를 쓴다.
+   */
+  async status(): Promise<ConnectionStatus> {
     let output = ''
-    try { output = (await promisify(execFile)(this.options.binary, ['auth', 'status'], { env: this.options.env, timeout: 12_000 })).stdout }
-    catch (e) { output = (e as { stdout?: string }).stdout ?? '{}' }
-    let r: any = {}; try { r = JSON.parse(output) } catch { /* unknown authentication => disconnected */ }
+    // 윈도우에서 npm 이 깐 claude 는 `.cmd` 다 — Node 가 셸 없이 띄우지 못해 cmd.exe 로 감싼다
+    // (맥·리눅스와 `.exe` 는 그대로 — winSpawn 이 빈 옵션을 돌려준다).
+    const probe = winSpawn(this.options.binary, ['auth', 'status'])
+    try { output = (await promisify(execFile)(probe.command, probe.args, { env: this.options.env, timeout: this.options.statusTimeoutMs ?? 12_000, ...probe.options })).stdout }
+    catch (e) { output = (e as { stdout?: string }).stdout ?? '' }
+    let r: Record<string, unknown> | null = null
+    try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object') r = parsed as Record<string, unknown> } catch { /* 실행 실패·시간 초과·깨진 JSON → 확인 실패 */ }
+    if (!r) return { installed: true, connected: false, version: null, probe: 'failed', detail: 'Claude 연결 상태를 확인하지 못했어요. 잠시 후 "다시 확인"을 눌러 주세요.' }
     const connected = r.loggedIn === true && r.authMethod === 'claude.ai' && r.apiProvider === 'firstParty'
-    return { installed: true, connected, version: null, detail: connected ? '' : 'Claude 구독 계정 로그인이 필요해요. 개인용 검증만 지원하며 API로 자동 전환하지 않아요.' }
+    return { installed: true, connected, version: null, probe: 'ok', detail: connected ? '' : 'Claude 구독 계정 로그인이 필요해요. 개인용 검증만 지원하며 API로 자동 전환하지 않아요.' }
   }
   async login() {
     if (this.loginProcess) throw new Error('브라우저에서 진행 중인 로그인을 완료해 주세요.')
     // Official CLI owns credential storage and prints an auth URL — surface it in the
     // student's browser instead of letting it die on a pipe nobody reads.
-    const child = this.loginProcess = spawn(this.options.binary, ['auth', 'login', '--claudeai'], { env: this.options.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    // 윈도우의 `.cmd` 는 cmd.exe 로 감싼다(status 와 같은 이유 — winSpawn).
+    const spec = winSpawn(this.options.binary, ['auth', 'login', '--claudeai'])
+    const child = this.loginProcess = spawn(spec.command, spec.args, { env: this.options.env, stdio: ['ignore', 'pipe', 'pipe'], ...spec.options })
     let buf = ''
     let opened = false
     const onData = (d: Buffer) => {
@@ -257,10 +289,32 @@ export class ClaudeConnection implements AgentConnection {
       if (m) { opened = true; void this.options.openExternal(m[0].replace(/[)\].,;]+$/, '')) }
     }
     child.stdout?.on('data', onData); child.stderr?.on('data', onData)
-    child.on('error', () => { this.loginProcess = undefined })
-    child.on('close', () => { this.loginProcess = undefined })
-    const timer = setTimeout(() => child.kill(), 180_000)
+    /**
+     * 소유권은 자식마다 자기 것이다. 예전에는 종료·오류 콜백이 무조건 `loginProcess` 를
+     * 비웠는데, 그러면 `login(A) → reopenLogin(B) → A 종료` 순서에서 **살아 있는 B 의
+     * 추적이 지워진다.** 그 뒤 취소·stop 은 B 를 찾지 못해 로그인 프로세스가 그대로 남는다
+     * (P2-R1-02). 지금 소유자일 때만 비운다.
+     */
+    const release = () => { if (this.loginProcess === child) this.loginProcess = undefined }
+    child.on('error', release)
+    child.on('close', release)
+    const timer = setTimeout(() => killTree(child), 180_000)
     timer.unref(); child.once('close', () => clearTimeout(timer))
+  }
+  /** 취소 = 이 창에서 기다리기를 그만둔다. CLI 가 소유한 로그인 프로세스를 끝낸다. */
+  async cancelLogin() {
+    const child = this.loginProcess
+    this.loginProcess = undefined
+    // 윈도우에서 `.cmd` 로 감싼 로그인 자식도 트리째 끝낸다 — 손자가 남으면 로그인이 계속 산다.
+    if (child) killTree(child)
+  }
+  /**
+   * 다시 열기 = 지금 프로세스를 끝내고 처음부터 다시 시작한다. Claude CLI 가 브라우저를
+   * 직접 열기 때문에 URL 을 앱이 쥐고 있을 수 없다 — 새 프로세스가 새 주소를 연다.
+   */
+  async reopenLogin() {
+    await this.cancelLogin()
+    await this.login()
   }
   async run(text: string, sessionId: string | undefined, events: AgentEvents) {
     if (!(await this.status()).connected) throw new Error('Claude 구독 계정 로그인을 완료해 주세요.')
@@ -350,6 +404,6 @@ export class ClaudeConnection implements AgentConnection {
   }
   async stop() {
     for (const answer of this.approvals.values()) answer(false)
-    this.controller?.abort(); this.active?.close(); this.loginProcess?.kill()
+    this.controller?.abort(); this.active?.close(); if (this.loginProcess) killTree(this.loginProcess)
   }
 }

@@ -1,29 +1,43 @@
 import { test, expect } from '@playwright/test'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { launch, navTo, openPreset, openProject, python, scripts, synthProject } from './helpers'
+import { fakeCodexEnv } from './fixtures/fake-codex'
 
 const freshUserData = () => { const d = mkdtempSync(join(tmpdir(), 'kd-ud-')); mkdirSync(d, { recursive: true }); return d }
+/** 재실행 첫 화면은 시안 ② 폴더 화면이라 **연결이 확인돼 있어야** 폴더 단계가 선다 —
+ *  가짜 codex(logged-in) + 고른 공급자 기록을 심어 폴더 카드까지 온다. */
+const connectedCodex = (userData: string): Record<string, string> => {
+  mkdirSync(userData, { recursive: true })
+  const file = join(userData, 'settings.json')
+  const cur = existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : {}
+  writeFileSync(file, JSON.stringify({ ...cur, provider_choice: { provider: 'codex', at: '2026-10-18T00:00:00.000Z' } }), 'utf-8')
+  return fakeCodexEnv(mkdtempSync(join(tmpdir(), 'kd-bin-')), { FAKE_CODEX_MODE: 'logged-in' })
+}
 
 test('reopen a project from the recent-folder card (second visit)', async () => {
   const userData = freshUserData()
   const root = synthProject()
-  const first = await launch({ userData })
+  const env = connectedCodex(userData)
+  const first = await launch({ userData, env })
   await openProject(first.page, root)
-  await first.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await first.page.waitForSelector('.chat-pane', { timeout: 30_000 })
   await first.electronApp.close()
 
-  const second = await launch({ userData })
-  // folder-less 내 논문 — the card is the real second-visit entry path (picker cannot be driven).
-  await expect(second.page.locator('text=논문 작업 폴더를 골라 주세요')).toBeVisible()
+  const second = await launch({ userData, env })
+  // 재실행 첫 화면은 시안 ② 논문 폴더 화면(온보딩 2단계와 같은 부품)이다.
+  await expect(second.page.locator('text=논문을 담을 폴더를 골라요')).toBeVisible()
   await second.page.locator('.project').first().click()
-  await second.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
-  await expect(second.page.locator('nav .project-chip .name')).toContainText(basename(root))
-  // 칩에는 경로가 노출되지 않는다 — basename만 (전체 경로는 title 속성)
-  await expect(second.page.locator('nav .project-chip .name')).not.toContainText(dirname(root))
-  await expect(second.page.locator('nav .toc-head')).toHaveText('논문 차례')
+  await second.page.waitForSelector('.chat-pane', { timeout: 30_000 })
+  // 논문 이름은 이제 제목줄 왼쪽(논문 ▾)에 있다 — 폴더 이름만 보이고 경로는 노출되지 않는다.
+  const paper = second.page.locator('.titlebar .tbtn.title')
+  await expect(paper).toContainText(basename(root))
+  await expect(paper).not.toContainText(dirname(root))
+  // 차례는 종이 머리의 장 이름 ▾ 가 연다(사이드바 차례는 설계대로 사라졌다).
+  await second.page.locator('.paper-head .chap').click()
+  await expect(second.page.locator('.paper-head .popover')).toContainText('차례')
   await second.electronApp.close()
 })
 
@@ -68,7 +82,7 @@ test('chat helper pick names ChatGPT and persists claude-chat', async () => {
   const { electronApp, page } = await launch({ userData })
   await navTo(page, '설정')
   await expect(page.locator('input[name="helper-chat"]').nth(0)).toBeChecked()
-  await expect(page.locator('text=ChatGPT (Codex)')).toBeVisible()
+  await expect(page.locator('label.opt-row', { hasText: 'ChatGPT' })).toBeVisible()
   await page.locator('input[name="helper-chat"]').nth(1).check()
   await electronApp.close()
   expect(JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).helper_mode).toBe('claude-chat')
@@ -120,12 +134,13 @@ test('the screen says what is given up, including reading outside material', asy
 test('an existing folder can be removed from the recent list', async () => {
   const userData = freshUserData()
   const root = synthProject()
-  const first = await launch({ userData })
+  const env = connectedCodex(userData)
+  const first = await launch({ userData, env })
   await openProject(first.page, root)
-  await first.page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await first.page.waitForSelector('.chat-pane', { timeout: 30_000 })
   await first.electronApp.close()
 
-  const second = await launch({ userData })
+  const second = await launch({ userData, env })
   const card = second.page.locator('.project', { hasText: basename(root) })
   await expect(card).toBeVisible()
   const rm = card.locator('button', { hasText: '목록에서 제거' })
@@ -144,7 +159,7 @@ test('a bad folder path reports on settings and says the open folder stays', asy
   const root = synthProject()
   const { electronApp, page } = await launch({ userData })
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
 
   await navTo(page, '설정')
   await openPreset(page, 'folder:path')

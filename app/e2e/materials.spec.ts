@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, openProject, python, scripts, synthProject } from './helpers'
+import { launch, navTo, openProject, python, scripts, synthProject } from './helpers'
 
 const OUT = resolve(__dirname, 'artifacts')
 
@@ -37,9 +37,9 @@ test('자료 화면: 현재 작성물과 참고자료 구분 표시, 파일을 �
   }, 1)
   const { electronApp, page } = await launch()
   await openProject(page, root)
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
-  await page.click('nav >> text=자료')
-  await page.waitForSelector('h1:has-text("자료")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
+  await navTo(page, '자료')
+  await page.waitForSelector('[data-screen="materials"]', { timeout: 30_000 })
 
   // decided manuscript shows the file; finance stays undecided
   await expect(page.locator('text=현재 원고')).toBeVisible()
@@ -54,11 +54,12 @@ test('자료 화면: 현재 작성물과 참고자료 구분 표시, 파일을 �
   const answersRow = page.locator('.item', { hasText: 'answers.md' })
   await expect(answersRow.locator('.head strong')).toHaveText('answers.md')
   await expect(answersRow.locator('.badge')).toHaveCount(0)
-  // 점검 링크가 본문 끝에 있고 점검 화면으로 이어진다
-  await page.click('button.lk:has-text("점검")')
-  await page.waitForSelector('h1:has-text("점검")', { timeout: 30_000 })
-  await page.click('nav >> text=자료')
-  await page.waitForSelector('h1:has-text("자료")', { timeout: 30_000 })
+  // 자료와 점검을 오갈 수 있다 — 자료 시트 본문 끝에 있던 임시 "점검" 링크는 정식 진입점
+  // (제목줄 "지금 ▾" → 전체 과정 → 제출 점검·마무리)이 생기면서 지웠다(설계자 답 Q6).
+  await navTo(page, '점검')
+  await page.waitForSelector('[data-screen="checkup"]', { timeout: 30_000 })
+  await navTo(page, '자료')
+  await page.waitForSelector('[data-screen="materials"]', { timeout: 30_000 })
   // no auto-adoption: the caption is always present
   await expect(page.locator('text=넣는 것만으로 현재 작성물이 되지는 않아요')).toBeVisible()
 
@@ -70,7 +71,7 @@ test('자료 화면: 현재 작성물과 참고자료 구분 표시, 파일을 �
   // holds it instead, so the draft is never silently swallowed. count() 를 바로 찍으면
   // 상태 조회가 아직 안 끝난 순간을 볼 수 있으니, 둘 중 하나가 자리 잡을 때까지 기다린다.
   await manuscriptRow.locator('button:has-text("답변에 첨부")').click()
-  await page.waitForSelector('h1:has-text("내 논문")', { timeout: 30_000 })
+  await page.waitForSelector('.chat-pane', { timeout: 30_000 })
   const draftTarget = page.locator('textarea').or(page.locator('.card', { hasText: '도우미에게 보낼 요청' }).locator('.prose'))
   await expect(draftTarget.first()).toBeVisible({ timeout: 30_000 })
   const ta = page.locator('textarea')
