@@ -298,8 +298,15 @@ export function Chat() {
   }
   const chatErr = error ? describeChatError(error) : null
   const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
-  /** 스냅샷 오류는 main 이 쥔 값이라 화면에서 지울 수 없다 — 학생이 닫은 문장만 기억해 감춘다. */
-  const [closedSnapErr, setClosedSnapErr] = useState<string | null>(null)
+  /**
+   * 스냅샷 오류·중단 안내는 main 이 쥔 값이라 화면에서 지울 수 없다 — 학생이 닫은 **그 건**만 기억해 감춘다.
+   * 건 = 폴더·공급자·마지막 메시지·문구. 문구만 기억하면 다음 턴의 같은 오류까지 숨는다(검토 RETAKE-UI-R1-01).
+   */
+  const [closedNotes, setClosedNotes] = useState<ReadonlySet<string>>(() => new Set())
+  const noteKey = (kind: string, text: string): string => [projectRoot, snapshot?.provider, snapshot?.messages.at(-1)?.id ?? '', kind, text].join('\0')
+  const closeNote = (key: string): void => setClosedNotes((prev) => new Set(prev).add(key))
+  const haltKey = snapshot?.state === 'stopped' || snapshot?.state === 'interrupted' ? noteKey(snapshot.state, '') : null
+  const snapErrKey = snapErr && snapshot?.error ? noteKey('error', snapshot.error) : null
   /**
    * 끊긴 자리에서 무엇을 말하고 무엇을 권할지 — 연결 상태 이름 하나로 정한다.
    * 확인 실패(failed·unknown)는 로그인 안내가 아니라 "확인하지 못했어요 + 다시 확인"이다.
@@ -393,11 +400,12 @@ export function Chat() {
           sub={waitingPrep ? CHAT.preparingQueued : waiting === 'write' ? CHAT.appBusyWaitSub : undefined} />}
         {pError && <ZoneLine tone={toneOf(pError.kind)} title={pError.title} sub={pError.action} raw={pError.raw} onClose={clearPError} />}
         {chatErr && <ZoneLine tone={toneOf(chatErr.kind)} title={chatErr.title} sub={chatErr.action} raw={chatErr.raw} onClose={clearError} />}
-        {(snapshot?.state === 'stopped' || snapshot?.state === 'interrupted') && (
+        {snapshot && haltKey && !closedNotes.has(haltKey) && (
           <ZoneLine tone="attn" title={snapshot.state === 'stopped' ? CHAT.stoppedTitle : CHAT.interruptedTitle} sub={snapshot.state === 'stopped' ? CHAT.stoppedBody : CHAT.interruptedBody}
-            actions={lastUncertain ? <button type="button" className="lk" onClick={() => void send(lastUncertain.text)} disabled={running || busy || !!waiting}>{CHAT.resend}</button> : undefined} />
+            actions={lastUncertain ? <button type="button" className="lk" onClick={() => void send(lastUncertain.text)} disabled={running || busy || !!waiting}>{CHAT.resend}</button> : undefined}
+            onClose={() => closeNote(haltKey)} />
         )}
-        {snapErr && snapshot?.error !== closedSnapErr && <ZoneLine tone="bad" title={snapErr.title} sub={snapErr.action} raw={snapErr.raw} onClose={() => setClosedSnapErr(snapshot?.error ?? null)} />}
+        {snapErr && snapErrKey && !closedNotes.has(snapErrKey) && <ZoneLine tone="bad" title={snapErr.title} sub={snapErr.action} raw={snapErr.raw} onClose={() => closeNote(snapErrKey)} />}
         {zone.kind === 'permission' && (
           <div className="askcard" role="alert">
             <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>

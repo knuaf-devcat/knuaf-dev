@@ -68,7 +68,7 @@ test('질문 카드에서 고른 답이 준비를 기다리면 이유를 보이�
     expect(await electronApp.evaluate(() => (globalThis as unknown as Record<string, unknown>).__sent)).toEqual([])
     await electronApp.evaluate(() => { ((globalThis as unknown as Record<string, unknown>).__finishPrep as () => void)() })
     await expect.poll(() => electronApp.evaluate(() => ((globalThis as unknown as Record<string, unknown>).__sent as string[]).length), { timeout: 30_000 }).toBe(1)
-    await expect(page.locator('.zone-status:has-text("처음 쓸 준비")')).toHaveCount(0)
+    await expect(page.locator('.zline.wait'), '준비가 끝났는데 기다림 안내가 남았다').toHaveCount(0)
   } finally {
     await electronApp.close()
   }

@@ -185,6 +185,7 @@ test('작업 중에 고른 선택은 작업이 끝나면 막대가 뜬다 — �
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
     await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
 
     // 작업 중에 고른다 — 막대는 뜨지 않지만 선택은 버려지지 않는다.
     await selectParagraph(page, '600평')
@@ -249,6 +250,7 @@ test('비교 모드를 끄면 화면에서 사라진 옛 문장은 막대·인�
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
     await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
 
     // 비교 화면의 **지운 문장**을 고른다 — 작업 중이라 막대는 뜨지 않는다.
     await selectText(page, '600평')
@@ -288,6 +290,7 @@ test('절 제목만 바뀌어도 인용 출처는 지금 제목을 쓴다 (MACR2
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
     await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
     await selectParagraph(page, '600평')
     await expect(page.locator('.selbar')).toHaveCount(0)
 

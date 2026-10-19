@@ -146,3 +146,57 @@ test('스크롤 칸은 굴릴 때만 표시를 받고 1초 뒤 뗀다, 표준 �
     await electronApp.close()
   }
 })
+
+/** main 이 화면으로 보내는 대화 스냅샷을 시험에서 직접 보낸다(`chat:snapshot` 이벤트). */
+async function push(electronApp: import('@playwright/test').ElectronApplication, snap: Record<string, unknown>): Promise<void> {
+  await electronApp.evaluate(({ BrowserWindow }, snap) => { BrowserWindow.getAllWindows()[0].webContents.send('chat:snapshot', snap) }, snap)
+}
+
+test('닫은 오류는 그 건만 숨는다 — 다음 턴의 같은 오류는 다시 보인다 (검토 RETAKE-UI-R1-01)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  const u1 = { id: 'u1', role: 'user', text: '첫 질문', at: at(3), delivery: 'sent' }
+  const u2 = { id: 'u2', role: 'user', text: '두 번째 질문', at: at(1), delivery: 'sent' }
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
+  try {
+    await openProject(page, root)
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+    const bad = page.locator('.chat-zone .zline.bad')
+    await push(electronApp, { root, provider: 'codex', state: 'error', error: '연결 종료', messages: [u1] })
+    await expect(bad).toBeVisible({ timeout: 10_000 })
+    await bad.getByRole('button', { name: '닫기' }).click()
+    await expect(bad).toHaveCount(0)
+    // 같은 건이 다시 와도(재전송된 같은 스냅샷) 닫힌 채다.
+    await push(electronApp, { root, provider: 'codex', state: 'error', error: '연결 종료', messages: [u1] })
+    await expect(bad).toHaveCount(0)
+    // 새 턴 → 같은 문구의 새 오류는 다시 보여야 한다.
+    await push(electronApp, { root, provider: 'codex', state: 'running', messages: [u1, { ...u2, delivery: 'pending' }] })
+    await expect(page.locator(PROGRESS)).toHaveCount(1)
+    await push(electronApp, { root, provider: 'codex', state: 'error', error: '연결 종료', messages: [u1, u2] })
+    await expect(bad, '앞서 닫은 문구라는 이유로 새 실패가 숨었다').toBeVisible({ timeout: 10_000 })
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('중단·멈춤 안내도 ✕ 로 그 건만 닫힌다 (검토 RETAKE-UI-R1-02)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  const u1 = { id: 'u1', role: 'user', text: '끊긴 질문', at: at(3), delivery: 'uncertain' }
+  seedChat(root, [u1], 'interrupted')
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
+  try {
+    await openProject(page, root)
+    const halt = page.locator('.chat-zone .zline.attn')
+    await expect(halt).toContainText(CHAT.interruptedTitle, { timeout: 30_000 })
+    await expect(halt.getByRole('button', { name: CHAT.resend })).toBeVisible()
+    await halt.getByRole('button', { name: '닫기' }).click()
+    await expect(halt).toHaveCount(0)
+    // 새 턴을 멈추면 그 안내는 새 건이라 다시 보인다.
+    await push(electronApp, { root, provider: 'codex', state: 'stopped', messages: [u1, { id: 'u2', role: 'user', text: '다시', at: at(1), delivery: 'uncertain' }] })
+    await expect(halt).toContainText(CHAT.stoppedTitle, { timeout: 10_000 })
+    await expect(halt.getByRole('button', { name: '닫기' })).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})

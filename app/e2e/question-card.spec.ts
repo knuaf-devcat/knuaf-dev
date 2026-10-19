@@ -199,6 +199,7 @@ test('작업 중에는 한 줄이 뜨고 입력칸은 살아 있으며 보내기
 
     // 작업 중 진행 표시는 정확히 하나 — 아직 보내는 중이라 말풍선 밖 글자다(전송 중 A안).
     await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })
+    await expect(page.locator('.deliv[data-st="sending"]')).toBeVisible()
     await expect(page.locator('.deliv[data-st="sending"]')).toContainText(CHAT.sendingLine)
     // 다음 말을 미리 써 둘 수 있어야 한다 — 입력칸은 살아 있고 보내기만 막힌다.
     const composer = page.locator(COMPOSER)

@@ -77,6 +77,7 @@ test('작업 중 캡처', async () => {
     await shoot('running', scheme, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_HOLD: '1' }, async (page) => {
       await page.getByRole('radio', { name: /농협 공판장/ }).click()
       await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })
+      await expect(page.locator(PROGRESS)).toBeVisible()
       await page.locator('.chat-composer textarea').fill('다음에 할 말을 미리 써 둘 수 있어요')
     })
   }
