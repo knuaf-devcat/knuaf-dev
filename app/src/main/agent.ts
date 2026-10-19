@@ -90,6 +90,17 @@ function isExecutableFile(p: string): boolean {
   }
 }
 
+export interface FindExecutableOptions {
+  /** 테스트가 갈아 끼우는 플랫폼(기본 process.platform). */
+  platform?: NodeJS.Platform
+  /**
+   * PATH **앞에** 두는 디렉터리 — 설치본에 동봉한 CLI 자리다(bundledAgentDirs).
+   * `KNUAF_AGENT_PATH_ONLY=1` 이면 무시한다: 그 스위치는 "도구 없음" 화면을 시험하는
+   * 이음매라서 동봉본까지 빼야 의미가 산다.
+   */
+  leadingDirs?: string[]
+}
+
 /**
  * First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null.
  *
@@ -98,14 +109,21 @@ function isExecutableFile(p: string): boolean {
  * 발견 경로인데, 그래서 시험에서 PATH 를 비워도 개발 기계에서는 진짜 codex 가 계속
  * 발견됐다. "도구 없음" 화면은 그 상태를 재현할 방법이 있어야 시험된다.
  */
-export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
+export function findExecutable(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+  opts: FindExecutableOptions = {}
+): string | null {
+  const platform = opts.platform ?? process.platform
   const home = env.HOME ?? env.USERPROFILE ?? ''
-  const sep = process.platform === 'win32' ? ';' : ':'
+  const sep = platform === 'win32' ? ';' : ':'
   // 윈도우에서 실제 키는 `Path` 인 경우가 많다 — 복사된 env(`AgentCtx.env`·시험 입력)에서도
   // 같은 규칙으로 읽어야 도구를 찾는다(검토 W1D-R1-02). 맥은 종전 그대로 `PATH`.
-  const fromPath = (env[pathKeyOf(env)] ?? '').split(sep).filter(Boolean)
-  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1' ? fromPath : [...fromPath, ...EXTRA_DIRS(home)]
-  const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
+  const fromPath = (env[pathKeyOf(env, platform)] ?? '').split(sep).filter(Boolean)
+  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1'
+    ? fromPath
+    : [...(opts.leadingDirs ?? []), ...fromPath, ...EXTRA_DIRS(home)]
+  const names = platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
   const seen = new Set<string>()
   for (const dir of dirs) {
     if (seen.has(dir)) continue
@@ -116,6 +134,24 @@ export function findExecutable(name: string, env: Record<string, string | undefi
     }
   }
   return null
+}
+
+/**
+ * 설치본에 동봉한 Codex CLI 의 bin 디렉터리. **윈도우에서만** 본다 — 맥 설치본에는 동봉하지
+ * 않기로 했고(형님 범위 결정), 맥은 지금처럼 학생이 직접 설치한 것을 쓴다.
+ *
+ * PATH 앞에 두는 이유: 학생 PC 에 다른 버전의 codex 가 깔려 있어도 앱이 시험한 조합으로
+ * 동작한다. 동봉본은 자기 패키지 레이아웃(`codex-package.json`·`codex-path/rg.exe`·
+ * `codex-resources/`)을 스스로 찾으므로 bin 디렉터리만 알려 주면 rg·sandbox 도구도 함께 산다.
+ * 개발 트리(out/)에서는 `resources/codex/…` 가 없으면 그냥 넘어간다(다음 후보로).
+ */
+export function bundledAgentDirs(
+  ctx: Pick<AgentCtx, 'appRoot' | 'isPackaged' | 'resourcesPath'>,
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  if (platform !== 'win32') return []
+  const base = ctx.isPackaged ? ctx.resourcesPath : join(ctx.appRoot, 'resources')
+  return [join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')]
 }
 
 /** `<path> --version`, trimmed first line; null on failure or after 8s. */
@@ -459,8 +495,9 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
 /** `root` is the open project; with no project open the skill reports 'missing'. */
 export async function getStatus(ctx: AgentCtx, root: string | null): Promise<AgentStatus> {
   const env = ctx.env ?? process.env
+  const leadingDirs = bundledAgentDirs(ctx)
   const probe = async (name: AgentKind): Promise<AgentBinary> => {
-    const path = findExecutable(name, env)
+    const path = findExecutable(name, env, { leadingDirs })
     return { found: !!path, path, version: path ? await probeVersion(path) : null }
   }
   const [claude, codex] = await Promise.all([probe('claude'), probe('codex')])
@@ -487,7 +524,7 @@ export const agentApi = {
   },
 
   launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {
-    const agentPath = findExecutable(o.kind, ctx.env ?? process.env)
+    const agentPath = findExecutable(o.kind, ctx.env ?? process.env, { leadingDirs: bundledAgentDirs(ctx) })
     if (!agentPath) throw new Error(`${o.kind} 실행 파일을 찾지 못함 (PATH에 없음)`)
     const venv = ctx.venvPython(o.root)
     const bundled = ctx.bundledPython?.() ?? null

@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import {
-  agentApi, buildLaunchScript, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
+  agentApi, buildLaunchScript, bundledAgentDirs, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
   skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
 import { serverArgsFor } from '../src/main/chat/codex'
@@ -57,6 +57,53 @@ test.describe('findExecutable / probeVersion', () => {
       expect(findExecutable('knuaf-probe-tool', { Path: dir, HOME: dir })).toBeNull()
       expect(findExecutable('knuaf-probe-tool', { PATH: dir, HOME: dir })).toBe(file)
     }
+  })
+
+  /**
+   * CODEX-BUNDLE — 윈도우 설치본에 동봉한 Codex CLI 는 PATH **앞**에서 찾는다. 호스트가 맥이어도
+   * `platform: 'win32'` 로 윈도우 분기를 그대로 검사한다(파일 존재 검사는 호스트 것이므로
+   * 실행 비트를 준다 — 윈도우에서는 확장자만 본다).
+   */
+  test('동봉한 CLI 를 PATH 앞에서 찾는다 — 윈도우 분기', () => {
+    const bundled = mkdtempSync(join(tmpdir(), 'kd-bundle-'))
+    const onPath = mkdtempSync(join(tmpdir(), 'kd-onpath-'))
+    const bundledExe = join(bundled, 'codex.exe')
+    const onPathExe = join(onPath, 'codex.exe')
+    for (const f of [bundledExe, onPathExe]) { writeFileSync(f, ''); chmodSync(f, 0o755) }
+    const found = findExecutable('codex', { Path: onPath, USERPROFILE: bundled }, { platform: 'win32', leadingDirs: [bundled] })
+    expect(found).toBe(bundledExe)  // PATH 에도 있는데 동봉본이 이긴다
+  })
+
+  test('KNUAF_AGENT_PATH_ONLY=1 이면 동봉본도 보지 않는다 — "도구 없음" 화면의 의미 보존', () => {
+    const bundled = mkdtempSync(join(tmpdir(), 'kd-only-'))
+    const exe = join(bundled, 'codex.exe')
+    writeFileSync(exe, '')
+    chmodSync(exe, 0o755)
+    expect(findExecutable('codex', { Path: '', USERPROFILE: bundled, KNUAF_AGENT_PATH_ONLY: '1' }, { platform: 'win32', leadingDirs: [bundled] })).toBeNull()
+    // 같은 조건에서 스위치만 빼면 찾는다 — 위가 "없어서" 통과한 것이 아님을 같은 자리에서 보인다.
+    expect(findExecutable('codex', { Path: '', USERPROFILE: bundled }, { platform: 'win32', leadingDirs: [bundled] })).toBe(exe)
+  })
+
+  test('맥 분기에서는 이름 규칙이 그대로다 — `.exe` 를 후보로 보지 않는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kd-darwin-'))
+    // 이름을 하나만 둔다(개발 기계의 진짜 codex 가 뒤 후보에서 걸리지 않게).
+    const name = 'knuaf-bundle-probe'
+    const exe = join(dir, `${name}.exe`)
+    const plain = join(dir, name)
+    writeFileSync(exe, '')
+    chmodSync(exe, 0o755)
+    expect(findExecutable(name, { PATH: '', HOME: dir }, { platform: 'darwin', leadingDirs: [dir] })).toBeNull()
+    writeFileSync(plain, '')
+    chmodSync(plain, 0o755)
+    expect(findExecutable(name, { PATH: '', HOME: dir }, { platform: 'darwin', leadingDirs: [dir] })).toBe(plain)
+  })
+
+  test('bundledAgentDirs — 윈도우에서만, 패키지·개발 트리 각각의 자리', () => {
+    const dev = { appRoot: '/tmp/app-root', isPackaged: false, resourcesPath: '/nonexistent' }
+    expect(bundledAgentDirs(dev, 'darwin')).toEqual([])
+    expect(bundledAgentDirs(dev, 'win32')).toEqual([join('/tmp/app-root', 'resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
+    expect(bundledAgentDirs({ ...dev, isPackaged: true, resourcesPath: '/app/Contents/Resources' }, 'win32'))
+      .toEqual([join('/app/Contents/Resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {
