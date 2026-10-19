@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { usePrep, whenPrepared } from './prep'
+import { isPreparing, waitPrepared } from './prep'
 import { connInfoOf, startPoll, stopPoll, type ConnState } from './connect'
 import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
 
@@ -68,6 +68,12 @@ interface ChatState {
   busy: boolean
   /** 폴더 준비가 끝나기를 기다렸다가 보내는 중(store/prep.ts) — 화면이 진행 표시를 띄운다. */
   waitingPrep: boolean
+  /**
+   * 대화 방문 번호 — 폴더나 공급자가 바뀔 때마다 1씩 오른다. 늦게 끝난 전송·준비 대기가 **그것을 시작한
+   * 방문**에만 속하게 한다: 떠난 뒤에는 보내지 않고, 새 방문의 잠금·진행 표시를 건드리지 않는다
+   * (검토 WINFB-R1-01 — 끝난 시점의 root 만 비교하면 A→B→A 에서 옛 요청이 나갔다).
+   */
+  visit: number
   error: string | null
   /** Session override; null = follow settings.helper_mode / codex_terminal. */
   mode: ChatMode | null
@@ -117,6 +123,7 @@ export const useChat = create<ChatState>((set, get) => ({
   draftSeq: 0,
   busy: false,
   waitingPrep: false,
+  visit: 0,
   error: null,
   mode: null,
   startIntent: null,
@@ -148,7 +155,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const samePair = !switching && get().provider === provider
     set({
       root, provider, error: null,
-      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking' }),
+      // 다른 대화로 옮기면 새 방문이다 — 앞 방문의 전송·준비 대기가 쥐고 있던 잠금과 진행 표시를 푼다.
+      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false }),
       ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
     })
     // 이 읽기를 **시작한 시점**의 화면. 늦게 도착한 응답이 그 뒤에 앱이 스스로 바꾼 값
@@ -220,20 +228,24 @@ export const useChat = create<ChatState>((set, get) => ({
     const seqAtSend = get().draftSeq
     const rootAtSend = root
     const providerAtSend = provider
+    const visitAtSend = get().visit
+    const left = (): boolean => get().visit !== visitAtSend
     set({ busy: true, error: null })
     // 폴더 준비 중이면 main 이 전송을 거절한다 — 거절당하지 않고 끝날 때까지 기다렸다 보낸다.
-    if (usePrep.getState().root === root) {
+    // 그 사이 다른 대화로 떠나면 보내지 않는다. 잠금·진행 표시는 새 방문을 연 `load` 가 이미 풀었다.
+    if (isPreparing(root)) {
       set({ waitingPrep: true })
-      await whenPrepared(root)
+      const ready = await waitPrepared(root, left, (check) => useChat.subscribe(check))
+      if (!ready) return false
       set({ waitingPrep: false })
-      if (get().root !== rootAtSend || get().provider !== providerAtSend) { set({ busy: false }); return false }
     }
     const requestId = crypto.randomUUID()
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
     // 폴더·공급자가 달라졌으면 스냅샷도 초안도 지금 화면에 적용하지 않는다. 다른 폴더의
     // 늦은 성공이 지금 논문의 미전송 초안을 덮거나, 그 초안을 원래 폴더 파일에 쓰면 안 된다.
-    if (get().root !== rootAtSend || get().provider !== providerAtSend) {
-      set({ busy: false })
+    if (left() || get().root !== rootAtSend || get().provider !== providerAtSend) {
+      // 떠난 방문의 응답 — 새 방문의 잠금은 그 방문의 것이다(load 가 이미 풀었다).
+      if (!left()) set({ busy: false })
       return 'result' in r
     }
     if ('result' in r) {

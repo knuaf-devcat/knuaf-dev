@@ -12,22 +12,40 @@ import { create } from 'zustand'
  * project·chat 두 저장소가 서로를 부르지 않게 이 작은 저장소 하나를 둘이 같이 쓴다.
  */
 interface PrepState {
-  /** 지금 준비 중인 폴더. 없으면 null. */
-  root: string | null
+  /**
+   * 폴더별 진행 중인 준비 수. 같은 폴더의 준비가 겹칠 수 있다(폴더를 다시 열면 `prepareDeps` 가
+   * 또 돈다) — 하나가 먼저 끝나도 다른 하나가 남아 있으면 아직 준비 중이다(검토 WINFB-R1-01 보조).
+   */
+  counts: Record<string, number>
   begin: (root: string) => void
   end: (root: string) => void
 }
 
-export const usePrep = create<PrepState>((set, get) => ({
-  root: null,
-  begin: (root) => set({ root }),
-  end: (root) => { if (get().root === root) set({ root: null }) }
+export const usePrep = create<PrepState>((set) => ({
+  counts: {},
+  begin: (root) => set((s) => ({ counts: { ...s.counts, [root]: (s.counts[root] ?? 0) + 1 } })),
+  end: (root) => set((s) => {
+    const left = (s.counts[root] ?? 0) - 1
+    const counts = { ...s.counts }
+    if (left > 0) counts[root] = left
+    else delete counts[root]
+    return { counts }
+  })
 }))
 
-/** `root` 의 준비가 끝날 때까지 기다린다 — 준비 중이 아니면 바로 돌아온다. */
-export function whenPrepared(root: string): Promise<void> {
-  if (usePrep.getState().root !== root) return Promise.resolve()
+/** `root` 가 지금 준비 중인가. */
+export const isPreparing = (root: string | null): boolean => !!root && (usePrep.getState().counts[root] ?? 0) > 0
+
+/**
+ * `root` 의 준비가 끝나면 true, 그 전에 `leave()` 가 참이 되면(학생이 다른 대화로 떠남) false.
+ * `watchLeave` 는 떠났는지 다시 볼 계기(대화 저장소의 구독)를 준다.
+ */
+export function waitPrepared(root: string, leave: () => boolean, watchLeave: (check: () => void) => () => void): Promise<boolean> {
+  if (leave()) return Promise.resolve(false)
+  if (!isPreparing(root)) return Promise.resolve(true)
   return new Promise((done) => {
-    const off = usePrep.subscribe((s) => { if (s.root !== root) { off(); done() } })
+    const finish = (ok: boolean): void => { offPrep(); offLeave(); done(ok) }
+    const offPrep = usePrep.subscribe(() => { if (!isPreparing(root)) finish(true) })
+    const offLeave = watchLeave(() => { if (leave()) finish(false) })
   })
 }

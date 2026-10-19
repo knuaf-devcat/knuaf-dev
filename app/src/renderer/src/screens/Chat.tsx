@@ -149,6 +149,11 @@ function ComposerModelChip() {
   )
 }
 
+/** 폴더 준비 중 한 줄 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다(store/prep.ts). */
+function PrepLine({ queued }: { queued: boolean }) {
+  return <div className="zone-status" role="status"><span className="spin" />{CHAT.preparingLine}{queued && <span className="caption"> · {CHAT.preparingQueued}</span>}</div>
+}
+
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
   const projectRoot = useProject((s) => s.root)
@@ -165,7 +170,7 @@ export function Chat() {
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
   const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
   /** 이 폴더의 준비(.venv) 중인가 — 그동안 보낸 글은 끝날 때까지 기다린다(store/prep.ts). */
-  const preparing = usePrep((s) => !!projectRoot && s.root === projectRoot)
+  const preparing = usePrep((s) => !!projectRoot && (s.counts[projectRoot] ?? 0) > 0)
   const waitingPrep = useChat((s) => s.waitingPrep)
   /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
   const startIntent = useChat((s) => s.startIntent)
@@ -383,9 +388,11 @@ export function Chat() {
           </div>
         )}
 
-        {zone.kind === 'question' && (
+        {zone.kind === 'question' && (<>
+          {/* 고른 답이 준비를 기다리는 중이면 이유를 보인다(검토 WINFB-R1-03). */}
+          {(preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
-        )}
+        </>)}
 
         {(zone.kind === 'running' || zone.kind === 'composer') && (
           <>
@@ -394,9 +401,7 @@ export function Chat() {
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
             {/* 폴더 준비 중 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다. */}
-            {zone.kind === 'composer' && (preparing || waitingPrep) && (
-              <div className="zone-status" role="status"><span className="spin" />{CHAT.preparingLine}{waitingPrep && <span className="caption"> · {CHAT.preparingQueued}</span>}</div>
-            )}
+            {zone.kind === 'composer' && (preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
             {/* 인용 칩 — 입력칸 바로 위(N-I03). 이 논문의 인용만 보여 준다(QA2B-R1-01). */}
             {quote && quote.root === projectRoot && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
