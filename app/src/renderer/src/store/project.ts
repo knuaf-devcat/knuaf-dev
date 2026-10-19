@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { usePrep } from './prep'
 import type { ArtifactItem, MaterialsData, ProjectPeek, SectionRow, Settings, SidecarInfo, Status } from '../../../shared/types'
 import type { StageBuildTree } from '../../../shared/stage'
 import type { ProjectLoad } from '../rpc'
@@ -267,7 +268,10 @@ export const useProject = create<ProjectState>((set, get) => ({
     await get().refreshDeps()
     if (get().root !== root || get().depsReady !== false) return
     type DepsReply = { result?: { ok?: boolean; block_reason?: string | null; stderr?: string }; error?: { code?: string; message?: string } }
+    // 준비하는 동안 대화 전송은 기다리고 화면은 진행 표시를 띄운다(store/prep.ts).
+    usePrep.getState().begin(root)
     const r: DepsReply = await window.knuaf.depsEnsure(root).catch((e: unknown) => ({ error: { message: String(e) } }))
+      .finally(() => usePrep.getState().end(root))
     if (get().root !== root) return
     if ('result' in r && r.result?.ok) { void get().refreshDeps(); return }
     // 터미널 도우미가 작업 중이면 sidecar가 쓰기를 거절한다 — 실패가 아니라 바쁨이니 조용히 넘긴다.

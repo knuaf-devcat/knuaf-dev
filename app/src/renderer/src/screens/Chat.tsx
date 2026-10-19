@@ -3,6 +3,8 @@ import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
 import { useReview, buildQuotedMessage } from '../store/review'
+import { usePrep } from '../store/prep'
+import { withBold } from '../inline'
 import { FirstRun } from '../components/FirstRun'
 import { ReviewQuoteChip } from '../components/ReviewQuote'
 import { PopHead, Popover, PopSep } from '../components/Popover'
@@ -70,7 +72,7 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
   // 도우미는 **테두리·상자·발화자/시간 머리 없는 본문**, 학생만 오른쪽 말풍선(시안 D/E/G, N-I01).
   return (
     <div className={`chat-msg ${m.role}`}>
-      <div className="prose">{m.role === 'assistant' && onGoArtifacts ? withLinks(shown, onGoArtifacts) : shown}</div>
+      <div className="prose">{m.role === 'assistant' ? withBold(shown, (part) => onGoArtifacts ? withLinks(part, onGoArtifacts) : part) : shown}</div>
       {folding && fold && (
         <div className="q-fold">
           <span className="caption">{CHAT.foldHint(fold.count)}</span>
@@ -147,6 +149,11 @@ function ComposerModelChip() {
   )
 }
 
+/** 폴더 준비 중 한 줄 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다(store/prep.ts). */
+function PrepLine({ queued }: { queued: boolean }) {
+  return <div className="zone-status" role="status"><span className="spin" />{CHAT.preparingLine}{queued && <span className="caption"> · {CHAT.preparingQueued}</span>}</div>
+}
+
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
   const projectRoot = useProject((s) => s.root)
@@ -162,6 +169,9 @@ export function Chat() {
   const setPaneView = useProject((s) => s.setPaneView)
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
   const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
+  /** 이 폴더의 준비(.venv) 중인가 — 그동안 보낸 글은 끝날 때까지 기다린다(store/prep.ts). */
+  const preparing = usePrep((s) => !!projectRoot && (s.counts[projectRoot] ?? 0) > 0)
+  const waitingPrep = useChat((s) => s.waitingPrep)
   /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
   const startIntent = useChat((s) => s.startIntent)
   const disarmStart = useChat((s) => s.disarmStart)
@@ -338,7 +348,7 @@ export function Chat() {
             {/* 고른 AI 로 바로 시작한다 — AI 를 고르는 자리는 첫 실행 1단계와 계정 팝오버다
                 (여기서 다시 고르게 하지 않는다, DESIGN §4). 고르는 규칙은 그대로다. */}
             <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-              <button className="primary" onClick={() => void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)}>{hasRevision ? CHAT.resume : CHAT.startNew}</button>
+              <button className="primary" disabled={busy} onClick={() => void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)}>{hasRevision ? CHAT.resume : CHAT.startNew}</button>
             </div>
             <p className="caption">{CHAT.emptyChangeAi}</p>
           </>) : <div>{CHAT.emptyBody}</div>}
@@ -378,9 +388,11 @@ export function Chat() {
           </div>
         )}
 
-        {zone.kind === 'question' && (
+        {zone.kind === 'question' && (<>
+          {/* 고른 답이 준비를 기다리는 중이면 이유를 보인다(검토 WINFB-R1-03). */}
+          {(preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
-        )}
+        </>)}
 
         {(zone.kind === 'running' || zone.kind === 'composer') && (
           <>
@@ -388,6 +400,8 @@ export function Chat() {
             {zone.kind === 'running' && (
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
+            {/* 폴더 준비 중 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다. */}
+            {zone.kind === 'composer' && (preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
             {/* 인용 칩 — 입력칸 바로 위(N-I03). 이 논문의 인용만 보여 준다(QA2B-R1-01). */}
             {quote && quote.root === projectRoot && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
