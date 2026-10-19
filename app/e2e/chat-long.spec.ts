@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, openProject, rewriteSection, synthProject } from './helpers'
+import { launch, openProject, rewriteSection, splitReady, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 
 const BANNER = '> KNUAF-Dev · 창업논문 작성 도우미'
@@ -34,7 +34,7 @@ test('긴 답변은 접히고, 펼치면 전문이 그대로 있다 (발견 10)'
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)
     await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
 
     const bubble = page.locator('.chat-msg.assistant').first()
@@ -61,7 +61,7 @@ test('같은 폴더를 다시 열어도 펼쳐 둔 긴 답변이 접히지 않�
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)
     const bubble = page.locator('.chat-msg.assistant').first()
     await expect(bubble).toBeVisible({ timeout: 30_000 })
     await bubble.getByRole('button', { name: /더 보기$/ }).click()
@@ -77,7 +77,7 @@ test('같은 폴더를 다시 열어도 펼쳐 둔 긴 답변이 접히지 않�
     })
 
     // 같은 폴더를 다시 연다 — 다시 읽되 화면은 그대로여야 한다.
-    await openProject(page, root)
+    await openProject(page, root, splitReady)
 
     await expect(bubble, '같은 폴더를 다시 열었더니 펼친 답이 접혔다').toContainText(TAIL, { timeout: 15_000 })
     expect(await page.evaluate(() => (globalThis as unknown as { __removed: number }).__removed), '대화 목록이 다시 그려졌다')
@@ -92,7 +92,7 @@ test('답변 머리글을 되뇌지 않는다 — 대화 이벤트 줄은 절 �
   seedChat(root)
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)
     await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
 
     // "방금 한 일" 카드는 설계상 지웠다(DESIGN §1-3). 그 자리를 대신하는 것은 **대화 이벤트 줄**

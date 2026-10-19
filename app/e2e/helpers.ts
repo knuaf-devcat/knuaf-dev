@@ -111,6 +111,10 @@ export async function closeSheet(page: Page): Promise<void> {
  * 좁아진다**(1,180 → 500 안팎). 그 재배치가 도는 동안 재거나 누르면 클릭이 빗나가고(버튼이
  * 그사이 움직인다) 좌표가 낡는다 — 맥 CI 에서 `chat-long`(펼치기 클릭이 안 먹음)·`qa2`(재는
  * 순간 노드가 붙지 않음) 가 그렇게 갈렸다. 두 rAF 연속 같은 모양이면 멈춘 것으로 본다.
+ *
+ * **한계(검토 MACR3-R1-02)**: 이 함수는 "지금 움직이지 않는다"만 본다. 아직 오지 않은 절 목록이
+ * 나중에 배치를 바꾸지 않는다는 보장은 없다 — 로딩 중 빈 배치(solo·폭 1180)도 조용하다.
+ * 그래서 부르는 쪽이 **자기가 쓸 요소의 준비**(`openProject` 의 `ready`)를 먼저 기다려야 한다.
  */
 export async function settleWorkspace(page: Page): Promise<void> {
   await page.waitForFunction(() => {
@@ -126,13 +130,39 @@ export async function settleWorkspace(page: Page): Promise<void> {
 }
 
 /**
+ * 이 폴더에 **본문이 있는 종이**가 자리 잡을 때까지 — 두 칸 배치(`.workspace.split`)가 된다.
+ *
+ * 본문이 있는 폴더를 여는 시험만 쓴다(`synthProject()` 는 본문이 있다). 본문 없는 폴더
+ * (`synthProject({ withContent: false })`)에 쓰면 영원히 기다린다 — 그래서 기본값이 아니라
+ * 호출자가 고른다(검토 MACR3-R1-02: 모든 폴더에 본문을 강제하지 않는다).
+ */
+export async function splitReady(page: Page): Promise<void> {
+  await expect(page.locator('.workspace.split')).toBeVisible({ timeout: 30_000 })
+}
+
+/**
+ * 종이 본문이 그려질 때까지(선택할 문단이 생길 때까지). `text` 를 주면 그 글자가 보일 때까지.
+ * 종이에서 문단을 고르거나 종이 머리를 읽는 시험은 이 전제를 먼저 세운다.
+ */
+export async function paperReady(page: Page, text?: string): Promise<void> {
+  const sheet = page.locator('.paperpane .sheet')
+  await expect(sheet).toBeVisible({ timeout: 30_000 })
+  if (text) await expect(sheet).toContainText(text, { timeout: 30_000 })
+}
+
+/**
  * Open a project by pasting its path (the native picker cannot be driven). The only path
  * input lives in 설정 > 고급 — the folder-less 내 논문 screen deliberately has none.
  *
  * v5 에서 설정은 **제목줄의 ⚙** 가 연다(왼쪽 사이드바가 없다). 폴더가 열리면 앱이 시트를
  * 닫고 작업 공간으로 돌아온다(store/project.ts open → closeSheet).
+ *
+ * `ready` 는 **호출자가 실제로 쓸 요소**(종이에서 고를 문단 = `paperReady`, 최종 두 칸 배치 =
+ * `splitReady`)가 준비됐음을 확인하는 함수다. 배치 안정 확인은 그 **뒤에** 한다 — 그 전에
+ * 보면 아직 오지 않은 절 목록이 배치를 바꾸는데도 "정착"으로 받아들인다(MACR3-R1-02).
+ * 준비 조건을 주지 않으면 배치가 지금 조용한지만 본다.
  */
-export async function openProject(page: Page, root: string): Promise<void> {
+export async function openProject(page: Page, root: string, ready?: (p: Page) => Promise<unknown>): Promise<void> {
   await page.getByRole('button', { name: '설정' }).first().click()
   await page.waitForSelector('dialog[open]', { timeout: 30_000 })
   const disclosure = page.locator('details:has(input[aria-label="폴더 경로"])')
@@ -143,7 +173,8 @@ export async function openProject(page: Page, root: string): Promise<void> {
   // 열렸다 — 시트가 닫히고 대화 칸이 남는다.
   await page.waitForSelector(CHAT_READY, { timeout: 30_000 })
   await page.waitForSelector('dialog[open]', { state: 'detached', timeout: 30_000 }).catch(() => {})
-  // 배치가 멈춘 뒤에 돌려준다 — 시험들이 재거나 누르는 자리가 재배치와 겹치지 않게.
+  // 호출자가 쓸 요소가 준비된 뒤에, 배치가 멈춘 것을 확인하고 돌려준다.
+  if (ready) await ready(page)
   await settleWorkspace(page)
 }
 

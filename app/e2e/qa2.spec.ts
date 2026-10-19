@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, openProject, python, scripts, synthProject } from './helpers'
+import { launch, openProject, python, scripts, splitReady, synthProject } from './helpers'
 import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat, userDataWith, writeFakeClaude } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
@@ -41,7 +41,8 @@ test('도우미는 테두리 없는 본문, 학생만 오른쪽 말풍선, 간�
   ])
   const { electronApp, page } = await launch()
   try {
-    await openProject(page, root)
+    // 이 폴더에는 본문이 있는 종이가 있다 — 두 칸 배치가 선 뒤에야 대화 칸 폭이 최종이 된다.
+    await openProject(page, root, splitReady)
     await expect(page.locator('.chat-msg.assistant').first()).toBeVisible({ timeout: 30_000 })
 
     // 도우미: 테두리·배경·발화자/시간 머리 없음.

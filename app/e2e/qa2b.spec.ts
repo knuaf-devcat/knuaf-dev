@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
+import { launch, openProject, paperReady, python, rewriteSection, scripts, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
@@ -139,7 +139,8 @@ test('인용은 그 논문의 것 — 폴더를 바꾸면 지워지고 다른 �
   const b = synthProject()   // 다른 논문
   const { electronApp, page } = await launch({ env })
   try {
-    await openProject(page, a)
+    // 이 논문에도 본문이 있다 — 고를 문단이 그려진 뒤에 배치가 선다(MACR3-R1-02).
+    await openProject(page, a, (p) => paperReady(p, '600평'))
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
     await selectParagraph(page, '600평')
     await page.locator('.selbar').getByRole('button', { name: '고쳐 달라기' }).click()
@@ -167,7 +168,8 @@ test('인용 전송은 보낸 초안만 비운다 — 보낸 글이 입력칸에
   const root = synthProject()
   const { electronApp, page } = await launch({ env })
   try {
-    await openProject(page, root)
+    // 고를 문단이 준비된 뒤에 배치 안정을 본다 — 준비 전에 고르면 "문단을 찾지 못했다"로 깨진다(MACR3-R1-02).
+    await openProject(page, root, (p) => paperReady(p, '600평'))
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
     await selectParagraph(page, '600평')
     await page.locator('.selbar').getByRole('button', { name: '고쳐 달라기' }).click()
