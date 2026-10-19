@@ -112,13 +112,27 @@ export function scratch(): string {
  * 흉내 내는 것은 `claude auth status` 뿐이다(claude.ts status() 가 읽는 전부). 실제 Claude
  * 연결(SDK·작업 실행)은 여기서 띄우지 않는다.
  */
+const CLAUDE_STATUS = {
+  connected: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }),
+  loggedOut: JSON.stringify({ loggedIn: false, authMethod: null, apiProvider: null })
+}
+
 export function writeFakeClaude(dir: string, loggedIn = true): void {
-  const body = loggedIn
-    ? { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }
-    : { loggedIn: false, authMethod: null, apiProvider: null }
+  const body = loggedIn ? CLAUDE_STATUS.connected : CLAUDE_STATUS.loggedOut
   writeCliShim(dir, 'claude',
-    `printf '%s\\n' '${JSON.stringify(body)}'`,
-    `echo ${JSON.stringify(body)}`)
+    `printf '%s\\n' '${body}'`,
+    `echo ${body}`)
+}
+
+/**
+ * 로그인 상태가 **파일에 따라 바뀌는** 가짜 `claude` — `auth login` 이 그 파일을 만들고,
+ * `auth status` 는 파일이 있으면 연결됨으로 답한다. 로그인 전이(로그인 전 → 폴링이 연결을
+ * 알아챔)를 앱 안에서 재현하는 데 쓴다. 실제 Claude·실제 계정은 건드리지 않는다.
+ */
+export function writeStatefulClaude(dir: string, state: string): void {
+  writeCliShim(dir, 'claude',
+    `if [ "$2" = "status" ]; then if [ -f "${state}" ]; then printf '%s\\n' '${CLAUDE_STATUS.connected}'; else printf '%s\\n' '${CLAUDE_STATUS.loggedOut}'; fi; elif [ "$2" = "login" ]; then : > "${state}"; fi`,
+    `if "%2"=="status" ( if exist "${state}" ( echo ${CLAUDE_STATUS.connected} ) else ( echo ${CLAUDE_STATUS.loggedOut} ) ) else if "%2"=="login" ( echo. > "${state}" )`)
 }
 
 /**

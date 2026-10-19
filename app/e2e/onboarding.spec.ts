@@ -12,10 +12,12 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
 import { ONBOARD } from '../src/renderer/src/copy'
-import { fakeCodexEnv, replyFile, scratch, writeCliShim, writeFakeClaude } from './fixtures/fake-codex'
+import { fakeCodexEnv, replyFile, scratch, writeCliShim, writeFakeClaude, writeStatefulClaude } from './fixtures/fake-codex'
 
 const INTRO = 'text=먼저, 쓰고 있는 AI를 연결해요'
 const FOLDER_STEP = 'text=논문을 담을 폴더를 골라요'
+/** 로그인 창을 띄워 둔 동안의 상태 문구 — 기다리는 중인지 사건으로 확인한다. */
+const LOGGING_IN = '브라우저에서 로그인한 뒤 이 창으로 돌아와 주세요'
 /** 도우미가 없는 새 폴더(revision 0) — 첫 마디가 `이어서 하기`가 아니라 `시작하기`가 된다. */
 const synthProjectNoContent = (): string => synthProject({ withContent: false })
 const settings = (userData: string) => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8'))
@@ -162,6 +164,124 @@ test('가짜 서버로 로그인하면 연결되고, 2단계에서 고른 폴더
   }
 })
 
+// ---------------------------------------------------------------- 둘 다 연결 (W2)
+
+/** 연결 한 줄의 지금 문구. */
+const row = (page: Page, provider: 'codex' | 'claude') => page.locator(`[data-provider="${provider}"] .reason`).first()
+
+test('GPT 로그인을 기다리는 중에 Claude 로그인을 시작해도 둘 다 연결된다 (완료조건 1)', async () => {
+  // W1 재현 ② 그대로: GPT 로그인 응답이 아직 안 끝난 창에서 Claude 로그인을 시작한다.
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, {
+    FAKE_CODEX_MODE: 'logged-out', FAKE_CODEX_STATE: join(dir, 'codex-login.txt'), FAKE_CODEX_DELAY_MS: '4000'
+  })
+  writeStatefulClaude(bin, join(dir, 'claude-login.txt'))
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
+  try {
+    await expect(row(page, 'codex')).toContainText('로그인이 필요해요', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'ChatGPT로 로그인' }).click()
+    await expect(row(page, 'codex')).toContainText(LOGGING_IN)
+    await page.getByRole('button', { name: 'Claude로 로그인' }).click()
+    // 둘 다 끝난다 — 늦게 확인된 쪽도 "로그인 중"에 남지 않는다.
+    await expect(row(page, 'claude')).toContainText('연결됐어요', { timeout: 30_000 })
+    await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 30_000 })
+    // 먼저 성공한 Claude 가 선택되고, 나중에 연결된 GPT 는 그 선택을 바꾸지 않는다(W2 D3).
+    await expect.poll(() => settings(userData).provider_choice?.provider).toBe('claude')
+    await expect(page.locator('[data-provider="codex"]').getByRole('button', { name: ONBOARD.startWith })).toBeVisible()
+    await expect(page.getByRole('button', { name: ONBOARD.connectNext })).toBeEnabled()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('Claude 로그인을 기다리는 중에 GPT 로그인을 시작해도 둘 다 연결된다 (완료조건 1, 역순)', async () => {
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, {
+    FAKE_CODEX_MODE: 'logged-out', FAKE_CODEX_STATE: join(dir, 'codex-login.txt'), FAKE_CODEX_DELAY_MS: '4000'
+  })
+  writeStatefulClaude(bin, join(dir, 'claude-login.txt'))
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
+  try {
+    await expect(row(page, 'claude')).toContainText('로그인이 필요해요', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Claude로 로그인' }).click()
+    await expect(row(page, 'claude')).toContainText(LOGGING_IN)
+    // Claude 폴링이 도는 동안 GPT 로그인을 시작한다 — 예전에는 이 시작이 Claude 감시를 끊었다.
+    await page.getByRole('button', { name: 'ChatGPT로 로그인' }).click()
+    await expect(row(page, 'claude')).toContainText('연결됐어요', { timeout: 30_000 })
+    await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 30_000 })
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('이미 고른 AI 가 연결돼 있으면 새로 연결한 쪽이 선택을 빼앗지 않는다 (완료조건 4)', async () => {
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
+  writeStatefulClaude(bin, join(dir, 'claude-login.txt'))
+  const userData = userDataWithRecent(dir, synthProjectNoContent(), {
+    provider_choice: { provider: 'codex', at: new Date().toISOString() }
+  })
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
+  try {
+    // codex 만 연결돼 있으므로 1단계에 남는다(D2) — Claude 로그인 단추가 여기 있다.
+    await expect(row(page, 'claude')).toContainText('로그인이 필요해요', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Claude로 로그인' }).click()
+    await expect(row(page, 'claude')).toContainText('연결됐어요', { timeout: 30_000 })
+    // 선택은 codex 그대로, Claude 행에는 "이걸로 시작"이 뜬다.
+    await expect.poll(() => settings(userData).provider_choice?.provider).toBe('codex')
+    await expect(page.locator('[data-provider="claude"]').getByRole('button', { name: ONBOARD.startWith })).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('둘 다 연결됐고 저장된 선택이 있으면 조회 순서와 무관하게 2단계로 건너뛴다 (완료조건 4-1)', async () => {
+  // codex 상태 응답만 늦춘다 — claude 가 먼저 connected 로 와도 판정을 미뤄야 한다(R1-D01).
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_DELAY_MS: '2000' })
+  writeFakeClaude(join(dir, 'bin'))
+  const userData = userDataWithRecent(dir, synthProjectNoContent(), {
+    provider_choice: { provider: 'codex', at: new Date().toISOString() }
+  })
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: FOLDER_STEP, env })
+  try {
+    await expect(page.locator(FOLDER_STEP)).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator(INTRO)).toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('선택 없이 둘을 연달아 로그인하고 한쪽을 취소해도 먼저 성공한 쪽이 선택된다 (완료조건 4-2)', async () => {
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, {
+    FAKE_CODEX_MODE: 'logged-out', FAKE_CODEX_STATE: join(dir, 'codex-login.txt'), FAKE_CODEX_DELAY_MS: '4000'
+  })
+  writeStatefulClaude(bin, join(dir, 'claude-login.txt'))
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
+  try {
+    await expect(row(page, 'codex')).toContainText('로그인이 필요해요', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'ChatGPT로 로그인' }).click()
+    await expect(row(page, 'codex')).toContainText(LOGGING_IN)
+    await page.getByRole('button', { name: 'Claude로 로그인' }).click()
+    // Claude 를 취소해도 GPT 로그인은 살아 있어야 한다.
+    await page.locator('[data-provider="claude"]').getByRole('button', { name: ONBOARD.cancel }).click()
+    await expect(row(page, 'claude')).toContainText('로그인이 필요해요', { timeout: 30_000 })
+    await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 30_000 })
+    await expect.poll(() => settings(userData).provider_choice?.provider).toBe('codex')
+    await expect(page.getByRole('button', { name: ONBOARD.connectNext })).toBeEnabled()
+  } finally {
+    await electronApp.close()
+  }
+})
+
 test('둘 다 연결돼 있어도 고른 적이 없으면 선택 화면을 보여 준다', async () => {
   const dir = scratch()
   const bin = join(dir, 'bin')
@@ -181,10 +301,12 @@ test('둘 다 연결돼 있어도 고른 적이 없으면 선택 화면을 보�
   }
 })
 
-test('고른 AI 가 연결돼 있으면 1단계를 건너뛴다', async () => {
+test('고른 AI 와 다른 AI 가 **둘 다** 연결돼 있으면 1단계를 건너뛴다', async () => {
+  // W2 D2 — 1단계에서 더 할 일이 없을 때만 건너뛴다. 예전에는 고른 것 하나만 연결돼 있어도
+  // 건너뛰어, 둘 다 연결하려던 학생에게서 다른 쪽 로그인 단추를 빼앗았다.
   const dir = scratch()
   const bin = join(dir, 'bin')
-  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-out' })
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
   writeFakeClaude(bin)
   const userData = userDataWithRecent(dir, synthProjectNoContent(), {
     provider_choice: { provider: 'claude', at: new Date().toISOString() }
@@ -195,6 +317,33 @@ test('고른 AI 가 연결돼 있으면 1단계를 건너뛴다', async () => {
     await expect(page.locator(FOLDER_STEP)).toBeVisible()
     await expect(page.locator(INTRO)).toHaveCount(0)
     await expect(page.locator('text=AI 연결 ✓')).toBeVisible()
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('고른 AI 만 연결돼 있으면 1단계에 남아 다른 AI 를 연결할 수 있다 (완료조건 3)', async () => {
+  // 저장된 선택(codex)은 연결됐지만 Claude 는 아직이다 — 화면을 열자마자 폴더 단계로 튀면
+  // Claude 로그인 단추가 사라진다(형님이 본 증상 ①). 수동 [다음] 은 그대로 허용된다.
+  const dir = scratch()
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
+  writeFakeClaude(bin, false)
+  const userData = userDataWithRecent(dir, synthProjectNoContent(), {
+    provider_choice: { provider: 'codex', at: new Date().toISOString() }
+  })
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
+  try {
+    await expect(page.locator(INTRO)).toBeVisible()
+    await expect(page.locator('text=논문을 담을 폴더를 골라요')).toHaveCount(0)
+    // 두 행이 다 있고, Claude 쪽에 로그인 단추가 있다.
+    await expect(page.locator('.choices > .item')).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Claude로 로그인' })).toBeVisible()
+    // 고른 것이 연결돼 있으므로 [다음] 은 열려 있다 — 둘 다 연결을 강요하지 않는다.
+    const next = page.getByRole('button', { name: ONBOARD.connectNext })
+    await expect(next).toBeEnabled()
+    await next.click()
+    await expect(page.locator(FOLDER_STEP)).toBeVisible()
   } finally {
     await electronApp.close()
   }
@@ -270,10 +419,11 @@ test('여는 화면은 첫 실행 화면 **위에** 뜬다 (순서가 뒤집히�
 
 test('이미 지난 학생이 다시 켜면 폴더 화면(첫 실행 2단계)부터 본다', async () => {
   // 발주 QA 재실행 결정 — 재실행 첫 화면은 시안 ② 논문 폴더 화면이다(온보딩 2단계와 같은 부품).
-  // 연결이 확인돼 있어야 폴더 단계가 서므로 가짜 codex(logged-in) + 고른 선택을 쓴다.
+  // 폴더 단계로 건너뛰려면 **둘 다** 연결이 확인돼 있어야 하므로(W2 D2) 가짜 codex·claude 를 쓴다.
   const dir = scratch()
   const root = synthProjectNoContent()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  writeFakeClaude(join(dir, 'bin'))   // 둘 다 연결돼야 자동 건너뛰기가 선다(W2 D2)
   const userData = userDataWithRecent(dir, root, { provider_choice: { provider: 'codex', at: new Date().toISOString() } })
   const { electronApp, page } = await launch({ userData, env, waitFor: FOLDER_STEP })
   try {
