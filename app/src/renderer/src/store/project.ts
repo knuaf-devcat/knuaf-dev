@@ -57,10 +57,11 @@ interface ProjectState {
   retryFailed: { root: string } | null
   /**
    * 실패했던 폴더 열기를 다시 시도하고, 그 결과를 store 에 남긴다(설치 성공과 구분).
-   * `onOpened` 는 성공했을 때만 부른다 — 재시도도 기존 폴더 열기의 성공 후처리(온보딩 기록·
-   * 최근 목록·제목)를 그대로 타야 한다.
+   * `onOpened` 는 성공했을 때만 부르고, **끝날 때까지 기다린다** — 재시도의 성공은 온보딩 기록
+   * (`setSettings`)까지 끝난 뒤에 확정된다. 기다리지 않으면 화면 전환과 기록 사이에 순서가
+   * 없어져, 느린 기기에서 "열렸다"는 사실만 먼저 보인다.
    */
-  retryOpen: (root: string, onOpened?: (root: string) => void) => Promise<boolean>
+  retryOpen: (root: string, onOpened?: (root: string) => void | Promise<void>) => Promise<boolean>
   sidecar: (SidecarInfo & { basePython?: string; wheelhouse?: string | null }) | null
   settings: Settings | null
   /** 열려 있는 시트. null이면 논문·대화만 보인다. */
@@ -363,7 +364,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   },
   retryOpen: async (root, onOpened) => {
     const err = await get().open(root, { local: true })
-    if (!err) { onOpened?.(root); return true }
+    if (!err) { await onOpened?.(root); return true }
     // 새 오류는 전역 error 로 올려 화면이 그대로 보여 준다. 설치 성공과 복구 실패를 함께
     // 말하는 문구는 retryFailed 가 맡는다 — 이 값은 컴포넌트가 아니라 store 에 산다.
     set({ error: err, retryFailed: { root } })

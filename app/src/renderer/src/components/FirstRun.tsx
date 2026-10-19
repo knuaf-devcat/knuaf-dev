@@ -28,7 +28,7 @@ import { useShallow } from 'zustand/react/shallow'
 const MODE: Record<Provider, ChatMode> = { codex: 'codex-chat', claude: 'claude-chat' }
 const ROWS: Provider[] = ['codex', 'claude']
 
-export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) => void }) {
+export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) => void | Promise<void> }) {
   const { settings, loadSettings, error, openFailure, retryFailed, clearError, retryOpen } = useProject(useShallow((s) => ({
     settings: s.settings, loadSettings: s.loadSettings, error: s.error, openFailure: s.openFailure,
     retryFailed: s.retryFailed, clearError: s.clearError, retryOpen: s.retryOpen

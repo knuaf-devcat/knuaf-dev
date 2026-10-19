@@ -30,7 +30,7 @@ export interface FolderPickerCopy {
   foot?: string
 }
 
-export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpened?: (root: string) => void }) {
+export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpened?: (root: string) => void | Promise<void> }) {
   const { open, settings, error, loading, loadSettings, clearError, openFailure, retryOpen } = useProject(useShallow((s) => ({
     open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings,
     clearError: s.clearError, openFailure: s.openFailure, retryOpen: s.retryOpen
@@ -53,7 +53,9 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
     setOpenErr(null); clearError()
     const err = await open(dir, { local: true })
     if (err) { setOpenErr(err); return err }
-    onOpened?.(dir)
+    // 성공 후처리(온보딩 기록 등)가 끝난 뒤에 "열었다"를 확정한다 — 부르기만 하면 화면 전환과
+    // 기록 사이에 순서가 없어진다. 첫 실행 경로에서도 화면은 그대로다(기다림만 생긴다).
+    await onOpened?.(dir)
     return null
   }
   const pick = async () => { const dir = await window.knuaf.pickFolder(); if (dir) await openFolder(dir) }

@@ -4,7 +4,7 @@
 // PATH 맨 앞에 `python_too_old` 를 내는 가짜 `python3` 를 둔다(PY-D1-03). 내려받기는
 // 로컬 HTTP 서버 + 가짜 tar.gz(실제 개발용 Python 을 exec)로 돌린다(fixtures/fake-runtime.ts).
 import { expect, test } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { launch, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
@@ -74,14 +74,11 @@ test('낡은 PATH Python → 오류 카드의 버튼 → 진행률 → managed �
     expect(installs).toHaveLength(1)
     expect(existsSync(join(userData, 'runtime', installs[0], '.knuaf-runtime.json'))).toBe(true)
     // 온보딩도 마저 지나갔다 — 재시도가 기존 성공 후처리를 그대로 탔다.
-    // `.chat-inner` 는 store 의 root 가 선 순간(=`onboarding` 이 거짓이 된 순간) 뜨고,
-    // `onboarded_at` 은 그 뒤 `retryOpen → onOpened → Onboarding.opened` 의 IPC 쓰기로 남는다 —
-    // 화면 전환과 파일 쓰기 사이에 순서 보장이 없다. 느린 기기(맥 CI)에서 한 번 읽고 끝내면
-    // 아직 안 써진 파일을 읽는다. 써질 때까지 기다리되, 끝내 안 써지면 실패한다.
-    await expect.poll(() => {
-      const s = JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')) as { onboarded_at?: string }
-      return s.onboarded_at
-    }, { timeout: 30_000 }).toBeTruthy()
+    // `.chat-inner` 는 `open()` 이 root 를 세운 순간 뜨고, `onboarded_at` 은 그 뒤
+    // `retryOpen → onOpened → Onboarding.opened` 의 IPC 쓰기로 남는다. 파일을 바로 읽지 않고
+    // **앱이 그 기록을 반영한 상태**를 기다린다 — 끝내 안 써지면 시간 초과로 실패한다.
+    await expect.poll(() => page.evaluate(async () => (await window.knuaf.getSettings()).onboarded_at ?? null),
+      { timeout: 30_000 }).toBeTruthy()
     // 임시 다운로드 파일은 남지 않는다.
     expect(runtimeEntries(userData).filter((n) => n.startsWith('.download-'))).toEqual([])
   } finally {
