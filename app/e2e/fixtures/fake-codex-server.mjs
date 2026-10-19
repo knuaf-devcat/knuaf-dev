@@ -55,7 +55,10 @@ function handle(message) {
       return out({ id, result: { account: loggedIn() ? { type: 'chatgpt' } : null } })
     case 'account/login/start':
       if (STATE) writeFileSync(STATE, 'chatgpt\n')
-      return out({ id, result: { loginId: 'fake', authUrl: 'about:blank' } })
+      // 로그인 주소를 비워 둔다 — 앱은 주소가 있을 때만 브라우저를 연다. 시험이 진짜 브라우저를
+      // 띄우면 (1) 기계 상태에 따라 `shell.openExternal` 이 늦게 끝나거나 멈춰 로그인 응답이
+      // 오지 않고, (2) 시험장에 창이 쌓인다. 여기서 검증하는 것은 연결 전이지 브라우저가 아니다.
+      return out({ id, result: { loginId: 'fake', authUrl: '' } })
     case 'skills/list': {
       const cwd = (params.cwds ?? [])[0] ?? process.cwd()
       return out({ id, result: { data: [{ skills: [{ path: `${cwd}/.agents/skills/knuaf-dev/SKILL.md`, enabled: true }] }] } })
