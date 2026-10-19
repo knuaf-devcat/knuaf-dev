@@ -90,22 +90,85 @@ function isExecutableFile(p: string): boolean {
   }
 }
 
+export interface FindExecutableOptions {
+  /** 테스트가 갈아 끼우는 플랫폼(기본은 hostPlatform()). */
+  platform?: NodeJS.Platform
+  /**
+   * PATH **앞에** 둘 디렉터리. 주지 않으면 동봉 자리(bundledDirs)를 쓴다 — 이 기본값이
+   * 첫 화면(`connect:status`)과 로그인·채팅(`ChatService`)까지 같은 규칙을 퍼뜨리는 통로다.
+   * `KNUAF_AGENT_PATH_ONLY=1` 이면 어느 쪽이든 무시한다("도구 없음" 화면 시험 이음매).
+   */
+  leadingDirs?: string[]
+}
+
+// 시험 이음매 두 개 — 단위 시험이 플랫폼과 동봉 위치를 주입한다(제품 경로는 손대지 않는다).
+let platformOverride: NodeJS.Platform | null = null
+
+/** 호스트 플랫폼. 시험이 윈도우 분기를 돌릴 수 있게 갈아 끼울 수 있다(돌려주면 복원). */
+export function hostPlatform(): NodeJS.Platform {
+  return platformOverride ?? process.platform
+}
+
+export function setAgentPlatformForTest(platform: NodeJS.Platform | null): NodeJS.Platform | null {
+  const prev = platformOverride
+  platformOverride = platform
+  return prev
+}
+
+/**
+ * 동봉한 CLI 를 찾을 자리의 **기본값**. 패키지에서는 `process.resourcesPath`, 개발 트리에서는
+ * `out/main` 기준 `../../resources`(python.ts 의 APP_ROOT 와 같은 기준)를 본다.
+ * 윈도우가 아니면 빈 배열 — 맥 설치본에는 동봉하지 않기로 했다(형님 범위 결정).
+ */
+function defaultBundledDirs(platform: NodeJS.Platform): string[] {
+  if (platform !== 'win32') return []
+  const roots: string[] = []
+  const resources = (process as { resourcesPath?: string }).resourcesPath
+  if (typeof resources === 'string' && resources) roots.push(join(resources, 'codex'))
+  if (typeof __dirname === 'string') roots.push(join(__dirname, '..', '..', 'resources', 'codex'))
+  return roots.map((root) => join(root, 'vendor', 'x86_64-pc-windows-msvc', 'bin'))
+}
+
+let bundledDirsProvider: (platform: NodeJS.Platform) => string[] = defaultBundledDirs
+
+/** 시험 이음매: 동봉 자리 공급자를 갈아 끼우고 이전 것을 돌려준다. */
+export function setBundledDirsProvider(fn: (platform: NodeJS.Platform) => string[]): (platform: NodeJS.Platform) => string[] {
+  const prev = bundledDirsProvider
+  bundledDirsProvider = fn
+  return prev
+}
+
+/** 동봉 자리(PATH 앞에 놓일 디렉터리들). 모든 소비 경로가 이 함수를 거친다. */
+export function bundledDirs(platform: NodeJS.Platform = hostPlatform()): string[] {
+  return bundledDirsProvider(platform)
+}
+
 /**
  * First executable named `name` on env.PATH, then in the usual user-install dirs. Absolute path or null.
+ *
+ * 순서는 **동봉본 → PATH → EXTRA_DIRS** 다. 동봉본을 먼저 두는 이유: 학생 PC 에 다른 버전의
+ * codex 가 깔려 있어도 앱이 시험한 조합으로 동작한다.
  *
  * `KNUAF_AGENT_PATH_ONLY=1` 은 PATH 만 본다 — 시험용 이음매다. Finder 로 띄운 앱은 셸의
  * PATH 를 물려받지 않아(/usr/bin:/bin:/usr/sbin:/sbin) 아래 EXTRA_DIRS 가 사실상 유일한
  * 발견 경로인데, 그래서 시험에서 PATH 를 비워도 개발 기계에서는 진짜 codex 가 계속
  * 발견됐다. "도구 없음" 화면은 그 상태를 재현할 방법이 있어야 시험된다.
  */
-export function findExecutable(name: string, env: Record<string, string | undefined> = process.env): string | null {
+export function findExecutable(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+  opts: FindExecutableOptions = {}
+): string | null {
+  const platform = opts.platform ?? hostPlatform()
   const home = env.HOME ?? env.USERPROFILE ?? ''
-  const sep = process.platform === 'win32' ? ';' : ':'
+  const sep = platform === 'win32' ? ';' : ':'
   // 윈도우에서 실제 키는 `Path` 인 경우가 많다 — 복사된 env(`AgentCtx.env`·시험 입력)에서도
   // 같은 규칙으로 읽어야 도구를 찾는다(검토 W1D-R1-02). 맥은 종전 그대로 `PATH`.
-  const fromPath = (env[pathKeyOf(env)] ?? '').split(sep).filter(Boolean)
-  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1' ? fromPath : [...fromPath, ...EXTRA_DIRS(home)]
-  const names = process.platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
+  const fromPath = (env[pathKeyOf(env, platform)] ?? '').split(sep).filter(Boolean)
+  const dirs = env.KNUAF_AGENT_PATH_ONLY === '1'
+    ? fromPath
+    : [...(opts.leadingDirs ?? bundledDirs(platform)), ...fromPath, ...EXTRA_DIRS(home)]
+  const names = platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
   const seen = new Set<string>()
   for (const dir of dirs) {
     if (seen.has(dir)) continue
@@ -116,6 +179,23 @@ export function findExecutable(name: string, env: Record<string, string | undefi
     }
   }
   return null
+}
+
+/**
+ * 설치본에 동봉한 Codex CLI 의 bin 디렉터리. **윈도우에서만** 본다 — 맥 설치본에는 동봉하지
+ * 않기로 했고(형님 범위 결정), 맥은 지금처럼 학생이 직접 설치한 것을 쓴다.
+ *
+ * 동봉본은 자기 패키지 레이아웃(`codex-package.json`·`codex-path/rg.exe`·`codex-resources/`)을
+ * 스스로 찾으므로 bin 디렉터리만 알려 주면 rg·sandbox 도구도 함께 산다.
+ * 개발 트리(out/)에서는 `resources/codex/…` 가 없으면 그냥 넘어간다(다음 후보로).
+ */
+export function bundledAgentDirs(
+  ctx: Pick<AgentCtx, 'appRoot' | 'isPackaged' | 'resourcesPath'>,
+  platform: NodeJS.Platform = hostPlatform()
+): string[] {
+  if (platform !== 'win32') return []
+  const base = ctx.isPackaged ? ctx.resourcesPath : join(ctx.appRoot, 'resources')
+  return [join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')]
 }
 
 /** `<path> --version`, trimmed first line; null on failure or after 8s. */
@@ -459,8 +539,9 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
 /** `root` is the open project; with no project open the skill reports 'missing'. */
 export async function getStatus(ctx: AgentCtx, root: string | null): Promise<AgentStatus> {
   const env = ctx.env ?? process.env
+  const leadingDirs = bundledAgentDirs(ctx)
   const probe = async (name: AgentKind): Promise<AgentBinary> => {
-    const path = findExecutable(name, env)
+    const path = findExecutable(name, env, { leadingDirs })
     return { found: !!path, path, version: path ? await probeVersion(path) : null }
   }
   const [claude, codex] = await Promise.all([probe('claude'), probe('codex')])
@@ -487,7 +568,7 @@ export const agentApi = {
   },
 
   launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {
-    const agentPath = findExecutable(o.kind, ctx.env ?? process.env)
+    const agentPath = findExecutable(o.kind, ctx.env ?? process.env, { leadingDirs: bundledAgentDirs(ctx) })
     if (!agentPath) throw new Error(`${o.kind} 실행 파일을 찾지 못함 (PATH에 없음)`)
     const venv = ctx.venvPython(o.root)
     const bundled = ctx.bundledPython?.() ?? null

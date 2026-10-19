@@ -38,6 +38,13 @@ extraResources:
     to: python
   - from: resources/wheelhouse
     to: wheelhouse
+  # 윈도우 설치본에 동봉하는 Codex CLI(형님 결정: 윈도우만). 만드는 것은
+  # `fetch:codex`(scripts/fetch-codex.mjs) 이고, 맥·리눅스에서는 그 스크립트가 빈 디렉터리만
+  # 만들어 둔다 — 플랫폼별 extraResources 를 electron-builder 가 합쳐 주지 않으므로(win 의
+  # extraResources 는 무시된다) 전역 목록에 두되 내용은 윈도우 빌드에서만 찬다.
+  # 앱은 resources/codex/vendor/<target>/bin 을 PATH 앞에 둔다(src/main/agent.ts).
+  - from: resources/codex
+    to: codex
   # 번들 안 파일명은 ASCII만 쓴다. 한글 이름은 APFS 에 NFC 로 저장되는데 dmg 볼륨(HFS+)이
   # NFD 로 바꾸고, 서명은 NFC 로 봉인돼 있어 codesign 이 같은 파일을 "added"이자 "missing"
   # 으로 본다 — "a sealed resource is missing or invalid". zip 은 멀쩡하고 dmg 만 깨진다.
