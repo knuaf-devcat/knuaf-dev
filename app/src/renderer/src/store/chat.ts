@@ -133,7 +133,20 @@ export const useChat = create<ChatState>((set, get) => ({
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
     // 사이 붙인 첨부 경로나 쓴 글이 말없이 사라진다.
     const switching = get().root !== root
-    set({ root, provider, snapshot: null, status: null, statusFailed: false, connState: 'checking', error: null, ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {}) })
+    /**
+     * **같은 폴더·같은 공급자를 다시 읽을 때는 이미 보여 준 대화·연결 상태를 비우지 않는다.**
+     *
+     * 예전에는 매 `load()` 가 `snapshot: null` 을 먼저 넣어, 다시 읽는 동안 대화 목록이 통째로
+     * 사라졌다가 새로 그려졌다(재마운트). 그 사이 학생이 펼쳐 둔 긴 답변이 접히고, 아래 칸이
+     * "연결 확인 중…"으로 깜빡이며, 시험이 잰 좌표·누른 자리가 낡는다 — 느린 기계(맥 CI)에서
+     * 드러난 공통 원인이다. 폴더나 공급자가 실제로 바뀔 때만 비운다(다른 대화를 섞지 않는다).
+     */
+    const samePair = !switching && get().provider === provider
+    set({
+      root, provider, error: null,
+      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking' }),
+      ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
+    })
     const [snap, st, saved] = await Promise.all([
       window.knuaf.chat.snapshot(root, provider) as Promise<Reply<ChatSnapshot>>,
       window.knuaf.chat.status(root, provider) as Promise<Reply<ConnectionStatus>>,

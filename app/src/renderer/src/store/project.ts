@@ -4,7 +4,22 @@ import type { StageBuildTree } from '../../../shared/stage'
 import type { ProjectLoad } from '../rpc'
 import { CHAT, describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
-import { useChat } from './chat'
+import { chatProvider, resolveChatMode, useChat } from './chat'
+import { chosenProvider, useConnect } from './connect'
+import type { Provider } from '../../../shared/chat'
+
+/**
+ * 지금 대화할 공급자 — **화면(`Chat`)이 계산하는 것과 같은 규칙**을 쓴다(store/connect 의
+ * `chosenProvider` → 옛 설정 `helper_mode`).
+ *
+ * 왜 여기서 필요한가: 폴더를 열 때 이 store 가 `load(root)` 를 먼저 부르는데, 공급자를 넘기지
+ * 않으면 스토어 기본값('codex')으로 읽고 화면이 곧바로 **다른 공급자로 한 번 더 읽어** 대화를
+ * 비운다(맥 CI 에서 드러난 재마운트의 한 원인). 같은 값을 넘겨 그 두 번째 읽기를 없앤다.
+ */
+function chatProviderNow(): Provider {
+  const settings = useProject.getState().settings
+  return chosenProvider(useConnect.getState().selected, settings) ?? chatProvider(resolveChatMode(null, settings))
+}
 
 /**
  * v5에서는 **화면**이 아니라 **열린 시트**다(IMPL-PLAN §4-5). 사이드바 목적지 다섯이
@@ -242,7 +257,9 @@ export const useProject = create<ProjectState>((set, get) => ({
     // 준비는 폴더를 여는 순간 백그라운드로 시작하고 실패만 표면화한다(03-화면/01 결정).
     // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
     void get().prepareDeps(root)
-    void useChat.getState().load(root)
+    // 화면이 쓸 공급자를 **같이 넘긴다** — 안 넘기면 화면이 곧바로 다른 공급자로 다시 읽어
+    // 대화를 한 번 비운다(위 chatProviderNow 주석).
+    void useChat.getState().load(root, chatProviderNow())
     return null
   },
   /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */
