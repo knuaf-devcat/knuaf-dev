@@ -57,7 +57,9 @@ for (const scheme of ['light', 'dark'] as const) {
         await expect(page.locator(`[data-screen="${screen}"]`), `${nav} 시트가 열리지 않았다`).toBeVisible({ timeout: 30_000 })
       } else {
         // 시트를 닫은 장면이어야 한다 — 열린 채로 찍으면 다른 화면을 캡처한다.
-        await expect(page.locator('dialog[open]'), '시트가 닫히지 않았다').toHaveCount(0, { timeout: 30_000 })
+        // 시트는 두 구현이 있다: `<Sheet>`(dialog.sheet)와 `<SheetOver>`(div.sheetover).
+        // dialog[open] 만 보면 SheetOver 가 열린 채로 찍혀도 통과한다(CONFIRM-ASTRA-QA3-WIN 42행).
+        await expect(page.locator('dialog[open], .sheetover'), '시트가 닫히지 않았다').toHaveCount(0, { timeout: 30_000 })
       }
       await page.waitForTimeout(600) // 그려진 뒤 색·레이아웃이 안정될 때까지
       await page.screenshot({ path: `${OUT}/${file}${suffix}.png` })
