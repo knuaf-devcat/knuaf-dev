@@ -827,6 +827,11 @@ export const CHAT = {
   assistant: '도우미',
   sending: '전송 중',
   uncertain: '전송 여부 불확실',
+  /** 학생 말풍선 밖 아래 오른쪽 작은 글자(전송 중 A안). */
+  sendingLine: '보내는 중',
+  uncertainLine: '보냈는지 확인하지 못했어요',
+  /** 입력칸 위 한 줄 알림의 원문 펼치기. */
+  details: '자세히',
   resend: '다시 보내기',
   runningBody: '도우미가 작업 중이에요. 끝날 때까지 기다리거나 중단할 수 있어요.',
   stop: '중단',
@@ -930,6 +935,7 @@ export const CHAT = {
   preparingQueued: '준비가 끝나면 바로 보낼게요',
   appBusyTitle: '앱이 저장·검사를 마치는 중이에요',
   appBusyBody: '끝나면 다시 보내 주세요.',
+  appBusyWaitSub: '끝나면 보낼 수 있어요',
 }
 
 export const MATERIALS = {

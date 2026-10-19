@@ -15,7 +15,8 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement, Fragment } from 'react'
 import { useChat } from '../src/renderer/src/store/chat'
-import { usePrep } from '../src/renderer/src/store/prep'
+import { usePrep, waitKind } from '../src/renderer/src/store/prep'
+import { rpc } from '../src/renderer/src/rpc'
 import { describeChatError, CHAT } from '../src/renderer/src/copy'
 import { withBold } from '../src/renderer/src/inline'
 import { APP_DIRS, forgetHidden, hideAppDirs } from '../src/main/hidden'
@@ -201,4 +202,26 @@ test('④ 이 기계의 실제 동작 — 윈도우면 탐색기 숨김 속성�
   }
   const mine = spawnSync('attrib', [join(root, '내 자료')], { encoding: 'utf8', windowsHide: true }).stdout
   expect(mine.slice(0, 12), '학생 폴더를 숨겼다').not.toContain('H')
+})
+
+test('② 앱의 쓰기 작업(내보내기 등)이 도는 동안 그 폴더는 "저장·검사 중" 기다림이다 (알림창 B안)', async () => {
+  harness()
+  let finish: (v: unknown) => void = () => {}
+  const win = (globalThis as unknown as { window: { knuaf: Record<string, unknown> } }).window
+  win.knuaf.call = () => new Promise((r) => { finish = r })
+  const exporting = rpc.export(ROOT, 'review')
+  expect(waitKind(usePrep.getState(), ROOT)).toBe('write')
+  expect(waitKind(usePrep.getState(), '/p/elsewhere')).toBeNull()
+  finish({ result: { path: 'out.docx', kind: 'review' } })
+  await exporting
+  expect(waitKind(usePrep.getState(), ROOT), '끝났는데 기다림이 남았다').toBeNull()
+  // 실패해도 기다림은 풀린다.
+  win.knuaf.call = async () => ({ error: { code: 'x', message: '실패' } })
+  await expect(rpc.export(ROOT, 'review')).rejects.toThrow('실패')
+  expect(waitKind(usePrep.getState(), ROOT)).toBeNull()
+  // 읽기 작업은 기다림이 아니다.
+  win.knuaf.call = async () => ({ result: {} })
+  const reading = rpc.status(ROOT)
+  expect(waitKind(usePrep.getState(), ROOT)).toBeNull()
+  await reading
 })

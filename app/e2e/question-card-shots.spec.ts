@@ -8,7 +8,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { launch, openProject } from './helpers'
+import { launch, openProject, PROGRESS } from './helpers'
 import { scratch, fakeCodexEnv, questionMessage, questionProject, seedChat, userDataWith } from './fixtures/fake-codex'
 
 const OUT = process.env.KNUAF_SHOT_DIR ?? resolve(__dirname, '..', 'test-results', 'p1-shots')
@@ -76,7 +76,8 @@ test('작업 중 캡처', async () => {
   for (const scheme of SCHEMES) {
     await shoot('running', scheme, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_HOLD: '1' }, async (page) => {
       await page.getByRole('radio', { name: /농협 공판장/ }).click()
-      await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+      await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })
+      await expect(page.locator(PROGRESS)).toBeVisible()
       await page.locator('.chat-composer textarea').fill('다음에 할 말을 미리 써 둘 수 있어요')
     })
   }

@@ -6,7 +6,7 @@
  * 두므로 실제 codex 가 깔린 기계와 CI 가 같은 장면을 본다.
  */
 import { expect, test } from '@playwright/test'
-import { launch, openProject } from './helpers'
+import { launch, openProject, PROGRESS } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import {
   QUESTION_1, QUESTION_2, fakeCodexEnv, questionMessage, questionProject, replyFile, scratch, seedChat, userDataWith
@@ -197,7 +197,10 @@ test('작업 중에는 한 줄이 뜨고 입력칸은 살아 있으며 보내기
     await expect(card).toBeVisible({ timeout: 30_000 })
     await card.getByRole('radio', { name: /농협 공판장/ }).click()
 
-    await expect(page.locator('.zone-status')).toContainText(CHAT.runningLine, { timeout: 30_000 })
+    // 작업 중 진행 표시는 정확히 하나 — 아직 보내는 중이라 말풍선 밖 글자다(전송 중 A안).
+    await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })
+    await expect(page.locator('.deliv[data-st="sending"]')).toBeVisible()
+    await expect(page.locator('.deliv[data-st="sending"]')).toContainText(CHAT.sendingLine)
     // 다음 말을 미리 써 둘 수 있어야 한다 — 입력칸은 살아 있고 보내기만 막힌다.
     const composer = page.locator(COMPOSER)
     await expect(composer).toBeVisible()
@@ -216,7 +219,7 @@ test('작업 중에는 한 줄이 뜨고 입력칸은 살아 있으며 보내기
 
     await stop.click()
     await expect(page.locator(`text=${CHAT.stoppedTitle}`)).toBeVisible({ timeout: 30_000 })
-    await expect(page.locator('.zone-status')).toHaveCount(0)
+    await expect(page.locator(PROGRESS)).toHaveCount(0)
   } finally {
     await electronApp.close()
   }

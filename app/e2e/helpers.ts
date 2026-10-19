@@ -261,3 +261,9 @@ export function markSectionReady(root: string, opts: { id?: string; expected?: n
 export async function setWindowWidth(electronApp: ElectronApplication, width: number): Promise<void> {
   await electronApp.evaluate(({ BrowserWindow }, w) => { BrowserWindow.getAllWindows()[0].setBounds({ width: w }) }, width)
 }
+
+/**
+ * 대화의 진행 표시 — 작업 중이면 정확히 하나다(형님 확정 2026-10-19 전송 중 A안): 마지막 학생 메시지가 아직
+ * 보내는 중이면 그 말풍선 밖 "보내는 중" 글자, 아니면 입력칸 위 빙글이 줄. 작업이 끝나면 0개.
+ */
+export const PROGRESS = '.zone-status, .deliv[data-st="sending"]'

@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { launch, openProject, python, rewriteSection, scripts, synthProject } from './helpers'
+import { launch, openProject, python, rewriteSection, scripts, synthProject, PROGRESS } from './helpers'
 import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
@@ -184,7 +184,8 @@ test('작업 중에 고른 선택은 작업이 끝나면 막대가 뜬다 — �
     // 도우미를 일하게 만든다 — 가짜 서버가 턴을 끝내지 않는다(작업 중 상태 유지).
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
-    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
 
     // 작업 중에 고른다 — 막대는 뜨지 않지만 선택은 버려지지 않는다.
     await selectParagraph(page, '600평')
@@ -192,7 +193,7 @@ test('작업 중에 고른 선택은 작업이 끝나면 막대가 뜬다 — �
 
     // 작업을 끝낸다(같은 자리가 중단 단추) → 입력칸이 돌아오면 다시 고르지 않아도 막대가 뜬다.
     await page.locator('.chat-composer button.send').click()
-    await expect(page.locator('.zone-status')).toHaveCount(0, { timeout: 30_000 })
+    await expect(page.locator(PROGRESS)).toHaveCount(0, { timeout: 30_000 })
     await expect(page.locator('.selbar'), '작업이 끝났는데 그 선택 위에 막대가 뜨지 않는다').toBeVisible({ timeout: 15_000 })
     await expect(page.locator('.selbar').getByRole('button', { name: '고쳐 달라기' })).toBeVisible()
   } finally {
@@ -248,7 +249,8 @@ test('비교 모드를 끄면 화면에서 사라진 옛 문장은 막대·인�
     // 도우미를 작업 중으로 둔다(막대가 숨는 구역).
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
-    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
 
     // 비교 화면의 **지운 문장**을 고른다 — 작업 중이라 막대는 뜨지 않는다.
     await selectText(page, '600평')
@@ -287,7 +289,8 @@ test('절 제목만 바뀌어도 인용 출처는 지금 제목을 쓴다 (MACR2
     // 작업 중으로 둔 뒤 600평 문단을 고른다.
     await page.locator(COMPOSER).fill('작업을 시작해 주세요')
     await page.locator('.chat-composer button.send').click()
-    await expect(page.locator('.zone-status')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator(PROGRESS)).toHaveCount(1, { timeout: 30_000 })   // 작업 중(진행 표시 하나)
+    await expect(page.locator(PROGRESS)).toBeVisible()
     await selectParagraph(page, '600평')
     await expect(page.locator('.selbar')).toHaveCount(0)
 
