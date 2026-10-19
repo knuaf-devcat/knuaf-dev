@@ -29,3 +29,76 @@ test('새 논문에서도 질문 카드가 뜨고, 굵은 글씨는 별표 없�
     await electronApp.close()
   }
 })
+
+/**
+ * 준비(deps.ensure)를 끝나지 않게 붙잡는다 — main 의 IPC 처리기를 시험 안에서만 바꾼다(검토 WINFB-R1 재현 방식).
+ * `notReady` 폴더만 준비가 필요하다고 답하고, `__finishPrep()` 이 준비를 끝낸다. 보낸 글은 `__sent` 에 모인다.
+ */
+async function holdPrep(electronApp: import('@playwright/test').ElectronApplication, notReady: string): Promise<void> {
+  await electronApp.evaluate(({ ipcMain }, notReady) => {
+    const g = globalThis as unknown as Record<string, unknown>
+    const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...a: unknown[]) => unknown> })._invokeHandlers
+    const rpc = handlers.get('rpc')!
+    ipcMain.removeHandler('rpc')
+    ipcMain.handle('rpc', (e, method: string, params: { root?: string }, id: string) =>
+      method === 'doctor.all' ? { result: { deps: { ready: params.root !== notReady } } } : rpc(e, method, params, id))
+    ipcMain.removeHandler('deps:ensure')
+    ipcMain.handle('deps:ensure', () => new Promise((resolve) => { g.__finishPrep = () => resolve({ result: { ok: true } }) }))
+    g.__sent = []
+    ipcMain.removeHandler('chat:send')
+    ipcMain.handle('chat:send', (_e, root: string, _p: string, text: string) => {
+      (g.__sent as string[]).push(text)
+      return { result: { root, provider: 'codex', state: 'idle', messages: [] } }
+    })
+  }, notReady)
+}
+
+test('질문 카드에서 고른 답이 준비를 기다리면 이유를 보이고, 끝나면 한 번 간다 (검토 WINFB-R1-03)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  seedChat(root, [questionMessage()])
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
+  try {
+    await holdPrep(electronApp, root)
+    await openProject(page, root)
+    await expect(page.locator('.qcard')).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => electronApp.evaluate(() => !!(globalThis as unknown as Record<string, unknown>).__finishPrep), { timeout: 30_000 }).toBe(true)
+    await page.locator('.qopt').nth(0).click()
+    await expect(page.getByRole('status'), '기다리는 이유가 안 보인다').toContainText('준비가 끝나면 바로 보낼게요')
+    expect(await electronApp.evaluate(() => (globalThis as unknown as Record<string, unknown>).__sent)).toEqual([])
+    await electronApp.evaluate(() => { ((globalThis as unknown as Record<string, unknown>).__finishPrep as () => void)() })
+    await expect.poll(() => electronApp.evaluate(() => ((globalThis as unknown as Record<string, unknown>).__sent as string[]).length), { timeout: 30_000 }).toBe(1)
+    await expect(page.locator('.zone-status:has-text("처음 쓸 준비")')).toHaveCount(0)
+  } finally {
+    await electronApp.close()
+  }
+})
+
+test('A 의 준비를 기다리는 중에 B 를 열면 B 는 잠기지 않고, 굵은 파일 링크도 눌린다 (검토 WINFB-R1-01·02)', async () => {
+  const dir = scratch()
+  const a = synthProject()
+  const b = synthProject()
+  seedChat(b, [questionMessage('links', '결과: [일반 문서](build/review.docx) 및 **[굵은 문서](build/review.docx)**')])
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
+  try {
+    await holdPrep(electronApp, a)
+    await openProject(page, a)
+    const ta = page.locator('.chat-composer textarea')
+    await expect(ta).toBeVisible({ timeout: 30_000 })
+    await ta.fill('A 의 준비가 끝나면 보낼 답')
+    await page.locator('.chat-composer button.send').click()
+    await expect(page.getByRole('status')).toContainText('준비가 끝나면 바로 보낼게요')
+    await openProject(page, b)
+    await expect(page.locator('.chat-msg.assistant')).toContainText('굵은 문서', { timeout: 30_000 })
+    await page.locator('.chat-composer textarea').fill('B 에서 보낼 답')
+    await expect(page.locator('.chat-composer button.send'), 'B 가 A 의 대기에 잠겼다').toBeEnabled()
+    await expect(page.getByRole('status')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '굵은 문서', exact: true }), '굵은 파일 링크가 글자로 남았다').toBeVisible()
+    await expect(page.getByRole('button', { name: '일반 문서', exact: true })).toBeVisible()
+    await electronApp.evaluate(() => { ((globalThis as unknown as Record<string, unknown>).__finishPrep as () => void)() })
+    await page.waitForTimeout(500)
+    expect(await electronApp.evaluate(() => (globalThis as unknown as Record<string, unknown>).__sent), 'A 를 떠난 뒤 옛 요청이 나갔다').toEqual([])
+  } finally {
+    await electronApp.close()
+  }
+})

@@ -33,7 +33,11 @@ function harness() {
       send: async (root: string, _p: string, text: string) => { sent.push(text); return { result: { ...snap(root), state: 'running' } } }
     }
   }
-  ;(globalThis as unknown as { window: unknown }).window = { knuaf: api }
+  ;(globalThis as unknown as { window: unknown }).window = { knuaf: { ...api, chat: { ...api.chat,
+    snapshot: async (root: string) => ({ result: snap(root) }),
+    status: async () => ({ result: CONNECTED }),
+    draft: async () => ({ result: '' }) } } }
+  usePrep.setState({ counts: {} })
   useChat.setState({ root: ROOT, provider: 'codex', snapshot: snap(), status: CONNECTED, draft: '', draftSeq: 0, busy: false, waitingPrep: false, error: null })
   return { sent }
 }
@@ -53,15 +57,43 @@ test('① 폴더 준비 중 보낸 첫 마디는 거절되지 않고, 준비가 
   expect(useChat.getState().error, '알림이 남았다').toBeNull()
 })
 
-test('① 기다리는 사이 다른 논문을 열면 보내지 않는다', async () => {
+test('① 기다리는 사이 다른 논문을 열면 보내지 않고, 그 논문은 잠기지 않는다 (검토 WINFB-R1-01)', async () => {
   const h = harness()
   usePrep.getState().begin(ROOT)
-  const sending = useChat.getState().send('시작하기')
-  useChat.setState({ root: '/p/other', snapshot: snap('/p/other') })
+  const sending = useChat.getState().send('A 에서 보낸 답')
+  await useChat.getState().load('/p/other')
+  expect(await sending, 'A 를 떠났는데 대기가 끝나지 않았다').toBe(false)
+  expect(useChat.getState().busy, 'B 가 A 의 대기에 잠겼다').toBe(false)
+  expect(useChat.getState().waitingPrep, 'B 에 A 의 진행 표시가 남았다').toBe(false)
+  expect(await useChat.getState().send('B 에서 보낸 답')).toBe(true)
+  usePrep.getState().end(ROOT)
+  await new Promise((r) => setTimeout(r, 20))
+  expect(h.sent, 'A 의 옛 요청이 나갔다').toEqual(['B 에서 보낸 답'])
+})
+
+test('① A→B→A 로 돌아와도 떠나기 전의 요청은 되살아나지 않는다 (검토 WINFB-R1-01)', async () => {
+  const h = harness()
+  usePrep.getState().begin(ROOT)
+  const sending = useChat.getState().send('전환 전에 보낸 답')
+  await useChat.getState().load('/p/other')
+  await useChat.getState().load(ROOT)
   usePrep.getState().end(ROOT)
   expect(await sending).toBe(false)
   expect(h.sent).toEqual([])
   expect(useChat.getState().busy).toBe(false)
+})
+
+test('① 같은 폴더의 준비가 겹치면 모두 끝나야 보낸다 (검토 WINFB-R1-01 보조)', async () => {
+  const h = harness()
+  usePrep.getState().begin(ROOT)
+  usePrep.getState().begin(ROOT)          // 폴더를 다시 열어 준비가 한 번 더 돈다
+  const sending = useChat.getState().send('시작하기')
+  usePrep.getState().end(ROOT)            // 하나만 끝남
+  await new Promise((r) => setTimeout(r, 20))
+  expect(h.sent, '준비가 남았는데 보냈다').toEqual([])
+  usePrep.getState().end(ROOT)
+  expect(await sending).toBe(true)
+  expect(h.sent).toEqual(['시작하기'])
 })
 
 test('① 다른 폴더가 준비 중이면 기다리지 않는다', async () => {
@@ -80,6 +112,7 @@ test('② "저장·검사 중" 거절은 빨간 오류가 아니라 기다리면
 })
 
 const html = (text: string): string => renderToStaticMarkup(createElement(Fragment, null, withBold(text, (part) => part)))
+const html2 = (text: string, rest: (p: string) => string): string => renderToStaticMarkup(createElement(Fragment, null, withBold(text, rest)))
 
 test('③ 도우미 답변의 **굵게** 는 별표 없이 굵은 글씨로 보인다', () => {
   expect(html('먼저 **전공**을 정해요')).toBe('먼저 <strong>전공</strong>을 정해요')
@@ -89,7 +122,10 @@ test('③ 도우미 답변의 **굵게** 는 별표 없이 굵은 글씨로 보�
   expect(html('**앞\n뒤**')).toBe('**앞\n뒤**')
   // 굵게 밖의 글은 원래 그리던 함수가 그린다(파일 링크 등).
   const marked = renderToStaticMarkup(createElement(Fragment, null, withBold('**제목** 본문', (p) => p ? createElement('i', null, p) : p)))
-  expect(marked).toBe('<strong>제목</strong><i> 본문</i>')
+  expect(marked).toBe('<strong><i>제목</i></strong><i> 본문</i>')
+  // 굵은 글 안의 파일 링크도 같은 함수가 그린다 — 링크가 글자로 남지 않는다(검토 WINFB-R1-02).
+  const link = (p: string) => p.replace(/\[([^\]]+)\]\([^)]+\)/g, '<$1>')
+  expect(html2('결과: [일반](a.docx) 및 **[굵은](b.docx)**', link)).toBe('결과: &lt;일반&gt; 및 <strong>&lt;굵은&gt;</strong>')
 })
 
 function appFolder(): string {
