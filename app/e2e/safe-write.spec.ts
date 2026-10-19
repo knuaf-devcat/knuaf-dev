@@ -180,7 +180,7 @@ const eacces = (): Error => Object.assign(new Error('EACCES: permission denied, 
  * 실제 파일시스템을 감싸 정해진 자리만 실패시키는 대역. 실패는 플랫폼과 무관하게 같은 뜻이다.
  * `partial` 은 대상에 앞부분만 실제로 쓰고 ENOSPC 로 멈춘다 — 판정 R1-01 의 반례 그대로.
  */
-function faultyFs(rule: { rename?: () => Error | null; write?: (path: string) => Error | 'partial' | null; unlink?: (path: string) => Error | null }): SafeWriteFs {
+function faultyFs(rule: { rename?: () => Error | null; write?: (path: string) => Error | 'partial' | null; unlink?: (path: string) => Error | null; read?: (path: string) => Error | null }): SafeWriteFs {
   return {
     writeFileSync: ((p: string, d: string, o?: object) => {
       const f = rule.write?.(String(p)) ?? null
@@ -190,7 +190,7 @@ function faultyFs(rule: { rename?: () => Error | null; write?: (path: string) =>
     }) as unknown as SafeWriteFs['writeFileSync'],
     renameSync: ((a: string, b: string) => { const f = rule.rename?.() ?? null; if (f) throw f; renameSync(a, b) }) as unknown as SafeWriteFs['renameSync'],
     unlinkSync: ((p: string) => { const f = rule.unlink?.(String(p)) ?? null; if (f) throw f; unlinkSync(p) }) as unknown as SafeWriteFs['unlinkSync'],
-    readFileSync: (p: string) => readFileSync(p, 'utf8')
+    readFileSync: (p: string) => { const f = rule.read?.(String(p)) ?? null; if (f) throw f; return readFileSync(p, 'utf8') }
   }
 }
 
@@ -274,6 +274,20 @@ test('대상 없이 .tmp 만 완성본이고 대상으로 올리지도 못하면
   const third = service(() => {}).snapshot(root, 'codex')                          // 막힘이 풀린 실행
   expect(third.messages, '완전한 기록이 하나도 남지 않았다').toHaveLength(2)
   expect(JSON.parse(readFileSync(file, 'utf8')).messages).toHaveLength(2)
+})
+
+test('유일한 .tmp 를 확인하는 읽기가 잠깐 막혀도 그 .tmp 를 다시 쓰지 않는다 (확인 3회째 반례)', () => {
+  const { root, file } = project()
+  publish(service(() => {}, faultyFs({ rename: eperm })), TWO(root))              // 대화는 .tmp 에만
+  let blockedReads = 0
+  const second = service(() => {}, faultyFs({
+    rename: eperm,
+    read: (p) => (p.endsWith('.tmp') && blockedReads++ === 0 ? eacces() : null),   // 완성 여부 확인 읽기 1회 거부
+    write: (p) => (p.endsWith('.tmp') ? 'partial' : null)
+  }))
+  expect(second.snapshot(root, 'codex').messages).toHaveLength(2)
+  expect(blockedReads, '시험 전제: 확인 읽기가 막혀야 한다').toBeGreaterThan(0)
+  expect(service(() => {}).snapshot(root, 'codex').messages, '완전한 기록이 하나도 남지 않았다').toHaveLength(2)
 })
 
 test('초안도 대상 없이 .tmp 만 있으면 다시 쓰기 전에 대상으로 올린다', () => {

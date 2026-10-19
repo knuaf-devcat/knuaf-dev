@@ -80,7 +80,12 @@ export function writeFileAtomic(file: string, data: string, opts: SafeWriteOptio
   const complete = opts.complete ?? (() => true)
   const tmp = tmpOf(file)
   const writeOpts = { encoding: 'utf8' as const, ...(opts.mode === undefined ? {} : { mode: opts.mode }) }
-  const isComplete = (path: string): boolean => { try { return complete(read(path, 'utf8')) } catch { return false } }
+  // 읽지 못한 것(ENOENT 밖)은 "완성본 아님"이 아니라 "모름"이다 — 모르면 지키는 쪽으로 간다.
+  const stateOf = (path: string): 'complete' | 'broken' | 'missing' | 'unknown' => {
+    let text: string
+    try { text = read(path, 'utf8') } catch (e) { return codeOf(e) === 'ENOENT' ? 'missing' : 'unknown' }
+    return complete(text) ? 'complete' : 'broken'
+  }
 
   // 재시도 대기는 모든 단계가 함께 쓴다 — 합계가 RETRY_DELAYS_MS 를 넘지 않는다.
   let attempt = 0
@@ -96,7 +101,13 @@ export function writeFileAtomic(file: string, data: string, opts: SafeWriteOptio
   }
 
   // ⓪ 남은 `.tmp` 가 유일한 완성본이면 먼저 대상으로 올린다 — 그 전에는 `.tmp` 를 다시 쓰지 않는다.
-  if (isComplete(tmp) && !isComplete(file)) {
+  const tmpState = stateOf(tmp)
+  const fileComplete = (): boolean => stateOf(file) === 'complete'
+  if (tmpState === 'unknown' && !fileComplete()) {
+    // `.tmp` 를 읽지 못해 유일한 완성본인지 모른다 — 올리지도 다시 쓰지도 않는다.
+    return fail(new Error(`${tmp} 를 읽지 못했어요`), `완성본일 수 있는 ${tmp} 을 지키려고 이번 저장은 건너뛰었어요`)
+  }
+  if (tmpState === 'complete' && !fileComplete()) {
     let promoted = false
     let last: unknown = null
     for (;;) {
@@ -105,7 +116,7 @@ export function writeFileAtomic(file: string, data: string, opts: SafeWriteOptio
     if (!promoted) {
       // 이름 바꾸기가 막혔다 — 복사로 올린다. 대상은 없거나 망가진 상태라 덮어도 잃을 것이 없다.
       try { fs.writeFileSync(file, read(tmp, 'utf8'), writeOpts) } catch (e) { last = e }
-      promoted = isComplete(file)
+      promoted = fileComplete()
     }
     if (!promoted) return fail(last, `완성본 ${tmp} 을 지키려고 이번 저장은 건너뛰었어요`)
   }
