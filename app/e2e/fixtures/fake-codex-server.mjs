@@ -12,6 +12,7 @@
  *   FAKE_CODEX_ASK    1이면 turn/start 뒤에 권한 요청을 보내고 턴을 끝내지 않는다
  *   FAKE_CODEX_ASK_COMMAND  권한 요청의 command (기본 `cat /etc/hosts`, 빈 값이면 필드 생략)
  *   FAKE_CODEX_ASK_REASON   권한 요청의 reason (기본 쉬운 이유 한 줄, 빈 값이면 필드 생략)
+ *   FAKE_CODEX_DELAY_MS     모든 요청 응답을 이만큼 늦춘다(기본 0) — 느린 기계 조건 재현용
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -24,6 +25,8 @@ const ASK = process.env.FAKE_CODEX_ASK === '1'
 /** 권한 요청의 command·reason — 여러 줄 명령/이유만 있는 요청을 재현하려고 열어 둔다(QA2A-R1-02). */
 const ASK_COMMAND = process.env.FAKE_CODEX_ASK_COMMAND ?? 'cat /etc/hosts'
 const ASK_REASON = process.env.FAKE_CODEX_ASK_REASON ?? '논문 폴더 밖 파일을 읽으려고 해요'
+/** 응답 지연(ms) — 느린 기계(CI) 조건을 만들기 위한 시험 전용 스위치. 기본 0(동작 불변). */
+const DELAY_MS = Math.max(0, Number(process.env.FAKE_CODEX_DELAY_MS ?? 0) || 0)
 /** 턴을 끝내지 않는다 — "작업 중" 화면을 안정적으로 본다. */
 const HOLD = process.env.FAKE_CODEX_HOLD === '1'
 
@@ -100,6 +103,10 @@ process.stdin.on('data', (chunk) => {
     const line = buffer.slice(0, i)
     buffer = buffer.slice(i + 1)
     if (!line.trim()) continue
-    try { handle(JSON.parse(line)) } catch { /* 줄이 잘려 왔다 */ }
+    try {
+      const msg = JSON.parse(line)
+      if (DELAY_MS > 0) setTimeout(() => { try { handle(msg) } catch { /* 잘린 요청 */ } }, DELAY_MS)
+      else handle(msg)
+    } catch { /* 줄이 잘려 왔다 */ }
   }
 })

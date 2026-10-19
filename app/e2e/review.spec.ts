@@ -128,6 +128,9 @@ test('인용만 있어도 보낼 수 있다 — 빈 초안에서 보내면 "이 
   try {
     await openProject(page, root)
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+    // 종이 본문이 **실제로 그려진 뒤**에 고른다 — 입력칸만 보고 고르면 절 목록을 읽기 전에
+    // "문단을 찾지 못했다"로 깨진다(맥 CI). 같은 의미의 기다림을 더한다.
+    await expect(page.locator('.paperpane .sheet')).toContainText('600평', { timeout: 30_000 })
     await selectParagraph(page, '600평')
     await page.locator('.selbar').getByRole('button', { name: '고쳐 달라기' }).click()
     await expect(page.locator('.review-chip')).toBeVisible()

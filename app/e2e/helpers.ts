@@ -105,6 +105,27 @@ export async function closeSheet(page: Page): Promise<void> {
 }
 
 /**
+ * 작업공간 배치가 **멈출 때까지** 기다린다(맥 CI 처방).
+ *
+ * 폴더를 열면 대화가 먼저 뜨고 그 뒤에 종이 칸이 열리면서(절 목록을 읽은 뒤) **대화 칸 폭이
+ * 좁아진다**(1,180 → 500 안팎). 그 재배치가 도는 동안 재거나 누르면 클릭이 빗나가고(버튼이
+ * 그사이 움직인다) 좌표가 낡는다 — 맥 CI 에서 `chat-long`(펼치기 클릭이 안 먹음)·`qa2`(재는
+ * 순간 노드가 붙지 않음) 가 그렇게 갈렸다. 두 rAF 연속 같은 모양이면 멈춘 것으로 본다.
+ */
+export async function settleWorkspace(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const ws = document.querySelector('.workspace')
+    if (!ws) return false
+    const chat = document.querySelector('.chat-pane') as HTMLElement | null
+    const key = `${ws.className}|${Math.round(chat?.clientWidth ?? -1)}`
+    const w = window as unknown as { __wsKey?: string; __wsSame?: number }
+    if (w.__wsKey === key) w.__wsSame = (w.__wsSame ?? 0) + 1
+    else { w.__wsKey = key; w.__wsSame = 0 }
+    return (w.__wsSame ?? 0) >= 2
+  }, undefined, { polling: 'raf', timeout: 15_000 })
+}
+
+/**
  * Open a project by pasting its path (the native picker cannot be driven). The only path
  * input lives in 설정 > 고급 — the folder-less 내 논문 screen deliberately has none.
  *
@@ -122,6 +143,8 @@ export async function openProject(page: Page, root: string): Promise<void> {
   // 열렸다 — 시트가 닫히고 대화 칸이 남는다.
   await page.waitForSelector(CHAT_READY, { timeout: 30_000 })
   await page.waitForSelector('dialog[open]', { state: 'detached', timeout: 30_000 }).catch(() => {})
+  // 배치가 멈춘 뒤에 돌려준다 — 시험들이 재거나 누르는 자리가 재배치와 겹치지 않게.
+  await settleWorkspace(page)
 }
 
 /**
