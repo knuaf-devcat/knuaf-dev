@@ -433,7 +433,16 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-msg.assistant { align-self: flex-start; max-width: 100%; }
 .chat-msg.user { align-self: flex-end; max-width: 78%; background: var(--sel-bg); border-radius: 20px; padding: 9px 15px; }
 .chat-msg.system { align-self: center; text-align: center; }
-.chat-delivery { display: flex; gap: 6px; margin-top: 4px; }
+/* 학생 말풍선 밖 아래 오른쪽 작은 글자(형님 확정 2026-10-19 전송 중 A안). 말풍선 안 알약은 없다.
+   `.chat-thread` 간격 18px 안으로 당겨 그 말풍선에 붙어 보이게 한다. */
+.deliv { align-self: flex-end; margin-top: -12px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); padding-right: 6px; }
+.deliv.bad { color: var(--bad); }
+.deliv.bad button.lk { color: var(--bad); border-bottom-color: currentColor; font-size: 12px; }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
 .chat-msg button { margin-top: var(--sp-2); }
 .chat-composer { background: var(--panel); border: var(--hairline) solid var(--line); border-radius: 24px; box-shadow: var(--shadow-1); padding: 12px 12px 10px 16px; margin-top: var(--sp-4); }
 .chat-composer[data-dragging] { outline: 2px dashed var(--accent); outline-offset: -4px; }
@@ -516,6 +525,20 @@ button.lk:hover { border-bottom-color: var(--ink); }
 /* ---- 아래 칸: 작업 중 한 줄 (DESIGN §3) — 입력칸은 쓸 수 있고 보내기만 멈추기 ---- */
 .zone-status { display: flex; align-items: center; gap: var(--sp-2); font-size: 13.5px; color: var(--ink-2); margin-top: var(--sp-4); padding: 0 var(--sp-2); }
 .zone-status .spin { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }
+/* 입력칸 위 한 줄 알림(형님 확정 2026-10-19 알림창 B안) — 기다림·경고·오류가 같은 자리. 바탕은 옅은 회색 하나,
+   색은 아이콘에만(붉은 바탕·왼쪽 색선 없음). 기다림은 빙글이, 경고·오류는 ✕ + 자세히. */
+.zline-wrap { margin-top: var(--sp-2); }
+.zline-wrap:first-child { margin-top: 0; }
+.zline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-2); padding: 7px 4px 7px 12px; border-radius: 12px; background: var(--panel-2); }
+.zline .grow { flex: 1; min-width: 0; }
+.zline .grow small { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.zline button.lk { font-size: 12.5px; white-space: nowrap; }
+.zline .spin { flex: none; width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 900ms linear infinite; }
+.zline .ic { flex: none; } .zline .ic.bad { color: var(--bad); } .zline .ic.attn { color: var(--attn); } .zline .ic.info { color: var(--accent); }
+.zline .zx { flex: none; width: 26px; height: 26px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 50%; font-size: 13px; line-height: 1; cursor: pointer; }
+.zline .zx:hover { background: var(--line); color: var(--ink); }
+.zline-raw { display: block; margin-top: 4px; padding: 6px 12px; font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+@media (prefers-reduced-motion: reduce) { .zline .spin { animation-duration: 1.8s; } }
 
 /* ---- 첫 실행 화면 (DESIGN §6) — AI 연결 → 논문 폴더. 사이드바·칸 없이 가운데 한 줄기.
    시안 A/B 대로 **폭 540 한 열, 위 고정 패딩 92px**(margin:auto 로 내용 높이에 따라 움직이지 않는다, N-R01).
@@ -534,3 +557,15 @@ button.lk:hover { border-bottom-color: var(--ink); }
 /* 개인정보 줄 바로 아래 도움 링크 — 글자만 링크색이다(단추 테두리·안쪽 여백 없음). */
 .onb-help { color: var(--accent); background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 .onb-help:hover { text-decoration: underline; }
+
+/* 스크롤바(형님 확정 2026-10-19 B안) — 얇게, 평소엔 숨김. 화살표·홈 없음, 굴리거나 마우스를 올릴 때만 막대.
+   `data-scrolling` 은 굴림 뒤 1초 동안 붙는다(renderer `scrolling.ts`). 막대 대비는 네 바탕 모두 3:1 이상(시안 검토 R1-01).
+   주의: 이 두 칸(과 상위)에 표준 `scrollbar-width`/`scrollbar-color` 를 auto 밖 값으로 주지 않는다 — 크로뮴 121+ 는
+   그 계산값이 auto 가 아니면 `::-webkit-scrollbar` 를 무시한다(`scrollbar-color` 는 상속). */
+.chat-thread::-webkit-scrollbar, .desk::-webkit-scrollbar { width: 10px; height: 10px; }
+.chat-thread::-webkit-scrollbar-button, .desk::-webkit-scrollbar-button { display: none; }
+.chat-thread::-webkit-scrollbar-track, .desk::-webkit-scrollbar-track, .chat-thread::-webkit-scrollbar-corner, .desk::-webkit-scrollbar-corner { background: transparent; }
+.chat-thread::-webkit-scrollbar-thumb, .desk::-webkit-scrollbar-thumb { background: transparent; border: 2px solid transparent; background-clip: padding-box; border-radius: 6px; }
+.chat-thread:hover::-webkit-scrollbar-thumb, .chat-thread[data-scrolling]::-webkit-scrollbar-thumb,
+.desk:hover::-webkit-scrollbar-thumb, .desk[data-scrolling]::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--ink) 50%, transparent); }
+.chat-thread::-webkit-scrollbar-thumb:hover, .desk::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink) 65%, transparent); border-width: 1px; }

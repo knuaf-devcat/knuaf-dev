@@ -3,7 +3,7 @@ import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
 import { useReview, buildQuotedMessage } from '../store/review'
-import { usePrep } from '../store/prep'
+import { usePrep, waitKind } from '../store/prep'
 import { withBold } from '../inline'
 import { FirstRun } from '../components/FirstRun'
 import { ReviewQuoteChip } from '../components/ReviewQuote'
@@ -11,9 +11,7 @@ import { PopHead, Popover, PopSep } from '../components/Popover'
 import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
 import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
-import { Feedback } from '../components/Feedback'
 import { Icon } from '../components/Icon'
-import { Badge } from '../components/Badge'
 import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, describeChatError } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
@@ -60,7 +58,21 @@ const LONG_MESSAGE = 2000
  */
 export interface FoldOptions { span: { start: number; end: number }; count: number }
 
-function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void; fold?: FoldOptions }) {
+/**
+ * 학생 말풍선 **밖** 아래 오른쪽의 작은 글자(형님 확정 2026-10-19 전송 중 A안). 말풍선 안 알약·단추는 없다.
+ * `sending` — 작업 중이고 이 말풍선이 마지막 학생 메시지이며 아직 `pending` 일 때만(진행 표시는 늘 1개 —
+ * 아래 빙글이 줄과 번갈아 쓴다, `Chat` 의 L·R·P 판정). 과거 메시지에 남은 `pending` 에는 붙이지 않는다.
+ */
+function Delivery({ m, sending, onResend }: { m: ChatMessage; sending: boolean; onResend?: () => void }) {
+  if (m.role !== 'user') return null
+  if (m.delivery === 'uncertain') {
+    return <div className="deliv bad" data-st="unsure">{CHAT.uncertainLine}{onResend && <> · <button className="lk" onClick={onResend}>{CHAT.resend}</button></>}</div>
+  }
+  if (sending && m.delivery === 'pending') return <div className="deliv" data-st="sending"><span className="dots" aria-hidden="true"><i /><i /><i /></span>{CHAT.sendingLine}</div>
+  return null
+}
+
+function Message({ m, onResend, onGoArtifacts, fold, sending = false }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void; fold?: FoldOptions; sending?: boolean }) {
   const [open, setOpen] = useState(false)
   const [unfolded, setUnfolded] = useState(false)
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
@@ -70,7 +82,7 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
   const long = text.length > LONG_MESSAGE
   const shown = long && !open ? text.slice(0, LONG_MESSAGE) : text
   // 도우미는 **테두리·상자·발화자/시간 머리 없는 본문**, 학생만 오른쪽 말풍선(시안 D/E/G, N-I01).
-  return (
+  return (<>
     <div className={`chat-msg ${m.role}`}>
       <div className="prose">{m.role === 'assistant' ? withBold(shown, (part) => onGoArtifacts ? withLinks(part, onGoArtifacts) : part) : shown}</div>
       {folding && fold && (
@@ -81,15 +93,9 @@ function Message({ m, onResend, onGoArtifacts, fold }: { m: ChatMessage; onResen
         </div>
       )}
       {long && <button className="lk" onClick={() => setOpen(!open)}>{open ? CHAT.showLess : CHAT.showMore(m.text.length - LONG_MESSAGE)}</button>}
-      {m.role === 'user' && (m.delivery === 'pending' || m.delivery === 'uncertain') && (
-        <div className="chat-delivery">
-          {m.delivery === 'pending' && <Badge tone="warning" label={CHAT.sending} />}
-          {m.delivery === 'uncertain' && <Badge tone="fail" label={CHAT.uncertain} />}
-        </div>
-      )}
-      {m.role === 'user' && m.delivery === 'uncertain' && onResend && <button onClick={onResend}>{CHAT.resend}</button>}
     </div>
-  )
+    <Delivery m={m} sending={sending} onResend={onResend} />
+  </>)
 }
 
 /**
@@ -149,10 +155,29 @@ function ComposerModelChip() {
   )
 }
 
-/** 폴더 준비 중 한 줄 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다(store/prep.ts). */
-function PrepLine({ queued }: { queued: boolean }) {
-  return <div className="zone-status" role="status"><span className="spin" />{CHAT.preparingLine}{queued && <span className="caption"> · {CHAT.preparingQueued}</span>}</div>
+/**
+ * 입력칸 위 한 줄 알림(형님 확정 2026-10-19 알림창 B안) — 대화 화면의 기다림·경고·오류는 모두 여기 한 자리다.
+ * 바탕은 옅은 회색(`--panel-2`) 하나, 색은 아이콘에만. 기다림은 빙글이 + 끝나면 저절로 사라짐(닫기 없음),
+ * 경고·오류는 아이콘 + ✕ + "자세히"(원문). 허락·질문 카드가 입력칸 자리를 차지하면 그 카드 위에 선다.
+ */
+type ZoneTone = 'wait' | 'bad' | 'attn' | 'info'
+function ZoneLine({ tone, title, sub, raw, actions, onClose }: { tone: ZoneTone; title: ReactNode; sub?: ReactNode; raw?: string; actions?: ReactNode; onClose?: () => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="zline-wrap">
+      <div className={`zline ${tone}`} role={tone === 'bad' ? 'alert' : 'status'}>
+        {tone === 'wait' ? <span className="spin" /> : <Icon name={tone === 'info' ? 'info' : 'warn'} size={16} className={`ic ${tone}`} />}
+        <span className="grow">{title}{sub && <small>{sub}</small>}</span>
+        {actions}
+        {raw && <button type="button" className="lk" aria-expanded={open} onClick={() => setOpen(!open)}>{CHAT.details}</button>}
+        {onClose && <button type="button" className="zx" aria-label={CLOSE_LABEL} title={CLOSE_LABEL} onClick={onClose}>✕</button>}
+      </div>
+      {raw && open && <code className="zline-raw">{raw}</code>}
+    </div>
+  )
 }
+
+const toneOf = (kind: string): ZoneTone => kind === 'error' ? 'bad' : kind === 'warning' ? 'attn' : 'info'
 
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
@@ -170,7 +195,8 @@ export function Chat() {
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
   const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
   /** 이 폴더의 준비(.venv) 중인가 — 그동안 보낸 글은 끝날 때까지 기다린다(store/prep.ts). */
-  const preparing = usePrep((s) => !!projectRoot && (s.counts[projectRoot] ?? 0) > 0)
+  /** 이 폴더에서 기다리는 것 — 폴더 준비('prep')·저장·검사('write'). 그동안 보내기는 잠긴다. */
+  const waiting = usePrep((s) => waitKind(s, projectRoot))
   const waitingPrep = useChat((s) => s.waitingPrep)
   /** 온보딩 2단계에서 폴더를 고른 순간의 시작 의사 — 한 번만 쓴다(store/chat.ts 주석). */
   const startIntent = useChat((s) => s.startIntent)
@@ -272,6 +298,8 @@ export function Chat() {
   }
   const chatErr = error ? describeChatError(error) : null
   const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
+  /** 스냅샷 오류는 main 이 쥔 값이라 화면에서 지울 수 없다 — 학생이 닫은 문장만 기억해 감춘다. */
+  const [closedSnapErr, setClosedSnapErr] = useState<string | null>(null)
   /**
    * 끊긴 자리에서 무엇을 말하고 무엇을 권할지 — 연결 상태 이름 하나로 정한다.
    * 확인 실패(failed·unknown)는 로그인 안내가 아니라 "확인하지 못했어요 + 다시 확인"이다.
@@ -282,6 +310,12 @@ export function Chat() {
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
+  /**
+   * 진행 표시 판정 하나(형님 확정 전송 중 A안, 시안 검토 R2-01): L = 마지막 **학생** 메시지, R = 작업 중,
+   * P = L 이 아직 보내는 중. R 이면 "보내는 중" 글자(L 에만)나 빙글이 줄 중 정확히 하나, R 이 아니면 0개.
+   */
+  const lastUser = snapshot?.messages.filter((m) => m.role === 'user').at(-1)
+  const lastPending = zone.kind === 'running' && lastUser?.delivery === 'pending'
   /**
    * 입력칸 높이를 내용에 맞춘다 — `height:auto` 로 되돌린 뒤 `scrollHeight` 를 준다(그래야
    * 글이 줄어도 줄어든다). 최대 높이는 CSS(`max-height`)가 막고 그 위로는 스크롤이다.
@@ -318,7 +352,7 @@ export function Chat() {
   for (const m of snapshot?.messages ?? []) {
     thread.push({
       key: m.id, at: Date.parse(m.at) || 0,
-      node: <Message key={m.id} m={m} onGoArtifacts={() => openSheet('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined}
+      node: <Message key={m.id} m={m} sending={lastPending && m.id === lastUser?.id} onGoArtifacts={() => openSheet('artifacts')} onResend={!running && m.delivery === 'uncertain' ? () => void send(m.text) : undefined}
         fold={zone.kind === 'question' && zone.messageId === m.id ? { span: zone.card.span, count: zone.card.options.length } : undefined} />
     })
   }
@@ -327,18 +361,6 @@ export function Chat() {
 
   return (
     <div className="chat-inner">
-      {pError && <Feedback kind={pError.kind} title={pError.title} body={pError.action} details={<code>{pError.raw}</code>} actions={<button onClick={clearPError}>{CLOSE_LABEL}</button>} />}
-      {chatErr && <Feedback kind={chatErr.kind} title={chatErr.title} body={chatErr.action} details={<code>{chatErr.raw}</code>} actions={<button onClick={clearError}>{CLOSE_LABEL}</button>} />}
-      {snapshot?.state === 'stopped' && (
-        <Feedback kind="warning" title={CHAT.stoppedTitle} body={CHAT.stoppedBody}
-          actions={lastUncertain ? <button onClick={() => void send(lastUncertain.text)} disabled={running || busy}>{CHAT.resend}</button> : undefined} />
-      )}
-      {snapshot?.state === 'interrupted' && (
-        <Feedback kind="warning" title={CHAT.interruptedTitle} body={CHAT.interruptedBody}
-          actions={lastUncertain ? <button onClick={() => void send(lastUncertain.text)} disabled={running || busy}>{CHAT.resend}</button> : undefined} />
-      )}
-      {snapErr && <Feedback kind="error" title={snapErr.title} body={snapErr.action} details={<code>{snapErr.raw}</code>} />}
-
       {/* 빈 대화: "시작하기"를 타이핑하게 하지 않고 버튼이 문자열을 대신 보낸다(03-화면/03 결정). */}
       {emptyChat && (
         <div className="chat-empty">
@@ -366,6 +388,16 @@ export function Chat() {
       {/* 아래 칸 — 질문 카드 · 허락 카드 · 작업 중 한 줄 · 입력칸이 이 한 자리를 번갈아 쓴다.
           무엇이 쓸지는 zone.ts 한 함수가 정한다(설계 §4-1). */}
       <div className="chat-zone">
+        {/* 입력칸 위 한 줄 알림 — 기다림·경고·오류가 쓰는 한 자리(알림창 B안). */}
+        {waiting && <ZoneLine tone="wait" title={waiting === 'prep' ? CHAT.preparingLine : CHAT.appBusyTitle}
+          sub={waitingPrep ? CHAT.preparingQueued : waiting === 'write' ? CHAT.appBusyWaitSub : undefined} />}
+        {pError && <ZoneLine tone={toneOf(pError.kind)} title={pError.title} sub={pError.action} raw={pError.raw} onClose={clearPError} />}
+        {chatErr && <ZoneLine tone={toneOf(chatErr.kind)} title={chatErr.title} sub={chatErr.action} raw={chatErr.raw} onClose={clearError} />}
+        {(snapshot?.state === 'stopped' || snapshot?.state === 'interrupted') && (
+          <ZoneLine tone="attn" title={snapshot.state === 'stopped' ? CHAT.stoppedTitle : CHAT.interruptedTitle} sub={snapshot.state === 'stopped' ? CHAT.stoppedBody : CHAT.interruptedBody}
+            actions={lastUncertain ? <button type="button" className="lk" onClick={() => void send(lastUncertain.text)} disabled={running || busy || !!waiting}>{CHAT.resend}</button> : undefined} />
+        )}
+        {snapErr && snapshot?.error !== closedSnapErr && <ZoneLine tone="bad" title={snapErr.title} sub={snapErr.action} raw={snapErr.raw} onClose={() => setClosedSnapErr(snapshot?.error ?? null)} />}
         {zone.kind === 'permission' && (
           <div className="askcard" role="alert">
             <div className="askcard-h"><span className="ask-dot" />{CHAT.askTitle}</div>
@@ -388,20 +420,17 @@ export function Chat() {
           </div>
         )}
 
-        {zone.kind === 'question' && (<>
-          {/* 고른 답이 준비를 기다리는 중이면 이유를 보인다(검토 WINFB-R1-03). */}
-          {(preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
+        {zone.kind === 'question' && (
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
-        </>)}
+        )}
 
         {(zone.kind === 'running' || zone.kind === 'composer') && (
           <>
-            {/* 작업 중 한 줄 — 입력칸 위. 입력칸은 쓸 수 있게 두고 보내기만 막는다. */}
-            {zone.kind === 'running' && (
+            {/* 작업 중 한 줄 — 입력칸 위. 입력칸은 쓸 수 있게 두고 보내기만 막는다. 마지막 학생 메시지가 아직
+                보내는 중이면 그 말풍선 아래 글자가 진행 표시라 이 줄은 그리지 않는다(작업 중엔 늘 1개). */}
+            {zone.kind === 'running' && !lastPending && (
               <div className="zone-status"><span className="spin" />{CHAT.runningLine}</div>
             )}
-            {/* 폴더 준비 중 — 끝나면 저절로 사라진다. 그동안 보낸 글은 기다렸다가 간다. */}
-            {zone.kind === 'composer' && (preparing || waitingPrep) && <PrepLine queued={waitingPrep} />}
             {/* 인용 칩 — 입력칸 바로 위(N-I03). 이 논문의 인용만 보여 준다(QA2B-R1-01). */}
             {quote && quote.root === projectRoot && <ReviewQuoteChip quote={quote} onRemove={clearQuote} />}
             <div className="chat-composer" data-dragging={dragging || undefined}
@@ -420,7 +449,7 @@ export function Chat() {
                   e.preventDefault()
                   // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
                   // 단추만 막으면 Enter 로 들어와 main 의 소유권 잠금에 걸린다(검토 P1-R1-03).
-                  if (zone.kind === 'running' || busy || !canSend) return
+                  if (zone.kind === 'running' || busy || !!waiting || !canSend) return
                   void sendBody()
                 }} />
               <div className="crow">
@@ -431,7 +460,7 @@ export function Chat() {
                 {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
                   ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={13} /></button>
-                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !canSend}><Icon name="up" size={17} /></button>}
+                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !!waiting || !canSend}><Icon name="up" size={17} /></button>}
               </div>
             </div>
             <p className="disc">{CHAT.disclaimer}</p>

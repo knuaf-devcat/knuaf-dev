@@ -2,6 +2,9 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './styles.css'
+import { installScrollingFlag } from './scrolling'
+
+installScrollingFlag()
 
 const k = (window as unknown as { knuaf?: { platform?: string; windowInfo?: () => Promise<{ vibrancy: boolean }> } }).knuaf
 document.documentElement.dataset.platform = k?.platform ?? 'darwin'
