@@ -1,5 +1,6 @@
 import type { ArtifactItem, ArtifactPreview, Envelope, HistoryRow, LockInfo, MaterialsData, RpcError, RpcResult, SectionRow, Status } from '../../shared/types'
 import type { StageBuildTree } from '../../shared/stage'
+import { usePrep, WRITE_METHODS } from './store/prep'
 
 export type EventHandler = (event: string, data: unknown) => void
 
@@ -27,9 +28,17 @@ export class RpcFailure extends Error {
 let seq = 0
 
 async function call<T>(method: string, params: Record<string, unknown> = {}, onEvent?: EventHandler, clientId?: string): Promise<T> {
-  const r: RpcResult<T> = await window.knuaf.call(method, params, onEvent, clientId)
-  if (r.error) throw new RpcFailure(r.error)
-  return r.result as T
+  // 쓰기 작업 동안 그 폴더의 대화 전송은 기다리고 화면은 "저장·검사를 마치는 중" 한 줄을 띄운다
+  // (형님 확정 2026-10-19 알림 B안 — 기다림이지 오류가 아니다, 끝나면 사라진다).
+  const root = WRITE_METHODS.has(method) && typeof params.root === 'string' ? params.root : null
+  if (root) usePrep.getState().begin(root, 'write')
+  try {
+    const r: RpcResult<T> = await window.knuaf.call(method, params, onEvent, clientId)
+    if (r.error) throw new RpcFailure(r.error)
+    return r.result as T
+  } finally {
+    if (root) usePrep.getState().end(root, 'write')
+  }
 }
 
 export const rpc = {

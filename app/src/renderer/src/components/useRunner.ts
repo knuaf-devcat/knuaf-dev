@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { usePrep } from '../store/prep'
 import { describeError, rpc, RpcFailure } from '../rpc'
 import type { Envelope, RpcResult } from '../../../shared/types'
 
@@ -82,13 +83,14 @@ export function useRunner(): Runner {
 
   const runDeps = useCallback(async (root: string) => {
     const id = begin()
+    usePrep.getState().begin(root, 'write')   // 그동안 대화 전송은 기다린다(store/prep.ts)
     try {
       const r: RpcResult<Envelope> = await window.knuaf.depsEnsure(root, onEvent, id)
       if (r.error) throw new RpcFailure(r.error)
       const result = r.result as Envelope
       setEnv(result)
       return result
-    } catch (e) { fail(e); return null } finally { finish(id) }
+    } catch (e) { fail(e); return null } finally { finish(id); usePrep.getState().end(root, 'write') }
   }, [begin, finish, fail, onEvent])
 
   const cancel = useCallback(async () => {
