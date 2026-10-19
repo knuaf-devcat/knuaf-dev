@@ -404,6 +404,73 @@ function manualTimers(): { timers: Map<unknown, () => void>; runAll: () => Promi
   }
 }
 
+test('같은 방문에서 팝오버 로그인으로 대체된 폴더 로그인도 busy 를 남기지 않는다 (R2-C01 2차)', async () => {
+  // 확인 판정서의 1~4 순서 그대로: 폴더 로그인 보류 → (폴더·공급자 그대로) 팝오버가 같은
+  // 공급자로 새 로그인 시작·성공 → 옛 폴더 응답 해제 → 새 감시가 연결을 확인해 로그인 완료.
+  // 조기 반환이 `busy` 해제까지 건너뛰면, 로그인은 끝났는데도 보내기·로그인·다시 확인이 잠긴다.
+  const clock = manualTimers()
+  const realWindow = (globalThis as { window?: unknown }).window
+  let releaseChatLogin: (v: unknown) => void = () => {}
+  const chatLogin = new Promise<unknown>((resolve) => { releaseChatLogin = resolve })
+  let releaseConnectLogin: (v: unknown) => void = () => {}
+  const connectLogin = new Promise<unknown>((resolve) => { releaseConnectLogin = resolve })
+  /** 폴링 tick 이 물을 때 답 — 3단계에서 로그인이 끝난 뒤로 바뀐다. */
+  let connected = false
+  const status = () => ({ result: { installed: true, connected, version: null, detail: '', probe: 'ok' } })
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: {
+      chat: {
+        login: () => chatLogin,
+        snapshot: async () => ({ result: { root: '/fake/paper', provider: 'codex', state: 'idle', messages: [] } }),
+        status: async () => status(),
+        draft: async () => ({ result: '' })
+      },
+      connect: {
+        status: async () => status(),
+        login: () => connectLogin,
+        cancel: async () => ({ result: true }),
+        reopen: async () => ({ result: true })
+      }
+    }
+  }
+  const chatBefore = useChat.getState()
+  try {
+    useConnect.getState().stopPolling()
+    useChat.setState({ root: '/fake/paper', provider: 'codex', visit: 0, busy: false })
+
+    // ① 폴더 화면의 로그인 — 응답을 보류한다.
+    const folderLogin = useChat.getState().login()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useChat.getState().busy, '폴더 로그인이 시작되지 않았다').toBe(true)
+
+    // ② 폴더도 공급자도 그대로인 채, 계정 팝오버가 같은 공급자로 새 로그인을 시작해 성공한다.
+    const popoverLogin = useConnect.getState().login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseConnectLogin({ result: true })
+    await popoverLogin
+    expect(clock.timers.size, '새 로그인의 감시가 생기지 않았다').toBe(1)
+
+    // ③ 이제야 ①의 옛 응답이 도착한다 — 폴링은 새 시도의 것이므로 만들지 않는다.
+    releaseChatLogin({ result: true })
+    await folderLogin
+    expect(clock.timers.size, '옛 응답이 새 감시를 갈아 끼웠다').toBe(1)
+    expect(useChat.getState().busy, '대체된 폴더 로그인이 busy 를 남겼다').toBe(false)
+
+    // ④ 새 감시가 연결을 확인하면 로그인이 끝난다 — 감시도 표시도 남지 않는다.
+    connected = true
+    await clock.runAll()
+    expect(clock.timers.size, '연결을 확인한 감시가 남았다').toBe(0)
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+    expect(useConnect.getState().codex.state).toBe('connected')
+    expect(useChat.getState().busy).toBe(false)
+  } finally {
+    useConnect.getState().stopPolling()
+    useChat.setState({ ...chatBefore, visit: 0, busy: false })
+    clock.restore()
+    ;(globalThis as { window?: unknown }).window = realWindow
+  }
+})
+
 test('폴더 로그인의 옛 응답은 계정 팝오버가 시작한 새 감시를 갈아 끼우지 않는다 (R2-C01)', async () => {
   // 판정서 R2-C01 의 순서 그대로: 폴더 로그인 응답을 보류 → 공급자 전환 → 새 connect.login 성공
   // → 옛 응답 해제. 옛 코드는 여기서 startPoll 을 불러 새 타이머를 교체했고, 그 타이머는 첫 tick

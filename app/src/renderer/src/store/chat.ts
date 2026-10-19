@@ -221,10 +221,15 @@ export const useChat = create<ChatState>((set, get) => ({
      * 시작한 **새** 로그인의 감시를 갈아 끼웠다. 그 새 타이머는 첫 tick 에서 "공급자가 바뀌었다"를
      * 보고 스스로 꺼져, 실제로는 로그인 중인데 감시가 하나도 남지 않았다.
      *
-     * `busy` 도 여기서 내리지 않는다 — 새 시도가 아직 진행 중이면 그 표시는 그 시도의 것이다.
-     * (폴더·공급자를 떠난 경우는 `load` 가 이미 `busy` 를 풀었다.)
+     * 폴더·공급자를 떠났으면 `load` 가 이미 `busy` 를 풀었다 — 여기서 다시 건드리지 않는다.
      */
-    if (get().visit !== visitAtStart || get().provider !== provider || !loginAttemptLive(provider, mine)) return
+    if (get().visit !== visitAtStart || get().provider !== provider) return
+    /**
+     * 같은 방문·같은 공급자에서 이 응답만 새 시도(계정 팝오버)로 대체됐다면, 폴링·상태·오류는
+     * 새 시도의 것이다. 그래도 **내 방문의 busy 는 내가 내린다** — 팝오버 로그인은 `useChat.busy`
+     * 를 풀지 않으므로, 여기서 두면 로그인이 끝난 뒤에도 보내기·로그인·다시 확인 단추가 잠긴다.
+     */
+    if (!loginAttemptLive(provider, mine)) { set({ busy: false }); return }
     set({ busy: false, error: messageOf(r) })
     if ('error' in r && r.error) return
     // 브라우저 로그인은 오래 걸린다 — 3초마다, 3분까지. 이 폴더의 연결 상태를 다시 본다.
