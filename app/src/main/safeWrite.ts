@@ -1,4 +1,4 @@
-import { renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 
 /**
  * 학생 논문 폴더에 파일을 남기는 **공용 쓰기** (WIN-ONEDRIVE).
@@ -11,7 +11,12 @@ import { renameSync, unlinkSync, writeFileSync } from 'node:fs'
  *
  * 규칙: ① 원자적 쓰기(임시 파일 → 이름 바꾸기)를 먼저 시도하고 ② 다시 시도해 볼 만한 오류면
  * 짧게 재시도하며(main 스레드를 오래 막지 않게 합계 수백 ms 이하) ③ 그래도 안 되면 대상 파일에
- * **직접 쓰기**로 내려가고 ④ 그것도 실패하면 **던지지 않고** 실패를 돌려준다. 남은 `.tmp` 는 치운다.
+ * **직접 쓰기**로 내려가고 ④ 그것도 실패하면 **던지지 않고** 실패를 돌려준다.
+ *
+ * 보존 규칙(WIN-ONEDRIVE-R1-01): **완성본이 다른 곳에 없으면 대상을 지우거나 덮지 않는다.**
+ * 직접 쓰기는 대상을 먼저 비우므로, 중간에 실패하면 이미 저장돼 있던 대화가 반쪽이 된다 —
+ * 그래서 완성된 `.tmp` 가 있을 때만 직접 쓰고, 직접 쓰기가 실패하면 그 `.tmp` 를 **남긴다**.
+ * 읽는 쪽은 `readRecoverable` 로 `.tmp` 에서 되살린다. `.tmp` 를 치우는 것은 대상이 완성됐을 때뿐이다.
  */
 
 /** 잠깐 막힌 것일 뿐일 수 있는 오류 — 다시 시도해 볼 만하다. */
@@ -60,36 +65,86 @@ export function writeFileAtomic(file: string, data: string, opts: SafeWriteOptio
   const fs: SafeWriteFs = opts.fs ?? { writeFileSync, renameSync, unlinkSync }
   const delays = opts.delaysMs ?? RETRY_DELAYS_MS
   const log = opts.log ?? defaultLog
-  const tmp = `${file}.tmp`
+  const tmp = tmpOf(file)
   const write = (path: string): void => { fs.writeFileSync(path, data, { encoding: 'utf8', ...(opts.mode === undefined ? {} : { mode: opts.mode }) }) }
+  const fail = (e: Error, note: string): WriteResult => {
+    log(`[knuaf] 파일을 저장하지 못했어요: ${file} (${codeOf(e) || e.message})${note}`)
+    return { ok: false, error: e }
+  }
 
+  // 재시도 대기는 ①·② 가 함께 쓴다 — 합계가 RETRY_DELAYS_MS 를 넘지 않는다.
+  let attempt = 0
+  const retry = (e: unknown): boolean => {
+    if (!RETRY_CODES.has(codeOf(e)) || attempt >= delays.length) return false
+    sleepSync(delays[attempt++])
+    return true
+  }
   let last: Error = new Error('파일을 저장하지 못했어요')
-  for (let attempt = 0; ; attempt++) {
-    try {
-      write(tmp)
-      fs.renameSync(tmp, file)
-      return { ok: true }
-    } catch (e) {
+
+  // ① 완성본을 `.tmp` 에 하나 만든다. 실패하면 대상은 손대지 않은 채 끝낸다.
+  // 이때 `.tmp` 도 지우지 않는다 — 앞선 저장이 대상을 반쪽으로 남겼다면 유일한 완성본이 거기 있고,
+  // 이번 실패가 그것을 건드렸는지(열기에서 막힘) 반쪽으로 만들었는지(쓰다 멈춤)는 알 수 없다.
+  for (;;) {
+    try { write(tmp); break } catch (e) {
       last = asError(e)
-      if (!RETRY_CODES.has(codeOf(e)) || attempt >= delays.length) break
-      sleepSync(delays[attempt])
+      if (retry(e)) continue
+      return fail(last, ' — 기존 파일은 그대로 두었어요')
     }
   }
 
-  // 비원자 폴백 — 동기화 클라이언트가 **rename 만** 막는 일이 흔하다(직접 쓰기는 통과한다).
-  try {
-    write(file)
-    try { fs.unlinkSync(tmp) } catch { /* 이미 없다 */ }
-    log(`[knuaf] 원자적 저장이 막혀 직접 썼어요: ${file} (${codeOf(last) || last.message})`)
-    return { ok: true, fallback: true }
-  } catch (e) {
-    last = asError(e)
+  // ② 이름 바꾸기로 교체한다.
+  for (;;) {
+    try { fs.renameSync(tmp, file); return { ok: true } } catch (e) {
+      last = asError(e)
+      if (!retry(e)) break
+    }
   }
 
-  // 남은 `.tmp` 를 남기지 않는다 — 다음 실행이 "임시 파일"을 모른 채 지나가면 영원히 쌓인다.
-  try { fs.unlinkSync(tmp) } catch { /* 이미 없다 */ }
-  log(`[knuaf] 파일을 저장하지 못했어요: ${file} (${codeOf(last) || last.message})`)
-  return { ok: false, error: last }
+  // ③ 비원자 폴백 — 동기화 클라이언트가 **rename 만** 막는 일이 흔하다(직접 쓰기는 통과한다).
+  // 완성본이 `.tmp` 에 있으므로, 직접 쓰기가 중간에 실패해도 완전한 기록 하나는 남는다.
+  try {
+    write(file)
+  } catch (e) {
+    return fail(asError(e), ` — 완성본은 ${tmp} 에 남겼어요`)
+  }
+  try { fs.unlinkSync(tmp) } catch { /* 같은 내용이다 — 읽는 쪽이 고른다 */ }
+  log(`[knuaf] 원자적 저장이 막혀 직접 썼어요: ${file} (${codeOf(last) || last.message})`)
+  return { ok: true, fallback: true }
+}
+
+/** `writeFileAtomic` 이 쓰는 임시 파일 자리. */
+export const tmpOf = (file: string): string => `${file}.tmp`
+
+export interface ReadFs {
+  readFileSync: (path: string, encoding: 'utf8') => string
+}
+
+/**
+ * `writeFileAtomic` 이 남긴 파일을 읽는다 — 온전한 `.tmp` 가 있으면 그것을, 없으면 대상을 읽는다.
+ *
+ * `parse` 는 내용을 검증해 값을 돌려주거나 던진다. `.tmp` 가 남는 경우는 ⓐ 직접 쓰기가 대상을
+ * 건드리기 전에 막힘 ⓑ 직접 쓰기 성공 뒤 `.tmp` 정리만 실패(같은 내용) ⓒ 직접 쓰기가 대상을 반쪽으로
+ * 만들고 멈춤 — 셋 다 `.tmp` 가 최신 완성본이다. 수정 시각으로는 고르지 않는다: ⓒ 에서는 반쪽 대상이
+ * 더 나중이고, 초안처럼 검증할 모양이 없는 글은 반쪽인지 알아볼 수도 없다.
+ * 남는 한계: `.tmp` 를 쓰다 멈춘 반쪽(디스크 가득·앱 강제 종료)은 `parse` 가 거르지 못하면 그대로
+ * 읽힌다 — JSON 대화 기록은 거르고(대상을 읽는다), 초안 글은 거르지 못한다(반쪽 초안이 보인다).
+ *
+ * 돌려주는 값: 없음(`null`), 또는 `{ value, from }`. 대상이 망가졌고 `.tmp` 로도 못 살리면
+ * 대상의 오류를 **던진다** — 빈 기록으로 덮어 원본을 잃지 않게(호출부가 오류로 보여 준다).
+ */
+export function readRecoverable<T>(file: string, parse: (text: string) => T, fs: ReadFs = { readFileSync }): { value: T; from: 'file' | 'tmp' } | null {
+  type Got = { ok: true; value: T } | { ok: false; missing: boolean; error: unknown }
+  const get = (path: string): Got => {
+    let text: string
+    try { text = fs.readFileSync(path, 'utf8') } catch (e) { return { ok: false, missing: codeOf(e) === 'ENOENT', error: e } }
+    try { return { ok: true, value: parse(text) } } catch (e) { return { ok: false, missing: false, error: e } }
+  }
+  const tmp = get(tmpOf(file))
+  if (tmp.ok) return { value: tmp.value, from: 'tmp' }
+  const main = get(file)
+  if (main.ok) return { value: main.value, from: 'file' }
+  if (main.missing) return null   // 대상이 처음부터 없다 — 반쪽 `.tmp` 만 있으면 기록이 아니다
+  throw main.error
 }
 
 /**

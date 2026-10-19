@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } from '../agent'
-import { writeFileAtomic } from '../safeWrite'
+import { readRecoverable, tmpOf, writeFileAtomic, type SafeWriteFs } from '../safeWrite'
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
@@ -38,7 +38,10 @@ export class ChatService {
     bundledPython?: () => string | null
     /** 학생이 "이 폴더에서는 계속 허용"을 고른 폴더인가. */
     isTrusted?: (root: string) => boolean
+    /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
+    fs?: SafeWriteFs
   }) {}
+  private get writeFs(): SafeWriteFs { return this.opts.fs ?? { writeFileSync, renameSync, unlinkSync } }
   /** PATH 앞자리에 둘 인터프리터 bin 경로 — 프로젝트 .venv 가 번들보다 우선한다. */
   private pythonBinDirs(root: string): string[] {
     const venv = this.opts.venvPython?.(root) ?? null
@@ -63,7 +66,12 @@ export class ChatService {
   draft(root: string): string {
     const pending = this.draftPending.get(root)
     if (pending !== undefined) return pending   // 아직 안 쓴 값이 디스크보다 최신이다
-    try { return readFileSync(this.draftFile(root), 'utf8') } catch { return '' }
+    let got: ReturnType<typeof readRecoverable<string>>
+    try { got = readRecoverable(this.draftFile(root), (t) => t) } catch { return '' }
+    if (!got) return ''
+    // 저장이 막혀 `.tmp` 에만 남았던 글 — 다음 flush 가 제자리로 옮긴다(WIN-ONEDRIVE-R1-01).
+    if (got.from === 'tmp') this.setDraft(root, got.value)
+    return got.value
   }
   setDraft(root: string, text: string): void {
     this.draftPending.set(root, text)
@@ -76,14 +84,23 @@ export class ChatService {
     for (const [root, text] of this.draftPending) {
       const file = this.draftFile(root)
       if (!text) {
-        try { unlinkSync(file) } catch { /* 이미 없다 */ }
-        this.draftPending.delete(root)
+        // 빈 값도 최신 초안이다 — 지우기가 막혔는데 대기를 비우면 이미 보낸 글이 `draft()` 로 되살아난다
+        // (WIN-ONEDRIVE-R1-02). 남은 `.tmp` 도 지운다: 그것도 되살리는 자리다.
+        let cleared = true
+        for (const path of [file, tmpOf(file)]) {
+          try { this.writeFs.unlinkSync(path) } catch (e) {
+            if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') continue
+            cleared = false
+            console.error(`[knuaf] 빈 초안을 지우지 못했어요: ${path} (${(e as NodeJS.ErrnoException)?.code ?? String(e)})`)
+          }
+        }
+        if (cleared) this.draftPending.delete(root)
         continue
       }
       try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
       // 던지지 않는 공용 쓰기(WIN-ONEDRIVE). **성공한 것만** 지운다 — 실패하면 대기 값으로 남겨
       // 다음 flush 가 다시 시도하고, 그 사이 `draft()` 는 최신 글을 계속 돌려준다.
-      if (writeFileAtomic(file, text, { mode: 0o600 }).ok) this.draftPending.delete(root)
+      if (writeFileAtomic(file, text, { mode: 0o600, fs: this.writeFs }).ok) this.draftPending.delete(root)
     }
   }
   /**
@@ -98,23 +115,32 @@ export class ChatService {
   private publish(s: ChatSnapshot) {
     const file = this.file(s.root, s.provider)
     try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
-    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600 })
+    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600, fs: this.writeFs })
     this.opts.emit(structuredClone(s))
   }
   snapshot(root: string, provider: Provider): ChatSnapshot {
     const key = this.key(root, provider)
     let s = this.snapshots.get(key)
     if (!s) {
-      const file = this.file(root, provider)
-      if (existsSync(file)) {
-        // Corrupt state must not silently reset the interview or its session.
-        s = JSON.parse(readFileSync(file, 'utf8')) as ChatSnapshot
-        if (!Array.isArray(s.messages) || s.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
+      // Corrupt state must not silently reset the interview or its session.
+      // 저장이 막혀 완성본이 `.tmp` 에만 있으면 그것으로 되살린다(WIN-ONEDRIVE-R1-01).
+      const got = readRecoverable(this.file(root, provider), (text) => {
+        const v = JSON.parse(text) as ChatSnapshot
+        if (!Array.isArray(v?.messages) || v.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
+        return v
+      })
+      if (got) {
+        s = got.value
         s.root = root; s.permission = undefined
+        // `.tmp` 에서 되살린 기록은 곧바로 제자리에 다시 쓴다 — 다음 실행이 같은 복구를 되풀이하지 않게.
+        let persist = got.from === 'tmp'
         if (s.state === 'running' || s.state === 'permission') {
           s.state = 'interrupted'; s.error = '앱이 작업 도중 종료됐어요. 마지막 답변은 자동 재전송하지 않았어요.'
           for (const m of s.messages) if (m.delivery === 'pending') m.delivery = 'uncertain'
           // Persist the recovered state at once so the renderer and the file agree after restart.
+          persist = true
+        }
+        if (persist) {
           this.snapshots.set(key, s)
           this.publish(s)
         }
