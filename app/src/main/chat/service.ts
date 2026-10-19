@@ -132,7 +132,7 @@ export class ChatService {
       if (got) {
         s = got.value
         s.root = root; s.permission = undefined
-        // `.tmp` 에서 되살린 기록은 곧바로 제자리에 다시 쓴다 — 다음 실행이 같은 복구를 되풀이하지 않게.
+        // `.tmp` 에서 되살린 기록은 곧바로 다시 저장한다 — 이름 바꾸기가 풀렸으면 제자리로 간다.
         let persist = got.from === 'tmp'
         if (s.state === 'running' || s.state === 'permission') {
           s.state = 'interrupted'; s.error = '앱이 작업 도중 종료됐어요. 마지막 답변은 자동 재전송하지 않았어요.'

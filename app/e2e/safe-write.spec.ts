@@ -4,8 +4,8 @@
  * 윈도우에서 논문 폴더가 OneDrive 동기화 폴더면 `renameSync` 가 `EPERM` 으로 막히고, 그 예외가
  * main 의 이벤트 콜백에서 올라오면 Electron 오류 창("A JavaScript error occurred in the main
  * process")이 떴다(형님 실기). 여기서 고정하는 것은 **던지지 않는다**는 성질과 **완전한 기록 하나는
- * 언제나 남는다**는 보존 규칙이다(WIN-ONEDRIVE-R1-01): 완성된 `.tmp` 없이 대상을 덮지 않고, 직접
- * 쓰기가 중간에 실패하면 `.tmp` 를 남겨 읽는 쪽이 되살린다.
+ * 언제나 남는다**는 보존 규칙이다(WIN-ONEDRIVE-R1-01): 대상은 이름 바꾸기로만 바뀌고(직접 덮어쓰지
+ * 않는다), 이름 바꾸기가 막히면 최신본은 `.tmp` 에 남아 읽는 쪽이 되살린다.
  *
  * 실패는 폴더 권한(chmod)이 아니라 **fs 대역**으로 만든다 — 윈도우에서는 폴더 읽기 전용 속성이
  * 쓰기를 막지 않아 같은 시험이 다른 뜻이 된다(R1-03). 제품 경로 시험은 실제 파일시스템을 감싼
@@ -61,17 +61,18 @@ test('막힌 이름 바꾸기는 짧게 다시 시도하고, 풀리면 원자적
   expect(renames(), '두 번 막힌 뒤 세 번째에 성공해야 한다').toBe(3)
 })
 
-test('계속 막히면 직접 쓰기로 내려간다 — 내용은 남고 .tmp 는 치운다', () => {
+test('계속 막히면 대상을 건드리지 않는다 — 최신본은 .tmp 에 남는다', () => {
   const { fs, files } = stubFs({ failRename: 99 })
+  files.set('/p/chat.json', 'OLD')
   const logs: string[] = []
   const r = writeFileAtomic('/p/chat.json', 'BODY', { fs, delaysMs: NO_WAIT, log: (m) => logs.push(m) })
-  expect(r).toEqual({ ok: true, fallback: true })
-  expect(files.get('/p/chat.json')).toBe('BODY')
-  expect(files.has('/p/chat.json.tmp'), '.tmp 잔여물이 남았다').toBe(false)
-  expect(logs.join('\n'), '폴백 사실을 남긴다').toContain('직접 썼어요')
+  expect(r.ok).toBe(false)
+  expect(files.get('/p/chat.json'), '대상을 직접 덮었다').toBe('OLD')
+  expect(files.get('/p/chat.json.tmp'), '최신본을 남기지 않았다').toBe('BODY')
+  expect(logs.join('\n'), '남긴 자리를 알린다').toContain('남겼어요')
 })
 
-test('직접 쓰기까지 막히면 던지지 않고 실패를 돌려준다', () => {
+test('쓰기가 막히면 던지지 않고 실패를 돌려준다', () => {
   const { fs, files } = stubFs({ failRename: 99, failWrite: true })
   const logs: string[] = []
   let r: WriteResult | undefined
@@ -96,18 +97,18 @@ test('.tmp 를 만들지 못하면 대상을 덮지 않는다 — 그때 완전�
   expect(files.get('/p/chat.json'), '완성본 없이 대상을 덮었다').toBe('OLD')
 })
 
-test('다시 시도해 볼 만한 오류가 아니면 곧바로 폴백한다', () => {
-  // ENOENT(폴더 없음)는 잠깐 막힌 것이 아니다 — 세 번 재시도하면 main 을 300ms 붙잡는다.
-  const files = new Map<string, string>()
+test('다시 시도해 볼 만한 오류가 아니면 곧바로 멈춘다', () => {
+  // ENOENT(폴더 없음)는 잠깐 막힌 것이 아니다 — 재시도하면 main 을 300ms 붙잡는다.
   let writes = 0
+  let renames = 0
   const fs: SafeWriteFs = {
-    writeFileSync: ((p: string, d: string) => { writes++; files.set(String(p), String(d)) }) as unknown as SafeWriteFs['writeFileSync'],
-    renameSync: ((_f: string, _t: string) => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }) as unknown as SafeWriteFs['renameSync'],
-    unlinkSync: ((p: string) => { files.delete(String(p)) }) as unknown as SafeWriteFs['unlinkSync']
+    writeFileSync: (() => { writes++ }) as unknown as SafeWriteFs['writeFileSync'],
+    renameSync: (() => { renames++; throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }) as unknown as SafeWriteFs['renameSync'],
+    unlinkSync: (() => {}) as unknown as SafeWriteFs['unlinkSync']
   }
   const r = writeFileAtomic('/p/chat.json', 'BODY', { fs, delaysMs: NO_WAIT, log: () => {} })
-  expect(r).toEqual({ ok: true, fallback: true })      // tmp 쓰기 1 + 직접 쓰기 1
-  expect(writes).toBe(2)
+  expect(r.ok).toBe(false)
+  expect([writes, renames]).toEqual([1, 1])
 })
 
 test('폴더 이동(이름 바꾸기 전용)은 재시도하고, 끝까지 막히면 던진다', () => {
@@ -183,55 +184,54 @@ const RUNNING = (root: string): string => JSON.stringify({ root, provider: 'code
   { id: 'u1', role: 'user', text: '안녕', at: '2026-10-19T00:00:00Z', delivery: 'pending' }
 ] })
 
-test('rename 이 막히고 직접 쓰기가 중간에 실패해도 대화는 되살아난다 (R1-01 반례)', () => {
+test('rename 이 막히면 대상은 그대로, 다시 띄우면 .tmp 의 최신 기록을 읽고 제자리로 옮긴다', () => {
   const { root, file } = project()
   writeFileSync(file, RUNNING(root))
   const emitted: ChatSnapshot[] = []
   const svc = service((s) => emitted.push(s), faultyFs({
     rename: eperm,                                          // OneDrive 가 교체를 계속 막는다
-    write: (p) => (p === file ? 'partial' : null)           // 대상 직접 쓰기는 20바이트 뒤 ENOSPC
+    write: (p) => (p === file ? 'partial' : null)           // 대상을 직접 쓰면 반쪽이 된다 — 쓰지 않아야 한다
   }))
   let s: ChatSnapshot | undefined
   expect(() => { s = svc.snapshot(root, 'codex') }).not.toThrow()   // main 이벤트 콜백에서 올라가던 예외
   expect(s?.state).toBe('interrupted')
   expect(emitted, '저장 실패가 화면 흐름을 막았다').toHaveLength(1)
-  expect(() => JSON.parse(readFileSync(file, 'utf8')), '반례가 대상을 반쪽으로 만들지 못했다(시험 전제)').toThrow()
-  expect(existsSync(file + '.tmp'), '유일한 완성본(.tmp)을 지웠다').toBe(true)
+  expect(JSON.parse(readFileSync(file, 'utf8')).state, '대상을 직접 덮었다').toBe('running')
+  expect(JSON.parse(readFileSync(file + '.tmp', 'utf8')).state, '최신본을 .tmp 에 남기지 않았다').toBe('interrupted')
 
-  // 앱을 다시 띄운다(실제 fs) — 반쪽 대상 대신 .tmp 의 완성본을 읽고, 제자리로 되돌린다.
+  // 앱을 다시 띄운다(실제 fs) — .tmp 의 최신본을 읽고, 막힘이 풀렸으니 제자리로 옮긴다.
   const again = service(() => {}).snapshot(root, 'codex')
   expect(again.state).toBe('interrupted')
   expect(again.messages.map((m) => m.text), '저장했던 대화를 잃었다').toEqual(['앞서 나눈 긴 대화', '안녕'])
-  expect(JSON.parse(readFileSync(file, 'utf8')).messages, '되살린 기록이 제자리로 돌아가지 않았다').toHaveLength(2)
+  expect(JSON.parse(readFileSync(file, 'utf8')).state, '되살린 기록이 제자리로 돌아가지 않았다').toBe('interrupted')
   expect(existsSync(file + '.tmp')).toBe(false)
 })
 
-test('대상이 반쪽인 채 다음 저장의 .tmp 쓰기가 막혀도 남은 완성본을 지우지 않는다', () => {
+test('.tmp 에만 최신본이 있을 때 다음 .tmp 쓰기가 중간에 멈춰도 대화는 남는다 (R1-01 확인 반례)', () => {
   const { root, file } = project()
   writeFileSync(file, RUNNING(root))
-  // 첫 저장: rename 막힘 → 직접 쓰기가 반쪽에서 멈춤 → 완성본은 .tmp 에만 있다.
-  const first = service(() => {}, faultyFs({ rename: eperm, write: (p) => (p === file ? 'partial' : null) }))
-  first.snapshot(root, 'codex')
+  // 판정 반례 순서 그대로: ① rename 막힘(+ 대상을 직접 쓰면 반쪽) → ② 다음 실행이 되살린 뒤 다시 저장하다 .tmp 반쪽.
+  service(() => {}, faultyFs({ rename: eperm, write: (p) => (p === file ? 'partial' : null) })).snapshot(root, 'codex')
+  const emitted: ChatSnapshot[] = []
+  const second = service((s) => emitted.push(s), faultyFs({ rename: eperm, write: (p) => (p === file || p.endsWith('.tmp') ? 'partial' : null) }))
+  expect(() => second.snapshot(root, 'codex')).not.toThrow()                        // 되살린 뒤 다시 저장 → .tmp 반쪽
+  expect(emitted).toHaveLength(1)
+  expect(() => JSON.parse(readFileSync(file + '.tmp', 'utf8')), '반례가 .tmp 를 반쪽으로 만들지 못했다(시험 전제)').toThrow()
+  const third = service(() => {}).snapshot(root, 'codex')
+  expect(third.messages.map((m) => m.text), '완전한 기록이 하나도 남지 않았다').toEqual(['앞서 나눈 긴 대화', '안녕'])
+})
+
+test('.tmp 에만 최신본이 있을 때 다음 .tmp 쓰기가 열기에서 막히면 그 최신본은 그대로다', () => {
+  const { root, file } = project()
+  writeFileSync(file, RUNNING(root))
+  service(() => {}, faultyFs({ rename: eperm })).snapshot(root, 'codex')
   const kept = readFileSync(file + '.tmp', 'utf8')
-  // 다음 실행: .tmp 에서 되살린 기록을 제자리로 되돌리려 하지만 .tmp 쓰기가 열기에서 막힌다.
   const emitted: ChatSnapshot[] = []
   const second = service((s) => emitted.push(s), faultyFs({ write: (p) => (p.endsWith('.tmp') ? eperm() : null) }))
   expect(() => second.snapshot(root, 'codex')).not.toThrow()
   expect(emitted).toHaveLength(1)
-  expect(existsSync(file + '.tmp'), '유일한 완성본(.tmp)을 지웠다').toBe(true)
-  expect(readFileSync(file + '.tmp', 'utf8')).toBe(kept)
-  expect(service(() => {}).snapshot(root, 'codex').messages, '저장했던 대화를 잃었다').toHaveLength(2)
-})
-
-test('rename 이 계속 막히면 직접 쓰기로 내용을 남긴다 (서비스 경로의 rename EPERM)', () => {
-  const { root, file } = project()
-  writeFileSync(file, RUNNING(root))
-  const emitted: ChatSnapshot[] = []
-  const svc = service((s) => emitted.push(s), faultyFs({ rename: eperm }))
-  expect(() => svc.snapshot(root, 'codex')).not.toThrow()
-  expect(emitted).toHaveLength(1)
-  expect(JSON.parse(readFileSync(file, 'utf8')).state, 'rename 이 막혔는데 내용이 남지 않았다').toBe('interrupted')
-  expect(existsSync(file + '.tmp'), '.tmp 잔여물이 남았다').toBe(false)
+  expect(readFileSync(file + '.tmp', 'utf8'), '유일한 최신본(.tmp)을 건드렸다').toBe(kept)
+  expect(service(() => {}).snapshot(root, 'codex').state).toBe('interrupted')
 })
 
 test('.tmp 를 만들 수 없으면(EACCES) 던지지 않고, 기존 기록은 손대지 않는다', () => {
@@ -274,13 +274,14 @@ test('빈 초안의 삭제가 막혀도 보낸 글이 되살아나지 않는다 
   expect(svc.draft(root)).toBe('')
 })
 
-test('초안 직접 쓰기가 중간에 실패해도 다음 실행이 .tmp 에서 되살린다', () => {
+test('초안 rename 이 막히면 .tmp 에 남고, 다음 실행이 되살려 제자리로 옮긴다', () => {
   const { root, draft } = project()
   writeFileSync(draft, '예전 글')
   const svc = service(() => {}, faultyFs({ rename: eperm, write: (p) => (p === draft ? 'partial' : null) }))
   svc.setDraft(root, '새로 쓴 글 — 스무 바이트를 넘는 문장입니다')
   svc.flushDrafts()
-  expect(existsSync(draft + '.tmp'), '유일한 완성본(.tmp)을 지웠다').toBe(true)
+  expect(readFileSync(draft, 'utf8'), '대상을 직접 덮었다').toBe('예전 글')
+  expect(existsSync(draft + '.tmp'), '최신 글을 남기지 않았다').toBe(true)
 
   const again = service(() => {})
   expect(again.draft(root)).toBe('새로 쓴 글 — 스무 바이트를 넘는 문장입니다')

@@ -9,14 +9,15 @@ import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
  * 올라오면 Electron 이 "A JavaScript error occurred in the main process" 오류 창을 띄운다 —
  * 형님 윈도우 노트북에서 실제로 그랬다(`ChatService.publish`).
  *
- * 규칙: ① 원자적 쓰기(임시 파일 → 이름 바꾸기)를 먼저 시도하고 ② 다시 시도해 볼 만한 오류면
- * 짧게 재시도하며(main 스레드를 오래 막지 않게 합계 수백 ms 이하) ③ 그래도 안 되면 대상 파일에
- * **직접 쓰기**로 내려가고 ④ 그것도 실패하면 **던지지 않고** 실패를 돌려준다.
+ * 규칙: ① 임시 파일(`.tmp`)에 쓰고 ② 이름 바꾸기로 대상과 교체한다. 다시 시도해 볼 만한 오류면
+ * 짧게 재시도하고(main 스레드를 오래 막지 않게 합계 수백 ms 이하), 그래도 안 되면 **던지지 않고**
+ * 실패를 돌려준다. 이름 바꾸기가 막혔으면 완성본은 `.tmp` 에 남는다 — 읽는 쪽(`readRecoverable`)이
+ * 온전한 `.tmp` 를 먼저 읽는다.
  *
- * 보존 규칙(WIN-ONEDRIVE-R1-01): **완성본이 다른 곳에 없으면 대상을 지우거나 덮지 않는다.**
- * 직접 쓰기는 대상을 먼저 비우므로, 중간에 실패하면 이미 저장돼 있던 대화가 반쪽이 된다 —
- * 그래서 완성된 `.tmp` 가 있을 때만 직접 쓰고, 직접 쓰기가 실패하면 그 `.tmp` 를 **남긴다**.
- * 읽는 쪽은 `readRecoverable` 로 `.tmp` 에서 되살린다. `.tmp` 를 치우는 것은 대상이 완성됐을 때뿐이다.
+ * 보존 규칙(WIN-ONEDRIVE-R1-01): **대상은 이름 바꾸기로만 바뀐다 — 직접 덮어쓰지 않는다.**
+ * 그래서 대상은 언제나 어느 시점의 완성본이다. 직접 쓰기 폴백은 대상을 먼저 비우므로 중간에 멈추면
+ * 기존 대화를 반쪽으로 만들고, 그 뒤 하나 남은 `.tmp` 마저 다음 저장이 다시 쓰다 멈추면 완성본이
+ * 하나도 남지 않았다(1회째 판정·확인 반례). 폴백을 없애면 `.tmp` 쓰기가 어디서 멈추든 대상은 남는다.
  */
 
 /** 잠깐 막힌 것일 뿐일 수 있는 오류 — 다시 시도해 볼 만하다. */
@@ -42,7 +43,7 @@ export interface SafeWriteOptions {
   log?: (message: string) => void
 }
 
-export type WriteResult = { ok: true; fallback?: true } | { ok: false; error: Error }
+export type WriteResult = { ok: true } | { ok: false; error: Error }
 
 const codeOf = (e: unknown): string => (e as NodeJS.ErrnoException)?.code ?? ''
 const asError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
@@ -66,50 +67,32 @@ export function writeFileAtomic(file: string, data: string, opts: SafeWriteOptio
   const delays = opts.delaysMs ?? RETRY_DELAYS_MS
   const log = opts.log ?? defaultLog
   const tmp = tmpOf(file)
-  const write = (path: string): void => { fs.writeFileSync(path, data, { encoding: 'utf8', ...(opts.mode === undefined ? {} : { mode: opts.mode }) }) }
-  const fail = (e: Error, note: string): WriteResult => {
-    log(`[knuaf] 파일을 저장하지 못했어요: ${file} (${codeOf(e) || e.message})${note}`)
-    return { ok: false, error: e }
-  }
 
-  // 재시도 대기는 ①·② 가 함께 쓴다 — 합계가 RETRY_DELAYS_MS 를 넘지 않는다.
+  // 재시도 대기는 쓰기·이름 바꾸기가 함께 쓴다 — 합계가 RETRY_DELAYS_MS 를 넘지 않는다.
   let attempt = 0
   const retry = (e: unknown): boolean => {
     if (!RETRY_CODES.has(codeOf(e)) || attempt >= delays.length) return false
     sleepSync(delays[attempt++])
     return true
   }
-  let last: Error = new Error('파일을 저장하지 못했어요')
-
-  // ① 완성본을 `.tmp` 에 하나 만든다. 실패하면 대상은 손대지 않은 채 끝낸다.
-  // 이때 `.tmp` 도 지우지 않는다 — 앞선 저장이 대상을 반쪽으로 남겼다면 유일한 완성본이 거기 있고,
-  // 이번 실패가 그것을 건드렸는지(열기에서 막힘) 반쪽으로 만들었는지(쓰다 멈춤)는 알 수 없다.
-  for (;;) {
-    try { write(tmp); break } catch (e) {
-      last = asError(e)
-      if (retry(e)) continue
-      return fail(last, ' — 기존 파일은 그대로 두었어요')
-    }
+  const fail = (e: unknown, note: string): WriteResult => {
+    const error = asError(e)
+    log(`[knuaf] 파일을 저장하지 못했어요: ${file} (${codeOf(error) || error.message}) — ${note}`)
+    return { ok: false, error }
   }
 
-  // ② 이름 바꾸기로 교체한다.
+  // ① 완성본을 `.tmp` 에 만든다. 중간에 멈춰도 대상은 그대로다.
+  for (;;) {
+    try { fs.writeFileSync(tmp, data, { encoding: 'utf8', ...(opts.mode === undefined ? {} : { mode: opts.mode }) }); break } catch (e) {
+      if (!retry(e)) return fail(e, '기존 파일은 그대로 두었어요')
+    }
+  }
+  // ② 이름 바꾸기로 교체한다. 막히면 완성본은 `.tmp` 에 남는다(동기화 클라이언트가 대상을 쥔 경우).
   for (;;) {
     try { fs.renameSync(tmp, file); return { ok: true } } catch (e) {
-      last = asError(e)
-      if (!retry(e)) break
+      if (!retry(e)) return fail(e, `최신 내용은 ${tmp} 에 남겼어요`)
     }
   }
-
-  // ③ 비원자 폴백 — 동기화 클라이언트가 **rename 만** 막는 일이 흔하다(직접 쓰기는 통과한다).
-  // 완성본이 `.tmp` 에 있으므로, 직접 쓰기가 중간에 실패해도 완전한 기록 하나는 남는다.
-  try {
-    write(file)
-  } catch (e) {
-    return fail(asError(e), ` — 완성본은 ${tmp} 에 남겼어요`)
-  }
-  try { fs.unlinkSync(tmp) } catch { /* 같은 내용이다 — 읽는 쪽이 고른다 */ }
-  log(`[knuaf] 원자적 저장이 막혀 직접 썼어요: ${file} (${codeOf(last) || last.message})`)
-  return { ok: true, fallback: true }
 }
 
 /** `writeFileAtomic` 이 쓰는 임시 파일 자리. */
@@ -122,10 +105,9 @@ export interface ReadFs {
 /**
  * `writeFileAtomic` 이 남긴 파일을 읽는다 — 온전한 `.tmp` 가 있으면 그것을, 없으면 대상을 읽는다.
  *
- * `parse` 는 내용을 검증해 값을 돌려주거나 던진다. `.tmp` 가 남는 경우는 ⓐ 직접 쓰기가 대상을
- * 건드리기 전에 막힘 ⓑ 직접 쓰기 성공 뒤 `.tmp` 정리만 실패(같은 내용) ⓒ 직접 쓰기가 대상을 반쪽으로
- * 만들고 멈춤 — 셋 다 `.tmp` 가 최신 완성본이다. 수정 시각으로는 고르지 않는다: ⓒ 에서는 반쪽 대상이
- * 더 나중이고, 초안처럼 검증할 모양이 없는 글은 반쪽인지 알아볼 수도 없다.
+ * `parse` 는 내용을 검증해 값을 돌려주거나 던진다. `.tmp` 는 마지막 쓰기의 이름 바꾸기가 막혔을 때만
+ * 남고(성공한 쓰기는 자기 `.tmp` 를 대상으로 옮긴다), 그때 `.tmp` 가 가장 최신이다. 대상은 이름
+ * 바꾸기로만 바뀌므로 언제나 어느 시점의 완성본이다.
  * 남는 한계: `.tmp` 를 쓰다 멈춘 반쪽(디스크 가득·앱 강제 종료)은 `parse` 가 거르지 못하면 그대로
  * 읽힌다 — JSON 대화 기록은 거르고(대상을 읽는다), 초안 글은 거르지 못한다(반쪽 초안이 보인다).
  *
