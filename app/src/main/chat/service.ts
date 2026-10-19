@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } from '../agent'
+import { writeFileAtomic } from '../safeWrite'
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
@@ -74,18 +75,30 @@ export class ChatService {
     if (this.draftTimer) { clearTimeout(this.draftTimer); this.draftTimer = null }
     for (const [root, text] of this.draftPending) {
       const file = this.draftFile(root)
-      try {
-        if (!text) { unlinkSync(file); continue }
-        mkdirSync(dirname(file), { recursive: true })
-        const tmp = file + '.tmp'
-        writeFileSync(tmp, text, { mode: 0o600 }); renameSync(tmp, file)
-      } catch { /* 폴더가 사라졌거나 종료 중 — 초안 때문에 종료를 막지 않는다 */ }
+      if (!text) {
+        try { unlinkSync(file) } catch { /* 이미 없다 */ }
+        this.draftPending.delete(root)
+        continue
+      }
+      try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
+      // 던지지 않는 공용 쓰기(WIN-ONEDRIVE). **성공한 것만** 지운다 — 실패하면 대기 값으로 남겨
+      // 다음 flush 가 다시 시도하고, 그 사이 `draft()` 는 최신 글을 계속 돌려준다.
+      if (writeFileAtomic(file, text, { mode: 0o600 }).ok) this.draftPending.delete(root)
     }
-    this.draftPending.clear()
   }
+  /**
+   * 대화 기록을 남기고 화면으로 내보낸다.
+   *
+   * 저장은 **던지지 않는** 공용 쓰기로 한다(WIN-ONEDRIVE): 윈도우에서 논문 폴더가 OneDrive
+   * 동기화 폴더면 `renameSync` 가 `EPERM` 으로 막히는데, 이 함수는 에이전트 이벤트 콜백에서
+   * 불리므로 예외가 올라가면 Electron 이 "A JavaScript error occurred in the main process"
+   * 창을 띄운다. 저장이 실패해도 **메모리의 스냅샷을 그대로 내보낸다** — 화면 흐름을 막지 않는다.
+   * 실패는 로그 한 줄로 강등한다(앱에 비치명 알림 자리가 없다 — §REPORT-WIN-ONEDRIVE).
+   */
   private publish(s: ChatSnapshot) {
-    const file = this.file(s.root, s.provider); mkdirSync(dirname(file), { recursive: true })
-    const tmp = file + '.tmp'; writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 }); renameSync(tmp, file)
+    const file = this.file(s.root, s.provider)
+    try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
+    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600 })
     this.opts.emit(structuredClone(s))
   }
   snapshot(root: string, provider: Provider): ChatSnapshot {

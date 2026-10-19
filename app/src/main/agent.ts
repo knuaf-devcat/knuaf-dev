@@ -7,10 +7,11 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
 import { pathKeyOf } from './chat/contracts'
+import { renameWithRetry } from './safeWrite'
 
 // ---------------------------------------------------------------- types
 
@@ -326,7 +327,8 @@ export function retireSupersededSkills(target: string): string[] {
     let dest = join(dir, `${kind}-${name}-${stamp()}`)
     let i = 1
     while (existsSync(dest)) dest = join(dir, `${kind}-${name}-${stamp()}-${i++}`)
-    renameSync(old, dest)
+    // 윈도우에서 잠깐 막히면(EPERM/EBUSY/EACCES) 짧게 다시 시도한다 — 폴더 이동이라 폴백은 없다.
+    renameWithRetry(old, dest)
     moved.push(dest)
   }
   return moved
@@ -346,7 +348,7 @@ export function installSkill(source: string, target: string, version: string): I
     backup = join(dir, `${kind}-${stamp()}`)
     let i = 1
     while (existsSync(backup)) backup = join(dir, `${kind}-${stamp()}-${i++}`)
-    renameSync(target, backup)
+    renameWithRetry(target, backup)
   }
 
   mkdirSync(target, { recursive: true })
