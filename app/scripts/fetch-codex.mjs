@@ -1,5 +1,5 @@
 // 윈도우 설치본에 넣을 **Codex CLI** 를 공식 배포처에서 받아 app/resources/codex/ 에 푼다.
-// 버전 고정 + SHA-256 대조 — 불일치면 빌드가 실패한다(students PC 에서 조용히 다른 것을 쓰지 않게).
+// 버전 고정 + SHA-256 대조 — 불일치면 실패한다(학생 PC 에서 조용히 다른 것을 쓰지 않게).
 //
 // 왜 npm 레지스트리의 플랫폼 패키지인가 (GitHub 릴리스 자산이 아니라):
 //   codex.exe 는 **자기 패키지 레이아웃**을 스스로 검사한다 — 바이너리 안에
@@ -15,117 +15,272 @@
 // 그대로 둔다. 대신 빈 디렉터리만 만들어 electron-builder 의 extraResources `from` 이 늘
 // 존재하게 한다(없는 경로를 가리키는 설정으로 빌드가 흔들리지 않게).
 //
-// 실행: `node scripts/fetch-codex.mjs` (또는 `pnpm fetch:codex`). 이미 있으면 건너뛴다.
-//   --force / CODEX_FORCE=1      다시 받는다
+// **완성한 묶음만 성공·재사용한다**(검토 CODEX-BUNDLE-R1-02): 고지문 하나라도 못 받으면 실패이고,
+// 임시 자리에서 다 만든 뒤에만 `resources/codex` 로 바꿔 넣는다. 완료 표식(`.complete`)은 맨
+// 마지막에 쓰고, 재사용 판정은 그 표식 + 필수 파일(일반 파일인지까지)로 한다.
+//
+// 실행: `node scripts/fetch-codex.mjs` (또는 `pnpm fetch:codex`). 이미 완성돼 있으면 건너뛴다.
+//   --force / CODEX_FORCE=1        다시 받는다
 //   --version <v> / CODEX_VERSION  버전(기본은 아래 상수 — 올릴 때 여기와 해시를 함께 고친다)
 //   --sha256 <hex> / CODEX_SHA256  기대 해시(기본은 아래 상수)
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { pipeline } from 'node:stream/promises'
 import { spawnSync } from 'node:child_process'
+import { createGunzip } from 'node:zlib'
 
 /** 동봉 버전. 올릴 때: 아래 URL 로 받아 SHA-256 을 재고 이 두 상수를 함께 고친다. */
-const DEFAULT_VERSION = '0.162.1'
+export const DEFAULT_VERSION = '0.162.1'
 /** `@openai/codex@<version>-win32-x64` tgz 의 SHA-256 (2026-10-19 실측). */
-const DEFAULT_SHA256 = '5d48824f11a512b0ecb351461c2e90a1040c80de1026bc4a80815d5121f3936d'
+export const DEFAULT_SHA256 = '5d48824f11a512b0ecb351461c2e90a1040c80de1026bc4a80815d5121f3936d'
+export const TARGET = 'x86_64-pc-windows-msvc'
+export const MARKER = '.complete'
 
-const TARGET = 'x86_64-pc-windows-msvc'
-const TAG = `rust-v${DEFAULT_VERSION}`
+export const tgzUrl = (version) => `https://registry.npmjs.org/@openai/codex/-/codex-${version}-win32-x64.tgz`
+
+/** 함께 넣어야 하는 고지문. **하나라도 못 받으면 준비 실패다**(R1-02). */
+export const NOTICE_FILES = [
+  { file: 'LICENSE', url: (v) => `https://raw.githubusercontent.com/openai/codex/rust-v${v}/LICENSE` },
+  { file: 'NOTICE', url: (v) => `https://raw.githubusercontent.com/openai/codex/rust-v${v}/NOTICE` },
+  // codex-path/rg.exe 는 ripgrep 이다(Unlicense OR MIT).
+  { file: 'LICENSE-ripgrep-MIT', url: () => 'https://raw.githubusercontent.com/BurntSushi/ripgrep/master/LICENSE-MIT' },
+  { file: 'UNLICENSE-ripgrep', url: () => 'https://raw.githubusercontent.com/BurntSushi/ripgrep/master/UNLICENSE' }
+]
+
+/** 완성 묶음에 반드시 있어야 하는 것(경로는 resources/codex 기준). */
+export const REQUIRED_FILES = [
+  `vendor/${TARGET}/bin/codex.exe`,
+  `vendor/${TARGET}/bin/codex-code-mode-host.exe`,
+  `vendor/${TARGET}/codex-path/rg.exe`,
+  `vendor/${TARGET}/codex-resources/codex-command-runner.exe`,
+  `vendor/${TARGET}/codex-resources/codex-windows-sandbox-setup.exe`,
+  `vendor/${TARGET}/codex-package.json`,
+  ...NOTICE_FILES.map((n) => n.file),
+  'BUNDLE.txt'
+]
+
+const sha256 = (file) =>
+  new Promise((ok, fail) => {
+    const h = createHash('sha256')
+    createReadStream(file).on('error', fail).on('data', (c) => h.update(c)).on('end', () => ok(h.digest('hex')))
+  })
+
+/** 필수 파일이 모두 있고, **심볼릭 링크가 아닌 일반 파일**인가(R1-03). */
+export function hasRequiredFiles(dir) {
+  for (const rel of REQUIRED_FILES) {
+    const p = resolve(dir, rel)
+    try {
+      if (!lstatSync(p).isFile()) return { ok: false, why: `${rel} 이 일반 파일이 아니다(링크 등)` }
+    } catch {
+      return { ok: false, why: `${rel} 이 없다` }
+    }
+  }
+  return { ok: true }
+}
+
+/** 다시 받지 않아도 되는가 — 완료 표식이 있고 버전·해시가 같고 필수 파일이 다 있는가. */
+export function isComplete(dir, { version, sha256: expected }) {
+  try {
+    const m = JSON.parse(readFileSync(resolve(dir, MARKER), 'utf-8'))
+    if (m.version !== version || m.sha256 !== expected) return { ok: false, why: '완료 표식의 버전·해시가 다르다' }
+  } catch {
+    return { ok: false, why: '완료 표식이 없다' }
+  }
+  return hasRequiredFiles(dir)
+}
+
+// ---------------------------------------------------------------- 아카이브 멤버 검사
+//
+// 추출은 호스트 `tar` 에 맡기지만, 그 전에 멤버 이름·종류를 직접 본다(절대경로 · 상위 이동 ·
+// 링크 거부). gzip 스트림의 512바이트 헤더를 걸어가며 읽으므로 메모리에 다 올리지 않는다.
+
+const BLOCK = 512
+const ALLOWED_TYPES = new Set(['0', '\0', '5', 'x', 'g', 'L', 'K'])
+
+function octal(buf) {
+  const s = buf.toString('latin1').replace(/\0.*$/, '').trim()
+  return s ? parseInt(s, 8) || 0 : 0
+}
+
+/** 이름 하나를 검사한다 — 절대경로·드라이브·상위 이동 거부. */
+export function memberRejection(name, type) {
+  if (!ALLOWED_TYPES.has(type)) return `허용하지 않는 멤버 종류 '${type}' (링크·장치 등): ${name}`
+  if (name.startsWith('/') || /^[A-Za-z]:/.test(name)) return `절대경로 멤버: ${name}`
+  if (name.split(/[\\/]/).includes('..')) return `상위 이동(..) 멤버: ${name}`
+  return null
+}
+
+/** tgz 의 멤버 이름·종류를 순서대로 돌려준다. 링크나 이상한 경로가 있으면 던진다. */
+export async function assertSafeArchive(tgzPath) {
+  let pending = null // GNU long name('L')이 알려 준 다음 멤버의 진짜 이름
+  let header = Buffer.alloc(0)
+  const stream = createReadStream(tgzPath).pipe(createGunzip())
+  let mode = 'header'
+  let need = 0
+  let current = { name: '', type: '0', size: 0 }
+  let longBuf = Buffer.alloc(0)
+  let count = 0
+  for await (const chunk of stream) {
+    let buf = chunk
+    while (buf.length) {
+      if (mode === 'header' || mode === 'skip') {
+        if (mode === 'skip') {
+          const take = Math.min(need, buf.length)
+          buf = buf.subarray(take)
+          need -= take
+          if (need > 0) break
+          mode = 'header'
+          continue
+        }
+        const take = Math.min(BLOCK - header.length, buf.length)
+        header = Buffer.concat([header.subarray(0, header.length), buf.subarray(0, take)])
+        buf = buf.subarray(take)
+        if (header.length < BLOCK) break
+        const h = header
+        header = Buffer.alloc(0)
+        if (h.every((b) => b === 0)) continue // 끝 블록
+        const rawName = h.subarray(0, 100).toString('utf8').replace(/\0.*$/, '')
+        const prefix = h.subarray(345, 500).toString('utf8').replace(/\0.*$/, '')
+        const size = octal(h.subarray(124, 136))
+        const type = String.fromCharCode(h[156])
+        const name = pending ?? (prefix ? `${prefix}/${rawName}` : rawName)
+        pending = null
+        if (type === 'L' || type === 'K') {
+          // 데이터가 진짜 이름이다 — 다음 헤더에 이어 붙인다.
+          longBuf = Buffer.alloc(0)
+          current = { name, type, size }
+          mode = 'readlong'
+          need = size
+          continue
+        }
+        const bad = memberRejection(name, type)
+        if (bad) throw new Error(`아카이브 검사 실패 — ${bad}`)
+        count++
+        const skip = size + ((BLOCK - (size % BLOCK)) % BLOCK)
+        if (skip > 0) {
+          current = { name, type, size }
+          mode = 'skip'
+          need = skip
+        }
+      } else if (mode === 'readlong') {
+        const take = Math.min(need, buf.length)
+        longBuf = Buffer.concat([longBuf, buf.subarray(0, take)])
+        buf = buf.subarray(take)
+        need -= take
+        if (need > 0) break
+        pending = longBuf.toString('utf8').replace(/\0.*$/, '')
+        mode = 'header'
+      }
+    }
+  }
+  return count
+}
+
+// ---------------------------------------------------------------- 준비
+
+/**
+ * 묶음을 준비한다. 성공해야만 `outDir` 이 바뀐다 — 임시 자리에서 완성하고 마지막에 바꿔 넣는다.
+ * @returns {Promise<{reused?: boolean, skipped?: boolean, files?: number}>}
+ */
+export async function prepare(opts = {}) {
+  const {
+    platform = process.platform,
+    version = DEFAULT_VERSION,
+    sha256: expected = DEFAULT_SHA256,
+    out = resolve(import.meta.dirname, '..', 'resources', 'codex'),
+    fetchImpl = fetch,
+    run = spawnSync,
+    log = console.log
+  } = opts
+
+  if (platform !== 'win32') {
+    mkdirSync(out, { recursive: true })
+    log('codex bundle: 윈도우 전용이라 받지 않는다. 자리만 만듦 →', out)
+    return { skipped: true }
+  }
+  if (!opts.force && isComplete(out, { version, sha256: expected }).ok) {
+    log('codex bundle already complete →', out, '(use --force to re-download)')
+    return { reused: true }
+  }
+
+  const staging = `${out}.staging`
+  rmSync(staging, { recursive: true, force: true })
+  mkdirSync(staging, { recursive: true })
+  const tgz = resolve(staging, 'codex.tgz')
+
+  const url = tgzUrl(version)
+  log('downloading', url)
+  const res = await fetchImpl(url)
+  if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText} — is ${version}-win32-x64 published?`)
+  await pipeline(res.body, createWriteStream(tgz))
+
+  const digest = await sha256(tgz)
+  if (digest !== expected) throw new Error(`sha256 mismatch\n  expected ${expected}\n  got      ${digest}`)
+  log('sha256 verified')
+
+  const members = await assertSafeArchive(tgz)
+  log('archive checked:', members, 'members, no links/absolute/..')
+
+  const r = run('tar', ['-xzf', tgz, '-C', staging, '--strip-components=1', `package/vendor/${TARGET}`], { stdio: 'inherit' })
+  if (r.status !== 0) throw new Error(`tar extraction failed (status ${r.status})`)
+  rmSync(tgz, { force: true })
+
+  // 고지문 — **하나라도 못 받으면 실패**다(선택이 아니다).
+  for (const { file, url: mk } of NOTICE_FILES) {
+    const u = mk(version)
+    const res2 = await fetchImpl(u)
+    if (!res2.ok) throw new Error(`notice download failed ${res2.status} ${res2.statusText}: ${u}`)
+    writeFileSync(resolve(staging, file), await res2.text())
+  }
+  writeFileSync(
+    resolve(staging, 'BUNDLE.txt'),
+    [
+      `OpenAI Codex CLI ${version} (${TARGET})`,
+      '',
+      `받은 곳: ${url}`,
+      `태그: rust-v${version}`,
+      `sha256: ${expected}`,
+      '',
+      '이 폴더는 app/scripts/fetch-codex.mjs 가 빌드 때 내려받아 푼 것이다(저장소에 실행 파일을 커밋하지 않는다).',
+      '구성: vendor/ 아래에 codex.exe · codex-path/rg.exe(ripgrep) · codex-resources/* · codex-package.json.',
+      'Codex CLI 는 Apache License 2.0 이고 전문은 LICENSE, 저작자 고지는 NOTICE 에 있다.',
+      'ripgrep 은 Unlicense OR MIT 이고 LICENSE-ripgrep-MIT · UNLICENSE-ripgrep 에 있다.',
+      ''
+    ].join('\n')
+  )
+
+  const missing = hasRequiredFiles(staging)
+  if (!missing.ok) throw new Error(`묶음이 불완전하다 — ${missing.why}`)
+  // 완료 표식은 **맨 마지막**에 쓴다. 중간에 죽으면 표식이 없으니 다음 실행이 처음부터 다시 한다.
+  writeFileSync(resolve(staging, MARKER), JSON.stringify({ version, sha256: expected, target: TARGET, files: REQUIRED_FILES.length }, null, 2))
+
+  rmSync(out, { recursive: true, force: true })
+  renameSync(staging, out)
+  log('codex bundle →', out)
+  return { files: REQUIRED_FILES.length }
+}
+
+// ---------------------------------------------------------------- CLI
 
 const argv = process.argv.slice(2)
 const flag = (name) => {
   const i = argv.indexOf(`--${name}`)
   return i === -1 ? undefined : argv[i + 1]
 }
-const force = argv.includes('--force') || process.env.CODEX_FORCE === '1'
-const version = flag('version') ?? process.env.CODEX_VERSION ?? DEFAULT_VERSION
-const expected = (flag('sha256') ?? process.env.CODEX_SHA256 ?? DEFAULT_SHA256).toLowerCase()
 
-const app = resolve(import.meta.dirname, '..')
-const out = resolve(app, 'resources', 'codex')
-const vendor = resolve(out, 'vendor', TARGET)
-const marker = resolve(vendor, 'bin', 'codex.exe')
-
-if (process.platform !== 'win32') {
-  mkdirSync(out, { recursive: true })
-  console.log('codex bundle: 윈도우 전용이라 받지 않는다. 자리만 만듦 →', out)
-  process.exit(0)
-}
-
-if (!force && existsSync(marker)) {
-  console.log('codex bundle already present →', out, '(use --force to re-download)')
-  process.exit(0)
-}
-
-const url = `https://registry.npmjs.org/@openai/codex/-/codex-${version}-win32-x64.tgz`
-const tmp = resolve(app, 'resources', `codex-${version}-win32-x64.tgz`)
-mkdirSync(resolve(app, 'resources'), { recursive: true })
-
-console.log('downloading', url)
-const res = await fetch(url)
-if (!res.ok) {
-  console.error(`download failed ${res.status} ${res.statusText} — is ${version}-win32-x64 published?`)
-  process.exit(1)
-}
-await pipeline(res.body, createWriteStream(tmp))
-
-const digest = await new Promise((ok, fail) => {
-  const h = createHash('sha256')
-  createReadStream(tmp).on('error', fail).on('data', (c) => h.update(c)).on('end', () => ok(h.digest('hex')))
-})
-if (digest !== expected) {
-  rmSync(tmp, { force: true })
-  console.error(`sha256 mismatch\n  expected ${expected}\n  got      ${digest}`)
-  process.exit(1)
-}
-console.log('sha256 verified')
-
-rmSync(out, { recursive: true, force: true })
-mkdirSync(vendor, { recursive: true })
-// 패키지 안 `package/vendor/<target>/**` 를 그대로 푼다 — layoutVersion 1 의 상대 배치
-// (bin/ · codex-path/ · codex-resources/)를 유지해야 codex 가 자기 패키지를 찾는다.
-const r = spawnSync('tar', ['-xzf', tmp, '-C', out, '--strip-components=1', `package/vendor/${TARGET}`], { stdio: 'inherit' })
-if (r.status !== 0) {
-  console.error('tar extraction failed (status', r.status, ')')
-  process.exit(r.status ?? 1)
-}
-if (!existsSync(marker)) {
-  console.error('extracted, but', marker, 'is missing — check the archive layout')
-  process.exit(1)
-}
-
-// 고지문. Apache-2.0 동봉이므로 라이선스 전문과 구성 요소 안내를 함께 넣는다(공식 배포처에서 받는다).
-async function grab(url, file) {
-  const res = await fetch(url)
-  if (!res.ok) {
-    console.error(`license download failed ${res.status} ${res.statusText}: ${url}`)
+async function main() {
+  try {
+    await prepare({
+      force: argv.includes('--force') || process.env.CODEX_FORCE === '1',
+      version: flag('version') ?? process.env.CODEX_VERSION ?? DEFAULT_VERSION,
+      sha256: (flag('sha256') ?? process.env.CODEX_SHA256 ?? DEFAULT_SHA256).toLowerCase()
+    })
+  } catch (e) {
+    console.error(String(e?.message ?? e))
     process.exit(1)
   }
-  writeFileSync(resolve(out, file), await res.text())
 }
-await grab(`https://raw.githubusercontent.com/openai/codex/${TAG}/LICENSE`, 'LICENSE')
-const notice = await fetch(`https://raw.githubusercontent.com/openai/codex/${TAG}/NOTICE`)
-if (notice.ok) writeFileSync(resolve(out, 'NOTICE'), await notice.text())
-// codex-path/rg.exe 는 ripgrep 이다(Unlicense OR MIT). 플랫폼 패키지에 라이선스 파일이 없어
-// ripgrep 배포본의 전문을 함께 넣는다.
-await grab('https://raw.githubusercontent.com/BurntSushi/ripgrep/master/LICENSE-MIT', 'LICENSE-ripgrep-MIT')
-await grab('https://raw.githubusercontent.com/BurntSushi/ripgrep/master/UNLICENSE', 'UNLICENSE-ripgrep')
-writeFileSync(
-  resolve(out, 'BUNDLE.txt'),
-  [
-    `OpenAI Codex CLI ${version} (${TARGET})`,
-    '',
-    `받은 곳: ${url}`,
-    `태그: ${TAG}`,
-    `sha256: ${expected}`,
-    '',
-    '이 폴더는 app/scripts/fetch-codex.mjs 가 빌드 때 내려받아 푼 것이다(저장소에 실행 파일을 커밋하지 않는다).',
-    '구성: vendor/ 아래에 codex.exe · codex-path/rg.exe(ripgrep) · codex-resources/* · codex-package.json.',
-    'Codex CLI 는 Apache License 2.0 이고 전문은 LICENSE 에 있다. ripgrep 은 Unlicense OR MIT 이고',
-    'LICENSE-ripgrep-MIT · UNLICENSE-ripgrep 에 있다.',
-    ''
-  ].join('\n')
-)
-rmSync(tmp, { force: true })
-console.log('codex bundle →', out)
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main()
