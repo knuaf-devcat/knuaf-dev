@@ -6,7 +6,7 @@ import { FolderPicker } from './FolderPicker'
 import { ConnectBadges, ConnectRow } from './ConnectRow'
 import { Feedback } from './Feedback'
 import { RuntimeFix } from './RuntimeFix'
-import { CLOSE_LABEL, FOLDER, ONBOARD, PRIVACY_NOTE } from '../copy'
+import { CLOSE_LABEL, FOLDER, ONBOARD, PRIVACY_NOTE, RUNTIME } from '../copy'
 import type { Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -29,8 +29,9 @@ const MODE: Record<Provider, ChatMode> = { codex: 'codex-chat', claude: 'claude-
 const ROWS: Provider[] = ['codex', 'claude']
 
 export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) => void }) {
-  const { settings, loadSettings, error, openFailure, clearError, open } = useProject(useShallow((s) => ({
-    settings: s.settings, loadSettings: s.loadSettings, error: s.error, openFailure: s.openFailure, clearError: s.clearError, open: s.open
+  const { settings, loadSettings, error, openFailure, retryFailed, clearError, retryOpen } = useProject(useShallow((s) => ({
+    settings: s.settings, loadSettings: s.loadSettings, error: s.error, openFailure: s.openFailure,
+    retryFailed: s.retryFailed, clearError: s.clearError, retryOpen: s.retryOpen
   })))
   const { codex, claude, selected, loggingIn, select, refreshAll, stopPolling } = useConnect(useShallow((s) => ({
     codex: s.codex, claude: s.claude, selected: s.selected, loggingIn: s.loggingIn, select: s.select,
@@ -94,9 +95,12 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
           여기서 한 번 보여 준다. FolderPicker 는 이 경우 같은 오류를 되풀이하지 않는다. */}
       {error && openFailure && error.code === openFailure.code && (
         <>
+          {/* 설치 성공과 폴더 복구 실패를 함께 말한다 — 이 표시는 store 가 들고 있어 재시도로
+              이 화면이 다시 그려져도 남는다(§7). */}
+          {retryFailed && <Feedback kind="warning" title={RUNTIME.retryFailedTitle} body={RUNTIME.retryFailedBody} />}
           <Feedback kind={error.kind} title={error.title} body={error.action} details={<code>{error.raw}</code>}
             actions={<button onClick={clearError}>{CLOSE_LABEL}</button>} />
-          <RuntimeFix failure={openFailure} onRetry={async () => (await open(openFailure.root, { local: true })) === null} />
+          <RuntimeFix failure={openFailure} onRetry={async () => retryOpen(openFailure.root, onFolderOpened)} />
         </>
       )}
       {/* 길잡이 — 번호 원 없이 한 줄(DESIGN §6). 지난 단계는 ✓ 로 끝난 것을 말한다. */}

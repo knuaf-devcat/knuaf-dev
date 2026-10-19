@@ -13,7 +13,7 @@ import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Icon } from '../components/Icon'
 import { RuntimeFix } from '../components/RuntimeFix'
-import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, describeChatError } from '../copy'
+import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, RUNTIME, describeChatError } from '../copy'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -187,7 +187,8 @@ export function Chat() {
   const pStatus = useProject((s) => s.status)
   const pError = useProject((s) => s.error)
   const pOpenFailure = useProject((s) => s.openFailure)
-  const openProjectRoot = useProject((s) => s.open)
+  const pRetryFailed = useProject((s) => s.retryFailed)
+  const retryOpen = useProject((s) => s.retryOpen)
   const clearPError = useProject((s) => s.clearError)
   const openSheet = useProject((s) => s.openSheet)
   const events = useProject((s) => s.events)
@@ -405,7 +406,10 @@ export function Chat() {
         {/* 전역 오류로 같은 실패가 뜨는 자리 — 재시도 대상 root 는 store 가 오류와 함께 보관한
             `openFailure.root` 다(이전 프로젝트 root 가 아니다). */}
         {pError && pOpenFailure && pError.code === pOpenFailure.code && (
-          <RuntimeFix failure={pOpenFailure} onRetry={async () => (await openProjectRoot(pOpenFailure.root)) === null} />
+          <>
+            {pRetryFailed && <ZoneLine tone="attn" title={RUNTIME.retryFailedTitle} sub={RUNTIME.retryFailedBody} />}
+            <RuntimeFix failure={pOpenFailure} onRetry={async () => retryOpen(pOpenFailure.root)} />
+          </>
         )}
         {chatErr && <ZoneLine tone={toneOf(chatErr.kind)} title={chatErr.title} sub={chatErr.action} raw={chatErr.raw} onClose={clearError} />}
         {snapshot && haltKey && !closedNotes.has(haltKey) && (

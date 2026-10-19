@@ -31,8 +31,9 @@ export interface FolderPickerCopy {
 }
 
 export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpened?: (root: string) => void }) {
-  const { open, settings, error, loading, loadSettings, clearError, openFailure } = useProject(useShallow((s) => ({
-    open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings, clearError: s.clearError, openFailure: s.openFailure
+  const { open, settings, error, loading, loadSettings, clearError, openFailure, retryOpen } = useProject(useShallow((s) => ({
+    open: s.open, settings: s.settings, error: s.error, loading: s.loading, loadSettings: s.loadSettings,
+    clearError: s.clearError, openFailure: s.openFailure, retryOpen: s.retryOpen
   })))
   const [peeks, setPeeks] = useState<Record<string, ProjectPeek>>({})
   const [openErr, setOpenErr] = useState<DescribedError | null>(null)
@@ -74,7 +75,7 @@ export function FolderPicker({ copy, onOpened }: { copy: FolderPickerCopy; onOpe
           판단하면 첫 실패에서 버튼이 없고, 다른 논문을 열었던 세션에서는 틀린 kind 가 된다.
           재시도는 같은 openFolder 를 타므로 성공 후처리(onOpened)까지 그대로 이어진다. */}
       {shown && openFailure && shown.code === openFailure.code && (
-        <RuntimeFix failure={openFailure} onRetry={async () => (await openFolder(openFailure.root)) === null} />
+        <RuntimeFix failure={openFailure} onRetry={async () => retryOpen(openFailure.root, onOpened)} />
       )}
 
       {/* 새로 시작 / 이어 쓰기 두 행 — 첫 실행 연결 단계와 같은 한 테두리 묶음(시안 B, N-R01). */}

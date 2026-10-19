@@ -136,3 +136,87 @@ test('직접 지정한 실행기(env)가 원인이면 준비 버튼을 세우지
     await rt.close()
   }
 })
+
+test('다운로드가 도중에 끊기면 실패 카드가 서고, 다시 시도하면 실제로 설치된다 (PY-C1-02)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  const rt = await fakeRuntime()
+  rt.truncateFirstDownload()
+  const userData = userDataWithRecent(dir, root)
+  const { electronApp, page } = await launch({
+    userData, waitFor: FOLDER_STEP,
+    env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
+  })
+  try {
+    await page.locator('.project').first().click()
+    await page.getByRole('button', { name: FIX_BUTTON }).click()
+    // 첫 내려받기는 본문 도중에 끊긴다 — 설치 슬롯이 풀려 버튼이 다시 서야 한다.
+    await expect(page.getByRole('button', { name: '다시 시도' })).toBeVisible({ timeout: 30_000 })
+    expect(runtimeEntries(userData).filter((n) => n.startsWith('cpython-'))).toEqual([])
+    await page.getByRole('button', { name: '다시 시도' }).click()
+    await page.waitForSelector('.chat-inner', { timeout: 60_000 })
+    const info = await page.evaluate(() => window.knuaf.sidecarInfo())
+    expect(info.kind).toBe('managed')
+    expect(info.running).toBe(true)
+  } finally {
+    await electronApp.close()
+    await rt.close()
+  }
+})
+
+test('다운로드 뒤(푸는 중·확인 중)에 누른 취소는 게시하지 않는다 (PY-C1-03)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  // smoke 확인만 1.5초 늦춰, 다운로드가 끝난 뒤 취소를 누를 창을 만든다.
+  const rt = await fakeRuntime({ slowSmokeMs: 1500 })
+  const userData = userDataWithRecent(dir, root)
+  const { electronApp, page } = await launch({
+    userData, waitFor: FOLDER_STEP,
+    env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
+  })
+  try {
+    await page.locator('.project').first().click()
+    await page.getByRole('button', { name: FIX_BUTTON }).click()
+    await expect(page.locator('.progress-log').getByText('확인 중', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await page.locator('.progress').getByRole('button', { name: '취소' }).click()
+    // 취소를 받아 놓고 게시하면 안 된다 — 설치 폴더·도장이 남지 않는다.
+    await expect(page.getByRole('button', { name: FIX_BUTTON })).toBeVisible({ timeout: 30_000 })
+    expect(runtimeEntries(userData).filter((n) => n.startsWith('cpython-'))).toEqual([])
+    const status = await page.evaluate(() => window.knuaf.runtime.status())
+    expect(status.result.installed).toBe(false)
+    const info = await page.evaluate(() => window.knuaf.sidecarInfo())
+    expect(info.kind).toBe('path')
+  } finally {
+    await electronApp.close()
+    await rt.close()
+  }
+})
+
+test('설치 성공 뒤 폴더가 안 열리면 복구 실패를 새 오류와 함께 남긴다 (PY-C1-04)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  // smoke(-I)는 통과하고 사이드카 시작만 실패한다 — 설치 성공 ≠ 복구 성공.
+  const rt = await fakeRuntime({ brokenSidecar: true })
+  const userData = userDataWithRecent(dir, root)
+  const { electronApp, page } = await launch({
+    userData, waitFor: FOLDER_STEP,
+    env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
+  })
+  try {
+    // 검토자의 재현과 같은 **메뉴 수신 경로**(Finder·독에서 폴더를 여는 길).
+    await electronApp.evaluate(({ BrowserWindow }, openRoot) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('menu', { type: 'open-recent', root: openRoot })
+    }, root)
+    await expect(page.getByRole('button', { name: FIX_BUTTON })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('button', { name: FIX_BUTTON }).click()
+    // 설치 완료와 복구 실패를 함께 말하고, 새 오류 카드도 사라지지 않는다.
+    await expect(page.getByText('Python은 준비됐지만 이 폴더는 아직 열리지 않았어요')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText('Python 실행기가 도중에 종료됐어요')).toBeVisible()
+    await expect(page.locator(FOLDER_STEP)).toBeVisible()
+    const status = await page.evaluate(() => window.knuaf.runtime.status())
+    expect(status.result.installed).toBe(true)
+  } finally {
+    await electronApp.close()
+    await rt.close()
+  }
+})

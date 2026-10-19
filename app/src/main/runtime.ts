@@ -11,12 +11,13 @@
  *   정리는 도장 없는 폴더와 남은 임시 다운로드 파일만.
  * - `KNUAF_RUNTIME_SPEC`·`KNUAF_RUNTIME_BASE_URL`은 **개발 빌드에서만** 읽는다.
  */
-import { createHash } from 'node:crypto'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { app, net } from 'electron'
 import type { RuntimeStatus } from '../shared/types'
+import { downloadToFile } from './runtimeDownload'
+import { STAMP, cleanupRuntimeAt, findInstallIn, type Stamp } from './runtimeStore'
 
 export interface RuntimeTarget {
   sha256: string
@@ -39,10 +40,7 @@ export type RuntimeEvent = (event: RuntimeProgress) => void
 
 export type RuntimeFailure = { code: string; message: string }
 
-const STAMP = '.knuaf-runtime.json'
 const HASH_RE = /^[0-9a-f]{64}$/
-/** 도장 폴더 이름의 꼬리(설치 시각 ms) — 가장 최근 설치를 고르는 데 쓴다. */
-const INSTALL_DIR_RE = /^cpython-.*-(\d+)$/
 const MARKER = process.platform === 'win32' ? 'python.exe' : join('bin', 'python3')
 
 export function targetTriple(): string | null {
@@ -101,41 +99,8 @@ export function runtimeRoot(): string {
   return join(app.getPath('userData'), 'runtime')
 }
 
-interface Stamp { version: string; release: string; target: string; sha256: string }
-
-function readStamp(dir: string): Stamp | null {
-  try {
-    // 디스크에서 온 JSON — 네 필드의 typeof 를 모두 확인한 뒤에만 통과시킨다.
-    const parsed: unknown = JSON.parse(readFileSync(join(dir, STAMP), 'utf-8'))
-    if (!parsed || typeof parsed !== 'object') return null
-    const { version, release, target, sha256 } = parsed as Record<string, unknown>
-    if (typeof version !== 'string' || typeof release !== 'string' || typeof target !== 'string' || typeof sha256 !== 'string') return null
-    return { version, release, target, sha256 }
-  } catch {
-    return null
-  }
-}
-
-/** 도장·marker가 현재 명세와 맞는 설치 중 가장 최근 것. smoke 확인은 하지 않는다(선택은 동기). */
 function findInstall(spec: RuntimeSpec, target: string): string | null {
-  const root = runtimeRoot()
-  let names: string[]
-  try { names = readdirSync(root) } catch { return null }
-  let best: { dir: string; ms: number } | null = null
-  for (const name of names) {
-    const m = INSTALL_DIR_RE.exec(name)
-    if (!m) continue
-    const dir = join(root, name)
-    const stamp = readStamp(dir)
-    if (!stamp) continue
-    const expected = spec.targets[target]
-    if (!expected) continue
-    if (stamp.version !== spec.version || stamp.release !== spec.release || stamp.target !== target || stamp.sha256 !== expected.sha256) continue
-    if (!existsSync(join(dir, MARKER))) continue
-    const ms = Number(m[1])
-    if (!best || ms > best.ms) best = { dir, ms }
-  }
-  return best?.dir ?? null
+  return findInstallIn(runtimeRoot(), spec, target, MARKER)
 }
 
 /** 관리 런타임의 인터프리터. 도장·marker가 명세와 맞을 때만 쓴다. */
@@ -158,19 +123,9 @@ export function runtimeStatus(): RuntimeStatus {
   return { supported: true, target, installed: findInstall(spec, target) !== null, sizeBytes: spec.targets[target].size ?? null }
 }
 
-/**
- * 앱 시작·설치 성공 뒤 정리. 도장 없는 설치 폴더와 임시 다운로드만 지운다.
- * 게시된(도장 있는) 폴더는 어떤 경우에도 지우지 않는다 — §7 PY-D1-01.
- */
+/** 앱 시작·설치 성공 뒤 정리 — 게시 폴더는 지우지 않는다(runtimeStore.ts 의 계약). */
 export function cleanupRuntime(): void {
-  const root = runtimeRoot()
-  let names: string[]
-  try { names = readdirSync(root) } catch { return }
-  for (const name of names) {
-    const incomplete = INSTALL_DIR_RE.test(name) && !readStamp(join(root, name))
-    if (!incomplete && !name.startsWith('.download-')) continue
-    try { rmSync(join(root, name), { recursive: true, force: true }) } catch { /* 다음 시작에 다시 시도 */ }
-  }
+  cleanupRuntimeAt(runtimeRoot())
 }
 
 function tarPath(): string | null {
@@ -234,57 +189,15 @@ export function cancelRuntimeInstall(): boolean {
   return true
 }
 
+function abortIfCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw { code: 'runtime_cancelled', message: '사용자가 취소함' } satisfies RuntimeFailure
+}
+
 function asFailure(error: unknown): RuntimeFailure {
   if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && 'message' in error) {
     return { code: error.code, message: String(error.message) }
   }
   return { code: 'runtime_download_failed', message: error instanceof Error ? error.message : String(error) }
-}
-
-async function download(url: string, dest: string, expected: RuntimeTarget, onEvent: RuntimeEvent, signal: AbortSignal): Promise<void> {
-  const res = await net.fetch(url, { signal })
-  if (!res.ok) throw { code: 'runtime_download_failed', message: `내려받기 실패 ${res.status} ${res.statusText}` } satisfies RuntimeFailure
-  if (!res.body) throw { code: 'runtime_download_failed', message: '응답 본문이 비어 있음' } satisfies RuntimeFailure
-  const header = Number(res.headers.get('content-length') ?? 0)
-  const total = expected.size ?? (Number.isFinite(header) ? header : 0)
-  const hash = createHash('sha256')
-  let received = 0
-  const out = createWriteStream(dest)
-  const opened = Promise.withResolvers<void>()
-  out.once('open', () => opened.resolve())
-  out.once('error', (e) => opened.reject(e))
-  try {
-    await opened.promise
-    const reader = res.body.getReader()
-    for (;;) {
-      if (signal.aborted) throw { code: 'runtime_cancelled', message: '사용자가 취소함' } satisfies RuntimeFailure
-      const { done, value } = await reader.read()
-      if (done) break
-      hash.update(value)
-      received += value.byteLength
-      if (!out.write(value)) {
-        const drained = Promise.withResolvers<void>()
-        out.once('drain', () => drained.resolve())
-        await drained.promise
-      }
-      onEvent({ phase: '내려받는 중', received, total })
-    }
-    const closed = Promise.withResolvers<void>()
-    out.end(() => closed.resolve())
-    out.once('error', (e) => closed.reject(e))
-    await closed.promise
-  } catch (error) {
-    out.destroy()
-    if (signal.aborted) throw { code: 'runtime_cancelled', message: '사용자가 취소함' } satisfies RuntimeFailure
-    throw asFailure(error)
-  }
-  if (expected.size !== undefined && received !== expected.size) {
-    throw { code: 'runtime_hash_mismatch', message: `크기 불일치: 기대 ${expected.size}바이트, 실제 ${received}바이트` } satisfies RuntimeFailure
-  }
-  const digest = hash.digest('hex')
-  if (digest !== expected.sha256) {
-    throw { code: 'runtime_hash_mismatch', message: `sha256 불일치: 기대 ${expected.sha256}, 실제 ${digest}` } satisfies RuntimeFailure
-  }
 }
 
 async function install(onEvent: RuntimeEvent): Promise<string> {
@@ -313,12 +226,17 @@ async function install(onEvent: RuntimeEvent): Promise<string> {
       ? process.env.KNUAF_RUNTIME_BASE_URL.replace(/\/+$/, '')
       : `https://github.com/astral-sh/python-build-standalone/releases/download/${spec.release}`
     const name = `cpython-${spec.version}+${spec.release}-${target}-install_only.tar.gz`
-    await download(`${base}/${name}`, archive, spec.targets[target], onEvent, abort.signal)
+    await downloadToFile(`${base}/${name}`, archive, spec.targets[target], onEvent, abort.signal, { fetch: net.fetch })
+    // 취소는 **게시 전**에만 의미가 있다. 다운로드 뒤 단계에서도 매번 확인한다 — 취소를
+    // 받아 놓고 설치를 게시하면 취소가 거짓이 된다(PY-C1-03).
+    abortIfCancelled(abort.signal)
     onEvent({ phase: '푸는 중' })
     mkdirSync(dir, { recursive: true })
     await extract(archive, dir)
+    abortIfCancelled(abort.signal)
     onEvent({ phase: '확인 중' })
     await smoke(join(dir, MARKER), spec.version)
+    abortIfCancelled(abort.signal)
     // 게시 = 도장. 같은 폴더 안 단일 rename(원자). 도장 없는 폴더는 미완성이다.
     const stamp: Stamp = { version: spec.version, release: spec.release, target, sha256: spec.targets[target].sha256 }
     const tmp = join(dir, `${STAMP}.tmp`)

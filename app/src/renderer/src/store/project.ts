@@ -49,6 +49,18 @@ interface ProjectState {
    * 오류 카드를 닫으면(`clearError`) 같이 지운다.
    */
   openFailure: { root: string; sidecar: SidecarInfo; code: string } | null
+  /**
+   * 앱 전용 Python 설치 뒤 **재시도가 또 실패**했음(§7). 설치 성공을 폴더 복구 성공으로
+   * 표시하지 않기 위해 결과를 컴포넌트가 아니라 store 가 보관한다 — 재시도는 `open()` 이
+   * `openFailure` 를 지우며 진행되므로, 지역 상태에 두면 화면이 사라지고 결과도 사라진다.
+   */
+  retryFailed: { root: string } | null
+  /**
+   * 실패했던 폴더 열기를 다시 시도하고, 그 결과를 store 에 남긴다(설치 성공과 구분).
+   * `onOpened` 는 성공했을 때만 부른다 — 재시도도 기존 폴더 열기의 성공 후처리(온보딩 기록·
+   * 최근 목록·제목)를 그대로 타야 한다.
+   */
+  retryOpen: (root: string, onOpened?: (root: string) => void) => Promise<boolean>
   sidecar: (SidecarInfo & { basePython?: string; wheelhouse?: string | null }) | null
   settings: Settings | null
   /** 열려 있는 시트. null이면 논문·대화만 보인다. */
@@ -162,6 +174,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   loading: false,
   error: null,
   openFailure: null,
+  retryFailed: null,
   sidecar: null,
   settings: null,
   sheet: null,
@@ -231,7 +244,7 @@ export const useProject = create<ProjectState>((set, get) => ({
     void window.knuaf.setSettings({ ui_prefs: prefs }).then(() => get().loadSettings())
   },
   open: async (root, opts) => {
-    set({ loading: true, error: null, openFailure: null })
+    set({ loading: true, error: null, openFailure: null, retryFailed: null })
     const r = await window.knuaf.openProject(root)
     if (r.error) {
       const d = describeError(r.error)
@@ -348,14 +361,23 @@ export const useProject = create<ProjectState>((set, get) => ({
       set({ error: describeError(e), loading: false })
     } finally { statusInFlight = false }
   },
+  retryOpen: async (root, onOpened) => {
+    const err = await get().open(root, { local: true })
+    if (!err) { onOpened?.(root); return true }
+    // 새 오류는 전역 error 로 올려 화면이 그대로 보여 준다. 설치 성공과 복구 실패를 함께
+    // 말하는 문구는 retryFailed 가 맡는다 — 이 값은 컴포넌트가 아니라 store 에 산다.
+    set({ error: err, retryFailed: { root } })
+    return false
+  },
   refreshSidecar: async () => set({ sidecar: await window.knuaf.sidecarInfo() }),
   refreshDeps: async () => {
     const root = get().root
     if (!root) return
     try { const d = await rpc.doctor(root); set({ depsReady: !!d.deps?.ready }) } catch { set({ depsReady: null }) }
   },
-  // 오류 카드를 닫으면 그 요청의 실패 정보도 같이 지운다 — 버튼이 사라진 뒤 재시도 대상만 남지 않게.
-  clearError: () => set({ error: null, openFailure: null }),
+  // 오류 카드를 닫으면 그 요청의 실패 정보·복구 실패 표시도 같이 지운다 — 버튼이 사라진 뒤
+  // 재시도 대상만 남지 않게.
+  clearError: () => set({ error: null, openFailure: null, retryFailed: null }),
   helper: { open: false, status: null, result: null, error: null },
   openHelper: async () => {
     set({ helper: { open: true, status: null, result: null, error: null } })

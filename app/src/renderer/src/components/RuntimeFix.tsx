@@ -119,23 +119,20 @@ export function RuntimeSetup() {
  */
 export function RuntimeFix({ failure, onRetry }: { failure: RuntimeFailure; onRetry?: () => Promise<boolean> }) {
   const { status, busy, phase, lines, elapsedMs, error, install } = useRuntimeInstall()
-  const [outcome, setOutcome] = useState<null | 'installed' | 'retry_failed'>(null)
 
   if (!status) return null
   const kind = runtimeFixKind(failure, status.supported)
   if (kind === 'venv') return <Feedback kind="warning" title={RUNTIME.fixTitle} body={RUNTIME.venvStaleAction} />
   if (kind === 'none') return null
-  if (outcome === 'installed') return <Feedback kind="completion" title={RUNTIME.installed} body={RUNTIME.installedBody} />
-  if (outcome === 'retry_failed') return <Feedback kind="warning" title={RUNTIME.retryFailedTitle} body={RUNTIME.retryFailedBody} />
+  // 설치가 이미 끝나 있으면(다른 화면에서 했거나 재시도 뒤 다시 그려짐) 버튼을 되풀이하지 않는다.
+  // 재시도 결과는 store(`retryFailed`)가 보관한다 — 지역 상태는 재시도 중 unmount 와 함께 사라진다.
   if (status.installed && !busy && !error) return null
 
   const size = status.sizeBytes ? formatBytes(status.sizeBytes) : RUNTIME.sizeFallback
   const run = async (): Promise<void> => {
-    setOutcome(null)
     if (!(await install())) return
-    // 설치 성공 ≠ 폴더 복구 성공(§7) — 재시도 결과를 그대로 반영한다.
-    const ok = onRetry ? await onRetry() : true
-    setOutcome(ok ? 'installed' : 'retry_failed')
+    // 설치 성공 ≠ 폴더 복구 성공(§7) — 결과는 호출한 store 액션이 남긴다.
+    if (onRetry) await onRetry()
   }
 
   return (
