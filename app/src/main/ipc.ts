@@ -10,6 +10,7 @@ import { ChatService } from './chat/service'
 import { openGuide } from './menu'
 import { loadSettings, rememberRecent, saveSettings } from './settings'
 import { APP_NAME } from '../shared/name'
+import { hideAppDirs } from './hidden'
 
 /** Chrome hints the renderer uses to lay out its title bar; also used by main when creating the window. */
 export function windowInfo(): WindowInfo {
@@ -113,6 +114,8 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       const info = await sidecar.configure(root, settings.python_override)
       rememberRecent(root)
       onRecentsChanged()
+      // 앱이 만든 작업 폴더는 윈도우 탐색기에서 숨긴다 — 학생에게는 자기 자료만 보이게(hidden.ts).
+      hideAppDirs(root)
       const w = win()
       if (w) {
         const name = root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root
@@ -236,7 +239,9 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   ipcMain.handle('chat:login', async (_e, root: string, provider: Provider) => { try { await chat.login(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:send', async (_e, root: string, provider: Provider, text: string, requestId: string) => {
     try {
-      return { result: await chat.send(root, provider, text, requestId) }
+      const result = await chat.send(root, provider, text, requestId)
+      hideAppDirs(root)   // 첫 전송이 규칙집(.agents·.claude)과 대화 기록(.knuaf-gui)을 만든다
+      return { result }
     } catch (e) { return chatFail(e) }
   })
   ipcMain.handle('project:trust', (_e, root: string, on: boolean) => {
@@ -280,6 +285,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
         result = await sidecar.call('deps.ensure', params, onEvent, onId)
       }
       if ((result as { ok: boolean }).ok) await sidecar.configure(root, loadSettings().python_override)
+      hideAppDirs(root)   // 준비가 이 폴더의 .venv 를 만든다
       return { result }
     } catch (error) {
       return { error }
