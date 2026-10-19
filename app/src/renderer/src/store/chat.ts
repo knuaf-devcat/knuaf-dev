@@ -236,7 +236,9 @@ export const useChat = create<ChatState>((set, get) => ({
     if (isPreparing(root)) {
       set({ waitingPrep: true })
       const ready = await waitPrepared(root, left, (check) => useChat.subscribe(check))
-      if (!ready) return false
+      // 준비가 끝난 뒤 이 줄로 돌아오기 전에도 방문이 바뀔 수 있다 — 상태를 바꾸거나 보내기 **전에**
+      // 다시 본다(검토 확인 WINFB-R1-01: 준비 완료와 폴더 전환이 맞물리면 떠난 요청이 나갔다).
+      if (!ready || left()) return false
       set({ waitingPrep: false })
     }
     const requestId = crypto.randomUUID()

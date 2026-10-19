@@ -83,6 +83,38 @@ test('① A→B→A 로 돌아와도 떠나기 전의 요청은 되살아나지 
   expect(useChat.getState().busy).toBe(false)
 })
 
+test('① 준비가 끝나는 순간과 폴더 전환이 맞물려도 떠난 요청은 나가지 않는다 (검토 확인 WINFB-R1-01)', async () => {
+  const h = harness()
+  usePrep.getState().begin(ROOT)
+  const sending = useChat.getState().send('A 의 옛 답')
+  // 이미 줄 선 두 완료를 "준비 완료 → 폴더 로드" 순서로 — send 가 깨어나기 전에 방문이 바뀐다.
+  await Promise.all([
+    Promise.resolve().then(() => usePrep.getState().end(ROOT)),
+    Promise.resolve().then(() => useChat.getState().load('/p/other'))
+  ])
+  expect(await sending).toBe(false)
+  expect(h.sent, '떠난 A 의 요청이 나갔다').toEqual([])
+  expect(useChat.getState().root).toBe('/p/other')
+})
+
+test('① A 의 늦은 재개가 B 의 준비 대기 표시를 끄지 않는다 (검토 확인 WINFB-R1-01)', async () => {
+  const h = harness()
+  usePrep.getState().begin(ROOT)
+  const sendingA = useChat.getState().send('A 의 옛 답')
+  usePrep.getState().begin('/p/other')
+  await Promise.all([
+    Promise.resolve().then(() => usePrep.getState().end(ROOT)),
+    Promise.resolve().then(() => useChat.getState().load('/p/other'))
+  ])
+  const sendingB = useChat.getState().send('B 의 답')      // B 도 준비 중 — 기다린다
+  expect(await sendingA).toBe(false)
+  expect(useChat.getState().waitingPrep, 'A 가 B 의 대기 표시를 껐다').toBe(true)
+  expect(useChat.getState().busy).toBe(true)
+  usePrep.getState().end('/p/other')
+  expect(await sendingB).toBe(true)
+  expect(h.sent).toEqual(['B 의 답'])
+})
+
 test('① 같은 폴더의 준비가 겹치면 모두 끝나야 보낸다 (검토 WINFB-R1-01 보조)', async () => {
   const h = harness()
   usePrep.getState().begin(ROOT)
