@@ -86,7 +86,9 @@ test('A 의 준비를 기다리는 중에 B 를 열면 B 는 잠기지 않고, �
     const ta = page.locator('.chat-composer textarea')
     await expect(ta).toBeVisible({ timeout: 30_000 })
     await ta.fill('A 의 준비가 끝나면 보낼 답')
-    await page.locator('.chat-composer button.send').click()
+    // 준비 중에는 보내기가 잠긴다(알림창 B안). 첫 마디 단추는 기다렸다 보내는 길이다.
+    await expect(page.locator('.chat-composer button.send')).toBeDisabled()
+    await page.locator('.chat-empty button.primary').click()
     await expect(page.getByRole('status')).toContainText('준비가 끝나면 바로 보낼게요')
     await openProject(page, b)
     await expect(page.locator('.chat-msg.assistant')).toContainText('굵은 문서', { timeout: 30_000 })

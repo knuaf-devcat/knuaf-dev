@@ -23,9 +23,11 @@ test('a failed status check is a confirmed failure, not a dead end', async () =>
     await expect(page.getByRole('button', { name: '다시 확인' })).toBeVisible()
     // "확인 중"은 어느 자리에도 남으면 안 된다 — 아래 칸의 캡션도 포함해서.
     await expect(page.locator('text=연결 확인 중…')).toHaveCount(0)
-    // 실패 원문은 피드백 카드의 "자세히" 아래로 간다 — 헤드라인은 학생용 문장.
-    await expect(page.locator('.feedback').first()).toBeVisible()
-    await expect(page.locator('.feedback summary:has-text("자세히")').first()).toBeVisible()
+    // 실패 원문은 입력칸 위 한 줄 알림의 "자세히" 아래로 간다 — 헤드라인은 학생용 문장(알림창 B안).
+    const line = page.locator('.chat-zone .zline').first()
+    await expect(line).toBeVisible()
+    await line.getByRole('button', { name: '자세히' }).click()
+    await expect(page.locator('.chat-zone .zline-raw').first()).toBeVisible()
   } finally {
     await electronApp.close()
   }

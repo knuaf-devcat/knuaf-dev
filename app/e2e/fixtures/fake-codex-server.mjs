@@ -27,8 +27,9 @@ const ASK_COMMAND = process.env.FAKE_CODEX_ASK_COMMAND ?? 'cat /etc/hosts'
 const ASK_REASON = process.env.FAKE_CODEX_ASK_REASON ?? '논문 폴더 밖 파일을 읽으려고 해요'
 /** 응답 지연(ms) — 느린 기계(CI) 조건을 만들기 위한 시험 전용 스위치. 기본 0(동작 불변). */
 const DELAY_MS = Math.max(0, Number(process.env.FAKE_CODEX_DELAY_MS ?? 0) || 0)
-/** 턴을 끝내지 않는다 — "작업 중" 화면을 안정적으로 본다. */
+/** 턴을 끝내지 않는다 — "작업 중" 화면을 안정적으로 본다. `after-delta` 면 답 첫 조각(전달 확인)을 보낸 뒤 붙잡는다. */
 const HOLD = process.env.FAKE_CODEX_HOLD === '1'
+const HOLD_AFTER_DELTA = process.env.FAKE_CODEX_HOLD === 'after-delta'
 
 const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const loggedIn = () => MODE === 'logged-in' || (MODE === 'logged-out' && !!STATE && existsSync(STATE))
@@ -78,6 +79,10 @@ function handle(message) {
         return
       }
       if (HOLD) return
+      if (HOLD_AFTER_DELTA) {
+        out({ method: 'item/agentMessage/delta', params: { threadId, itemId: 'i-fake', delta: '답을 쓰고 있어요' } })
+        return
+      }
       const text = replyText()
       if (text) {
         out({ method: 'item/agentMessage/delta', params: { threadId, itemId: 'i-fake', delta: text } })
