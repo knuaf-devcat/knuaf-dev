@@ -45,7 +45,8 @@ function stubFs(opts: { failRename?: number; failWrite?: boolean } = {}): {
       const v = files.get(String(from))
       if (v !== undefined) { files.set(String(to), v); files.delete(String(from)) }
     }) as unknown as SafeWriteFs['renameSync'],
-    unlinkSync: ((p: string) => { files.delete(String(p)) }) as unknown as SafeWriteFs['unlinkSync']
+    unlinkSync: ((p: string) => { files.delete(String(p)) }) as unknown as SafeWriteFs['unlinkSync'],
+    readFileSync: (p: string) => { const v = files.get(String(p)); if (v === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return v }
   }
   return { fs, files, renames: () => renames }
 }
@@ -70,6 +71,30 @@ test('계속 막히면 대상을 건드리지 않는다 — 최신본은 .tmp �
   expect(files.get('/p/chat.json'), '대상을 직접 덮었다').toBe('OLD')
   expect(files.get('/p/chat.json.tmp'), '최신본을 남기지 않았다').toBe('BODY')
   expect(logs.join('\n'), '남긴 자리를 알린다').toContain('남겼어요')
+})
+
+test('대상 없이 .tmp 만 완성본이면, 다시 쓰기 전에 먼저 대상으로 올린다 (rename 막히면 복사)', () => {
+  const { fs, files } = stubFs({ failRename: 99 })
+  files.set('/p/chat.json.tmp', 'KEPT')
+  const r = writeFileAtomic('/p/chat.json', 'NEW', { fs, delaysMs: NO_WAIT, log: () => {} })
+  expect(r.ok).toBe(false)                              // rename 은 끝내 막혔다
+  expect(files.get('/p/chat.json'), '유일한 완성본을 대상으로 올리지 않았다').toBe('KEPT')
+  expect(files.get('/p/chat.json.tmp')).toBe('NEW')
+})
+
+test('유일한 완성본을 올리지 못하면 이번 저장은 건너뛴다 — .tmp 는 그대로', () => {
+  const files = new Map<string, string>([['/p/chat.json.tmp', 'KEPT']])
+  const fs: SafeWriteFs = {
+    writeFileSync: (() => { throw eperm() }) as unknown as SafeWriteFs['writeFileSync'],
+    renameSync: (() => { throw eperm() }) as unknown as SafeWriteFs['renameSync'],
+    unlinkSync: (() => { throw new Error('지우면 안 된다') }) as unknown as SafeWriteFs['unlinkSync'],
+    readFileSync: (p: string) => { const v = files.get(String(p)); if (v === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return v }
+  }
+  const logs: string[] = []
+  const r = writeFileAtomic('/p/chat.json', 'NEW', { fs, delaysMs: NO_WAIT, log: (m) => logs.push(m) })
+  expect(r.ok).toBe(false)
+  expect(files.get('/p/chat.json.tmp'), '유일한 완성본을 건드렸다').toBe('KEPT')
+  expect(logs.join('\n')).toContain('건너뛰었어요')
 })
 
 test('쓰기가 막히면 던지지 않고 실패를 돌려준다', () => {
@@ -164,7 +189,8 @@ function faultyFs(rule: { rename?: () => Error | null; write?: (path: string) =>
       writeFileSync(p, d, o as never)
     }) as unknown as SafeWriteFs['writeFileSync'],
     renameSync: ((a: string, b: string) => { const f = rule.rename?.() ?? null; if (f) throw f; renameSync(a, b) }) as unknown as SafeWriteFs['renameSync'],
-    unlinkSync: ((p: string) => { const f = rule.unlink?.(String(p)) ?? null; if (f) throw f; unlinkSync(p) }) as unknown as SafeWriteFs['unlinkSync']
+    unlinkSync: ((p: string) => { const f = rule.unlink?.(String(p)) ?? null; if (f) throw f; unlinkSync(p) }) as unknown as SafeWriteFs['unlinkSync'],
+    readFileSync: (p: string) => readFileSync(p, 'utf8')
   }
 }
 
@@ -219,6 +245,45 @@ test('.tmp 에만 최신본이 있을 때 다음 .tmp 쓰기가 중간에 멈춰
   expect(() => JSON.parse(readFileSync(file + '.tmp', 'utf8')), '반례가 .tmp 를 반쪽으로 만들지 못했다(시험 전제)').toThrow()
   const third = service(() => {}).snapshot(root, 'codex')
   expect(third.messages.map((m) => m.text), '완전한 기록이 하나도 남지 않았다').toEqual(['앞서 나눈 긴 대화', '안녕'])
+})
+
+/** 대화를 처음 저장하는 자리(send·이벤트의 publish)를 로그인·AI 호출 없이 부른다. */
+const publish = (svc: ChatService, s: ChatSnapshot): void => { (svc as unknown as { publish(s: ChatSnapshot): void }).publish(s) }
+const TWO = (root: string): ChatSnapshot => ({ ...(JSON.parse(RUNNING(root)) as ChatSnapshot), state: 'idle' })
+
+test('대상 없이 .tmp 만 완성본일 때 복구 재저장이 .tmp 를 반쪽으로 만들어도 대화는 남는다 (확인 2회째 반례)', () => {
+  const { root, file } = project()
+  publish(service(() => {}, faultyFs({ rename: eperm })), TWO(root))              // 첫 저장부터 rename 막힘
+  expect(existsSync(file), '시험 전제: 대상이 생기지 않아야 한다').toBe(false)
+  const emitted: ChatSnapshot[] = []
+  const second = service((s) => emitted.push(s), faultyFs({ rename: eperm, write: (p) => (p.endsWith('.tmp') ? 'partial' : null) }))
+  expect(second.snapshot(root, 'codex').messages).toHaveLength(2)                  // .tmp 에서 되살려 곧바로 다시 저장
+  expect(emitted).toHaveLength(1)
+  expect(() => JSON.parse(readFileSync(file + '.tmp', 'utf8')), '시험 전제: .tmp 가 반쪽이 돼야 한다').toThrow()
+  expect(JSON.parse(readFileSync(file, 'utf8')).messages, '다시 쓰기 전에 완성본을 대상으로 올리지 않았다').toHaveLength(2)
+  expect(service(() => {}).snapshot(root, 'codex').messages, '완전한 기록이 하나도 남지 않았다').toHaveLength(2)
+})
+
+test('대상 없이 .tmp 만 완성본이고 대상으로 올리지도 못하면, 그 .tmp 를 건드리지 않는다', () => {
+  const { root, file } = project()
+  publish(service(() => {}, faultyFs({ rename: eperm })), TWO(root))
+  const kept = readFileSync(file + '.tmp', 'utf8')
+  const second = service(() => {}, faultyFs({ rename: eperm, write: () => 'partial' }))   // 복사도 .tmp 쓰기도 반쪽
+  expect(() => second.snapshot(root, 'codex')).not.toThrow()
+  expect(readFileSync(file + '.tmp', 'utf8'), '유일한 완성본(.tmp)을 건드렸다').toBe(kept)
+  const third = service(() => {}).snapshot(root, 'codex')                          // 막힘이 풀린 실행
+  expect(third.messages, '완전한 기록이 하나도 남지 않았다').toHaveLength(2)
+  expect(JSON.parse(readFileSync(file, 'utf8')).messages).toHaveLength(2)
+})
+
+test('초안도 대상 없이 .tmp 만 있으면 다시 쓰기 전에 대상으로 올린다', () => {
+  const { root, draft } = project()
+  const first = service(() => {}, faultyFs({ rename: eperm }))
+  first.setDraft(root, '처음 쓴 글'); first.flushDrafts()
+  expect(existsSync(draft), '시험 전제: 대상이 생기지 않아야 한다').toBe(false)
+  const second = service(() => {}, faultyFs({ rename: eperm, write: (p) => (p.endsWith('.tmp') ? 'partial' : null) }))
+  second.setDraft(root, '이어서 고친 글'); second.flushDrafts()
+  expect(readFileSync(draft, 'utf8'), '다시 쓰기 전에 완성본을 대상으로 올리지 않았다').toBe('처음 쓴 글')
 })
 
 test('.tmp 에만 최신본이 있을 때 다음 .tmp 쓰기가 열기에서 막히면 그 최신본은 그대로다', () => {

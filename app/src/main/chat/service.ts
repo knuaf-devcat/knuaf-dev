@@ -8,6 +8,13 @@ import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
 import type { ChatSnapshot, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
 
+/** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
+function parseChat(text: string, provider: Provider): ChatSnapshot {
+  const v = JSON.parse(text) as ChatSnapshot
+  if (!Array.isArray(v?.messages) || v.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
+  return v
+}
+
 export class ChatService {
   private snapshots = new Map<string, ChatSnapshot>()
   private connections = new Map<string, AgentConnection>()
@@ -41,7 +48,7 @@ export class ChatService {
     /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
     fs?: SafeWriteFs
   }) {}
-  private get writeFs(): SafeWriteFs { return this.opts.fs ?? { writeFileSync, renameSync, unlinkSync } }
+  private get writeFs(): SafeWriteFs { return this.opts.fs ?? { writeFileSync, renameSync, unlinkSync, readFileSync: (p) => readFileSync(p, 'utf8') } }
   /** PATH 앞자리에 둘 인터프리터 bin 경로 — 프로젝트 .venv 가 번들보다 우선한다. */
   private pythonBinDirs(root: string): string[] {
     const venv = this.opts.venvPython?.(root) ?? null
@@ -115,7 +122,7 @@ export class ChatService {
   private publish(s: ChatSnapshot) {
     const file = this.file(s.root, s.provider)
     try { mkdirSync(dirname(file), { recursive: true }) } catch { /* 아래 쓰기가 같은 이유로 실패한다 */ }
-    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600, fs: this.writeFs })
+    writeFileAtomic(file, JSON.stringify(s, null, 2), { mode: 0o600, fs: this.writeFs, complete: (text) => { try { parseChat(text, s.provider); return true } catch { return false } } })
     this.opts.emit(structuredClone(s))
   }
   snapshot(root: string, provider: Provider): ChatSnapshot {
@@ -124,11 +131,7 @@ export class ChatService {
     if (!s) {
       // Corrupt state must not silently reset the interview or its session.
       // 저장이 막혀 완성본이 `.tmp` 에만 있으면 그것으로 되살린다(WIN-ONEDRIVE-R1-01).
-      const got = readRecoverable(this.file(root, provider), (text) => {
-        const v = JSON.parse(text) as ChatSnapshot
-        if (!Array.isArray(v?.messages) || v.provider !== provider) throw new Error('대화 기록을 읽지 못했어요. 기존 기록을 보존한 채 복구가 필요해요.')
-        return v
-      })
+      const got = readRecoverable(this.file(root, provider), (text) => parseChat(text, provider))
       if (got) {
         s = got.value
         s.root = root; s.permission = undefined
