@@ -21,6 +21,13 @@ import { CHAT } from '../src/renderer/src/copy'
 
 const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
 
+/**
+ * 앱이 **일을 하는** 것을 기다리는 대기 — 윈도우 러너는 한 걸음이 기본 5초를 넘긴다(실측:
+ * 윈도우 app 잡 28.9분 vs 맥 9.5분, 아래 시험의 기본 5초 poll 이 그렇게 걸렸다).
+ * 값이 아니라 기다림만 늘린다 — 재는 것은 그대로다.
+ */
+const APP_WORK = 30_000
+
 type Held = { __held?: (() => void)[] }
 
 /**
@@ -70,22 +77,24 @@ test('재읽기가 보류된 동안 보낸 메시지는 늦은 응답에 되돌�
   const body = '재읽는 동안 보낸 요청 MACR3'
   try {
     await openProject(page, root, splitReady)
-    await expect(page.locator('.chat-thread')).toContainText('기존 대화')
+    await expect(page.locator('.chat-thread'), '대화 기록이 그려지지 않았다').toContainText('기존 대화', { timeout: APP_WORK })
     await composer.fill(body)
-    await expect.poll(() => page.evaluate((r) => window.knuaf.chat.draft(r), root)).toEqual({ result: body })
+    await expect.poll(() => page.evaluate((r) => window.knuaf.chat.draft(r), root), { timeout: APP_WORK }).toEqual({ result: body })
 
     // 같은 폴더를 다시 읽되, 연결 상태 응답에서 멈춰 세운다.
     await holdChannel(electronApp, 'chat:status')
     await openProject(page, root, splitReady)
-    await expect.poll(() => heldCount(electronApp)).toBeGreaterThan(0)
+    // 붙잡힌 요청이 **나타나기를** 기다린다 — 앱이 연결 상태를 확인하는 것은 폴더를 열고 나서다.
+    await expect.poll(() => heldCount(electronApp), { timeout: APP_WORK, message: '재읽기의 상태 확인 요청이 붙잡히지 않았다' }).toBeGreaterThan(0)
     await expect(composer, '재읽기 중에 입력칸이 살아 있어야 한다').toHaveValue(body)
 
     // 재읽기가 대기 중인데 그대로 보낸다 — 화면·디스크에 붙고 초안은 소비된다.
     await page.locator('.chat-composer button.send').click()
-    await expect(page.locator('.chat-msg.user')).toContainText(body)
+    // 도우미 턴이 돌아 화면 스냅샷이 갱신되기까지(가짜 CLI 실행) — 앱이 일하는 자리다.
+    await expect(page.locator('.chat-msg.user'), '보낸 글이 화면에 붙지 않았다').toContainText(body, { timeout: APP_WORK })
     await expect(composer).toHaveValue('')
-    await expect.poll(() => diskUserTexts(root), { timeout: 30_000 }).toEqual([body])
-    await expect.poll(() => page.evaluate((r) => window.knuaf.chat.draft(r), root)).toEqual({ result: '' })
+    await expect.poll(() => diskUserTexts(root), { timeout: APP_WORK }).toEqual([body])
+    await expect.poll(() => page.evaluate((r) => window.knuaf.chat.draft(r), root), { timeout: APP_WORK }).toEqual({ result: '' })
 
     // 보류를 풀면 늦은 읽기 응답이 도착한다. 그 뒤에도 화면과 초안이 **새 상태**여야 한다.
     await releaseHeld(electronApp)
@@ -108,9 +117,21 @@ test('절 목록이 늦어도 헬퍼는 준비 전에 돌아오지 않는다 (MA
     // 절 목록 응답만 붙잡아 둔다 — 그동안 배치는 빈 한 칸(solo·폭 1180)으로 조용하다.
     await holdChannel(electronApp, 'rpc', { at: 1, is: 'project.sections' })
     let returned = false
-    const opening = openProject(page, root, (p: Page) => paperReady(p, '600평')).then(() => { returned = true })
-    await expect.poll(() => heldCount(electronApp)).toBeGreaterThan(0)
-    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
+    let openError: unknown = null
+    /**
+     * **이 약속은 늘 처리한다.** 시험이 먼저 실패하면 `finally` 가 앱을 닫으면서 떠 있던 이
+     * 약속이 "Target page, context or browser has been closed" 로 거부되는데, 그 늦은 오류가
+     * 첫 실패(예: 붙잡힌 요청이 안 나타남)를 덮어 진짜 원인을 가린다 — 윈도우 CI 에서 실제로
+     * 그렇게 보고됐다(윈도우 trace). 실패는 시험이 낸 그대로 남긴다.
+     */
+    const opening = openProject(page, root, (p: Page) => paperReady(p, '600평'))
+      .then(() => { returned = true }, (e: unknown) => { openError = e })
+    // 앱이 절 목록을 요청하기까지 — 폴더를 열고 사이드카를 띄우는 첫 걸음이다.
+    await expect.poll(() => heldCount(electronApp), {
+      timeout: APP_WORK,
+      message: '절 목록 요청이 붙잡히지 않았다 — 앱이 아직 절 목록을 요청하지 않았다'
+    }).toBeGreaterThan(0)
+    await expect(page.locator(COMPOSER)).toBeVisible({ timeout: APP_WORK })
 
     // 준비(절 목록) 전에는 헬퍼가 돌아오지 않는다 — 돌아왔다면 시험이 지금 재고 고를 수 있다.
     expect(returned, '절 목록이 오기 전에 헬퍼가 돌아왔다').toBe(false)
@@ -118,10 +139,11 @@ test('절 목록이 늦어도 헬퍼는 준비 전에 돌아오지 않는다 (MA
 
     await releaseHeld(electronApp)
     await opening
+    expect(openError, `헬퍼가 실패했다: ${String(openError)}`).toBeNull()
     expect(returned, '절 목록이 왔는데도 헬퍼가 돌아오지 않았다').toBe(true)
     // 이제 준비됐다 — 바로 고를 수 있는 상태다.
-    await expect(page.locator('.paperpane .sheet')).toContainText('600평')
-    await expect(page.locator('.workspace.split')).toBeVisible()
+    await expect(page.locator('.paperpane .sheet')).toContainText('600평', { timeout: APP_WORK })
+    await expect(page.locator('.workspace.split')).toBeVisible({ timeout: APP_WORK })
   } finally {
     await electronApp.close()
   }
