@@ -113,9 +113,9 @@ jobs:
             if (-not (Test-Path $p)) { Write-Error "동봉 파일이 없다: $p"; exit 1 }
             Write-Host "동봉 확인: $rel"
           }
-          foreach ($rel in @('LICENSE', 'BUNDLE.txt')) {
+          foreach ($rel in @('LICENSE', 'NOTICE', 'LICENSE-ripgrep-MIT', 'UNLICENSE-ripgrep', 'BUNDLE.txt', '.complete')) {
             $p = Join-Path $root (Join-Path 'resources\codex' $rel)
-            if (-not (Test-Path $p)) { Write-Error "고지문이 없다: $p"; exit 1 }
+            if (-not (Test-Path $p)) { Write-Error "고지문·완료 표식이 없다: $p"; exit 1 }
             Write-Host "고지 확인: $rel"
           }
 
