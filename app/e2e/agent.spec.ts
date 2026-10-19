@@ -9,10 +9,72 @@ import {
   setAgentPlatformForTest, setBundledDirsProvider, skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
 } from '../src/main/agent'
 import { serverArgsFor } from '../src/main/chat/codex'
+import { pathKeyOf } from '../src/main/chat/contracts'
 import { ChatService } from '../src/main/chat/service'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
+// 시험이 process.env 를 건드리기 전 값 — 아래 복원 시험이 이 값과 비교한다(BUNDLE-WIN-ENV).
+const pathBeforeTests = process.env[pathKeyOf(process.env)]
+const homeBeforeTests = process.env.HOME
+
+/**
+ * env 를 잠시 바꾸고 **정확히** 되돌린다.
+ *
+ * 윈도우의 `process.env` 는 키 대소문자를 구분하지 않는다 — `Path` 와 `PATH` 는 같은 변수다.
+ * 그래서 바꾼 키의 "이전 값"을 그때그때 읽어 되돌리면, 첫 키를 비운 뒤 두 번째 키를 읽을 때 이미
+ * 빈 값이 잡히고, 복원에서 그 빈 값이 원래 값을 덮어쓴다. 실제로 동봉 시험이 윈도우 CI 에서
+ * PATH 를 빈 채로 끝나 다음 파일(`chat.spec.ts`)의 PATH 시험을 깨뜨렸다(BUNDLE-WIN-ENV).
+ *
+ * 그래서 바꾸기 전 **전체 키·값을 스냅샷**하고, 복원할 때는 현재 키를 모두 지운 뒤 스냅샷을
+ * (대소문자 무시로 짝지어) 그대로 다시 넣는다. 맥처럼 두 키가 다른 변수인 곳에서도 같다.
+ */
+async function withEnv<T>(
+  patch: Record<string, string>,
+  fn: () => T | Promise<T>,
+  env: Record<string, string | undefined> = process.env
+): Promise<T> {
+  const keys = Object.keys(env)
+  const before = new Map(keys.map((k) => [k, env[k]] as const))
+  // 윈도우용 보조 색인 — 스냅샷에 `Path` 하나뿐인데 복원 루프가 다른 표기로 돌 때 쓴다.
+  // 정확한 키가 있으면 언제나 그쪽이 이긴다(맥은 `PATH`·`Path` 가 서로 다른 변수다).
+  const beforeLower = new Map(keys.map((k) => [k.toLowerCase(), env[k]] as const))
+  try {
+    for (const [k, v] of Object.entries(patch)) env[k] = v
+    return await fn()
+  } finally {
+    for (const k of Object.keys(env)) delete env[k]
+    for (const k of keys) {
+      const v = before.has(k) ? before.get(k) : beforeLower.get(k.toLowerCase())
+      if (v !== undefined) env[k] = v
+    }
+  }
+}
+
+/**
+ * 윈도우 `process.env` 흉내 — 키를 대소문자 무시로 다루고, 변수마다 원래 키 이름 하나만 남긴다.
+ * 맥에서는 `PATH` 와 `Path` 가 서로 다른 변수라 이 누수를 재현할 수 없어서 시험용으로 만든다.
+ */
+function winLikeEnv(init: Record<string, string>): Record<string, string> {
+  const vars = new Map<string, { name: string; value: string }>()
+  for (const [k, v] of Object.entries(init)) vars.set(k.toLowerCase(), { name: k, value: v })
+  return new Proxy({} as Record<string, string>, {
+    get: (_t, prop) => (typeof prop === 'string' ? vars.get(prop.toLowerCase())?.value : undefined),
+    set: (_t, prop, value) => {
+      if (typeof prop !== 'string') return false
+      const key = prop.toLowerCase()
+      vars.set(key, { name: vars.get(key)?.name ?? prop, value: String(value) })
+      return true
+    },
+    deleteProperty: (_t, prop) => (typeof prop === 'string' ? vars.delete(prop.toLowerCase()) : true),
+    has: (_t, prop) => (typeof prop === 'string' ? vars.has(prop.toLowerCase()) : false),
+    ownKeys: () => [...vars.values()].map((v) => v.name),
+    getOwnPropertyDescriptor: (_t, prop) => {
+      const v = typeof prop === 'string' ? vars.get(prop.toLowerCase()) : undefined
+      return v ? { enumerable: true, configurable: true, value: v.value } : undefined
+    }
+  })
+}
 
 // Where `claude` lives is machine-specific (Homebrew prefix, ~/.local/bin, a CI
 // runner without it at all), so these assert the resolution behaviour rather than
@@ -117,19 +179,18 @@ test.describe('findExecutable / probeVersion', () => {
     /**
      * `ChatService` 는 탐색을 `findExecutable(provider)` 로 부른다 — env 인자가 없어 **process.env**
      * 를 본다(연결 객체에 넘기는 env 는 spawn 환경이라 다른 것이다). 그래서 실제 소비 경로를
-     * 검사하려면 process.env 를 잠시 바꿔야 한다. 끝나면 되돌린다.
+     * 검사하려면 process.env 를 잠시 바꿔야 한다. 끝나면 `withEnv` 가 정확히 되돌린다 —
+     * 윈도우에서는 `Path` 와 `PATH` 가 같은 변수라 별칭을 함께 만지면 복원이 서로를 덮어쓴다.
      */
     const withBundled = (dir: string, fn: () => void | Promise<void>, envPatch: Record<string, string> = {}) => {
       const prevPlatform = setAgentPlatformForTest('win32')
       const prevDirs = setBundledDirsProvider(() => [dir])
-      const prevEnv = new Map<string, string | undefined>()
-      const patch: Record<string, string> = { Path: '', PATH: '', HOME: dir, USERPROFILE: dir, ...envPatch }
+      // 플랫폼의 **실제** PATH 키 하나만 다룬다(윈도우면 `Path`).
+      const patch: Record<string, string> = { [pathKeyOf(process.env)]: '', HOME: dir, USERPROFILE: dir, ...envPatch }
       return (async () => {
         try {
-          for (const [k, v] of Object.entries(patch)) { prevEnv.set(k, process.env[k]); process.env[k] = v }
-          await fn()
+          await withEnv(patch, fn)
         } finally {
-          for (const [k, v] of prevEnv) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
           setAgentPlatformForTest(prevPlatform)
           setBundledDirsProvider(prevDirs)
         }
@@ -200,6 +261,31 @@ test.describe('findExecutable / probeVersion', () => {
       try {
         expect(findExecutable('knuaf-bundle-probe', { PATH: '', HOME: dir }, { platform: 'darwin' })).toBe(join(dir, 'knuaf-bundle-probe'))
       } finally { setBundledDirsProvider(prevDirs) }
+    })
+
+    /**
+     * BUNDLE-WIN-ENV 재현 — 윈도우 CI 에서 이 시험들이 PATH 를 빈 채로 끝나 다음 파일
+     * (`chat.spec.ts`)의 PATH 시험을 깨뜨렸다. 맥에서는 `PATH`·`Path` 가 다른 변수라 재현되지
+     * 않으므로, 윈도우처럼 대소문자를 무시하는 env 를 만들어 **복원 로직 자체**를 검사한다.
+     */
+    test('env 복원은 윈도우의 키 대소문자 무시에서도 원래 값으로 돌아온다 (BUNDLE-WIN-ENV)', async () => {
+      const win = winLikeEnv({ Path: 'C:\\Windows\\System32', HOME: '/Users/s' })
+      await withEnv({ Path: '', PATH: '' }, async () => { expect(win.Path).toBe(''); expect(win.PATH).toBe('') }, win)
+      expect(win.PATH).toBe('C:\\Windows\\System32')   // 키별 "이전 값" 복원은 여기서 '' 를 남겼다
+      expect(win.Path).toBe('C:\\Windows\\System32')
+      expect(Object.keys(win)).toEqual(['Path', 'HOME'])  // 별칭이 새 변수로 늘어나지도 않는다
+      // 맥처럼 서로 다른 변수인 곳에서도 그대로 동작한다.
+      const mac = { PATH: '/usr/bin', Path: 'x' }
+      await withEnv({ PATH: '' }, () => { expect(mac.PATH).toBe('') }, mac)
+      expect(mac.PATH).toBe('/usr/bin')
+      expect(mac.Path).toBe('x')
+    })
+
+    /** 발주서 요청 — 시험이 끝난 뒤 실제 환경이 원래대로인지 여기서 단언한다. */
+    test('동봉 시험 뒤에도 PATH 가 비지 않는다 — 다음 파일로 새지 않는다 (BUNDLE-WIN-ENV)', () => {
+      // 윈도우 CI 에서 종전 코드는 여기서 '' 였고, 그래서 다음 파일의 PATH 시험이 깨졌다.
+      expect(process.env[pathKeyOf(process.env)]).toBe(pathBeforeTests)
+      expect(process.env.HOME).toBe(homeBeforeTests)
     })
   })
 
