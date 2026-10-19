@@ -10,7 +10,7 @@ import { findExecutable, skillSource } from '../src/main/agent'
 import { writeCliShim } from './fixtures/fake-codex'
 import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
-import type { ConnectionStatus } from '../src/shared/chat'
+import type { ConnectionStatus, Provider } from '../src/shared/chat'
 
 const appRoot = resolve(__dirname, '..')
 const source = skillSource(appRoot, false, '/nonexistent')
@@ -296,6 +296,95 @@ test('다시 열기 뒤 취소는 새 로그인 프로세스까지 끝낸다 (P2
 })
 
 // ---------------------------------------------------------------- 취소한 로그인 시도
+
+/** 타이머를 세는 가짜 시계 — 공급자별 폴링이 서로를 지우는지 본다. */
+function countingTimers(): { timers: Set<unknown>; restore: () => void } {
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  const timers = new Set<unknown>()
+  globalThis.setInterval = ((fn: () => void, ms?: number) => { const t = realSetInterval(fn, ms); timers.add(t); return t }) as unknown as typeof setInterval
+  globalThis.clearInterval = ((t?: unknown) => { timers.delete(t); return realClearInterval(t as never) }) as unknown as typeof clearInterval
+  return { timers, restore: () => { for (const t of timers) realClearInterval(t as never); globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval } }
+}
+
+/**
+ * 연결 IPC 대역 — 로그인은 **공급자별로 보류**해 두고, 시험이 원하는 순서로 성공시킨다.
+ * `status` 는 늘 "아직 연결 안 됨"이라고 답한다(폴링이 스스로 끝나지 않게).
+ */
+function pendingConnections(): {
+  release: (provider: Provider, value: unknown) => void
+  restore: () => void
+} {
+  const waiting = new Map<Provider, (v: unknown) => void>()
+  const realWindow = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    knuaf: { connect: {
+      status: async () => ({ result: { installed: true, connected: false, version: null, detail: '', probe: 'ok' } }),
+      login: (provider: Provider) => new Promise((resolve) => { waiting.set(provider, resolve) }),
+      cancel: async () => ({ result: true }),
+      reopen: async () => ({ result: true })
+    } }
+  }
+  return {
+    release: (provider, value) => { waiting.get(provider)?.(value) },
+    restore: () => { (globalThis as { window?: unknown }).window = realWindow }
+  }
+}
+
+test('한 공급자의 로그인 시작은 다른 공급자의 폴링·시도 번호를 건드리지 않는다 (W2 D1)', async () => {
+  // W1 재현 ②: Claude 로그인을 시작하는 것만으로 GPT 의 로그인 응답이 무효가 되고 폴링이
+  // 사라져, GPT 가 실제로 연결됐는데도 행이 "로그인 중"에 멈췄다.
+  const clock = countingTimers()
+  const ipc = pendingConnections()
+  try {
+    const store = useConnect.getState()
+    store.stopPolling()
+    const codexRun = store.login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    const claudeRun = store.login('claude')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useConnect.getState().loggingIn, '두 로그인이 동시에 진행 중이어야 한다').toEqual({ codex: true, claude: true })
+
+    ipc.release('codex', { result: true })
+    await codexRun
+    // GPT 응답이 버려지지 않았다 — 그 공급자의 폴링이 생겼다.
+    expect(clock.timers.size, 'GPT 로그인 응답이 Claude 시작 때문에 버려졌다').toBe(1)
+    ipc.release('claude', { result: true })
+    await claudeRun
+    // 둘 다 저마다의 타이머를 갖는다 — 하나가 다른 하나를 지우지 않는다.
+    expect(clock.timers.size).toBe(2)
+  } finally {
+    useConnect.getState().stopPolling()
+    clock.restore()
+    ipc.restore()
+  }
+})
+
+test('한 공급자 취소는 다른 공급자의 폴링을 멈추지 않는다 (W2 D1)', async () => {
+  const clock = countingTimers()
+  const ipc = pendingConnections()
+  try {
+    const store = useConnect.getState()
+    store.stopPolling()
+    const codexRun = store.login('codex')
+    await new Promise((r) => setTimeout(r, 0))
+    ipc.release('codex', { result: true })
+    await codexRun
+    const claudeRun = store.login('claude')
+    await new Promise((r) => setTimeout(r, 0))
+    ipc.release('claude', { result: true })
+    await claudeRun
+    expect(clock.timers.size).toBe(2)
+
+    await store.cancel('codex')
+    expect(useConnect.getState().loggingIn.codex).toBe(false)
+    expect(clock.timers.size, 'GPT 취소가 Claude 의 기다림까지 끊었다').toBe(1)
+  } finally {
+    useConnect.getState().stopPolling()
+    clock.restore()
+    ipc.restore()
+  }
+})
 
 test('취소 뒤 늦은 로그인 응답은 폴링을 되살리지 않는다 (P2-R1-04)', async () => {
   // 타이머를 세는 가짜 시계 — 취소 뒤에도 폴링이 남는지 본다.

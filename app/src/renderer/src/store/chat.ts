@@ -138,7 +138,9 @@ export const useChat = create<ChatState>((set, get) => ({
   appendDraft: (text) => get().insertPath(text),
   clearError: () => set({ error: null }),
   load: async (root, provider = get().provider) => {
-    stopPoll()   // 폴더가 바뀌면 이전 로그인 기다림은 끝난다(규칙은 store/connect 한 곳에 있다)
+    // 폴더·공급자가 바뀌면 **이전 대화의** 로그인 기다림만 끝난다(규칙은 store/connect 한 곳에 있다).
+    // 첫 화면이 다른 공급자의 로그인을 지켜보고 있어도 여기서 끊기지 않는다(W2 D1).
+    stopPoll(get().provider)
     // 초안을 비우는 것은 폴더가 바뀔 때뿐이다 — A 에 쓰다 만 답변이 B 에 그대로
     // 보이는 것을 막는 게 목적이다(GUI-01). 같은 폴더의 재로드(공급자 전환, 첫 로드가
     // 끝나기 전 채팅 화면 마운트가 load 를 한 번 더 부르는 경주)에서까지 비우면 그
@@ -206,13 +208,13 @@ export const useChat = create<ChatState>((set, get) => ({
   login: async () => {
     const { root, provider } = get()
     if (!root) return
-    stopPoll()
+    stopPoll(provider)   // 같은 공급자의 이전 기다림만 끝낸다 — 다른 공급자의 로그인은 건드리지 않는다
     set({ busy: true, error: null })
     const r = await window.knuaf.chat.login(root, provider) as Reply<true>
     set({ busy: false, error: messageOf(r) })
     if ('error' in r && r.error) return
     // 브라우저 로그인은 오래 걸린다 — 3초마다, 3분까지. 이 폴더의 연결 상태를 다시 본다.
-    startPoll(async () => {
+    startPoll(provider, async () => {
       if (get().provider !== provider) return true   // 공급자가 바뀌었으면 이 기다림은 끝난 것이다
       await get().refreshStatus()
       return get().status?.connected === true
