@@ -259,7 +259,8 @@ test('첫 실행 두 단계 모두 폭 540 한 열 + 한 테두리 선택 묶음
   const dir = scratch()
   const bin = join(dir, 'bin')
   const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
-  // ① 연결 단계(고른 적 없음, 둘 다 연결됨).
+  // ① 연결 단계(고른 적 없음, 둘 다 연결됨). 둘 다 연결돼야 ② 의 폴더 단계 자동 건너뛰기가 선다(W2 D2).
+  writeFakeClaude(bin)
   const { electronApp, page } = await launch({ userData: mkdtempSync(join(tmpdir(), 'kd-ud-')), onboarded: false, env, waitFor: 'text=먼저, 쓰고 있는 AI를 연결해요' })
   try {
     const inner = await box(page, '.onb-inner')
@@ -285,7 +286,9 @@ test('첫 실행 두 단계 모두 폭 540 한 열 + 한 테두리 선택 묶음
 
 test('최근 논문은 한 줄 목록 — 이름 + 시점, 기록 번호 칩 없음 (N-R02)', async () => {
   const dir = scratch()
-  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const bin = join(dir, 'bin')
+  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
+  writeFakeClaude(bin)   // 저장된 선택(codex)+둘 다 연결 → 폴더 단계로 건너뛴다(W2 D2)
   const roots = [synthProject(), synthProject(), synthProject()]
   const { electronApp, page } = await launch({ userData: recentUserData(roots), env, waitFor: 'text=논문을 담을 폴더를 골라요' })
   try {

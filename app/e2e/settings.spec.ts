@@ -4,17 +4,19 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { launch, navTo, openPreset, openProject, python, scripts, synthProject } from './helpers'
-import { fakeCodexEnv } from './fixtures/fake-codex'
+import { fakeCodexEnv, writeFakeClaude } from './fixtures/fake-codex'
 
 const freshUserData = () => { const d = mkdtempSync(join(tmpdir(), 'kd-ud-')); mkdirSync(d, { recursive: true }); return d }
-/** 재실행 첫 화면은 시안 ② 폴더 화면이라 **연결이 확인돼 있어야** 폴더 단계가 선다 —
- *  가짜 codex(logged-in) + 고른 공급자 기록을 심어 폴더 카드까지 온다. */
+/** 재실행 첫 화면은 시안 ② 폴더 화면이라 **둘 다 연결이 확인돼 있어야** 폴더 단계가 선다 —
+ *  가짜 codex·claude(logged-in) + 고른 공급자 기록을 심어 폴더 카드까지 온다(W2 D2). */
 const connectedCodex = (userData: string): Record<string, string> => {
   mkdirSync(userData, { recursive: true })
   const file = join(userData, 'settings.json')
   const cur = existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : {}
   writeFileSync(file, JSON.stringify({ ...cur, provider_choice: { provider: 'codex', at: '2026-10-18T00:00:00.000Z' } }), 'utf-8')
-  return fakeCodexEnv(mkdtempSync(join(tmpdir(), 'kd-bin-')), { FAKE_CODEX_MODE: 'logged-in' })
+  const bin = mkdtempSync(join(tmpdir(), 'kd-bin-'))
+  writeFakeClaude(bin)
+  return fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
 }
 
 test('reopen a project from the recent-folder card (second visit)', async () => {

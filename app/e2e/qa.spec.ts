@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
-import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
+import { fakeCodexEnv, scratch, writeFakeClaude } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
 test('입력칸은 시안 P/L 대로 — 원형 + · 원형 보내기 · 테두리 없는 입력', async () => {
@@ -86,6 +86,7 @@ test('경고 상자 바탕은 호박이 아니라 아이스 그레이(허락 카
 test('재실행 첫 화면은 시안 ② 논문 폴더 화면 — 620px 가운데, 자동 열기 없음', async () => {
   const dir = scratch()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  writeFakeClaude(join(dir, 'bin'))   // 저장된 선택(codex)+둘 다 연결 → 폴더 단계로 건너뛴다(W2 D2)
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   mkdirSync(userData, { recursive: true })
   writeFileSync(join(userData, 'settings.json'), JSON.stringify({
