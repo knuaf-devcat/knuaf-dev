@@ -1,0 +1,18 @@
+{
+  "release": "20250918",
+  "version": "3.12.11",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "sha256": "f7bd4b224b5257a2530a9f798612239d9f95043a8432d44c93761a01c58492e9",
+      "size": 16630405
+    },
+    "x86_64-apple-darwin": {
+      "sha256": "2fa58b2877effd507b481f69be6fe9f1a7a4bcb5b9dc8ab2e8acc02b927b8e19",
+      "size": 16419476
+    },
+    "x86_64-pc-windows-msvc": {
+      "sha256": "919257921a6c75bb8cec70ed2b3fe946f5be1395641ae8301154abf567a55cf5",
+      "size": 45272321
+    }
+  }
+}

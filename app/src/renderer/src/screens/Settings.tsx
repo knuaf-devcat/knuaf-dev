@@ -5,6 +5,7 @@ import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
 import { HelperSheet } from '../components/HelperSheet'
 import { Feedback } from '../components/Feedback'
+import { RuntimeSetup } from '../components/RuntimeFix'
 import { OutputsTools } from './Outputs'
 import { TroubleshootSections } from './Troubleshoot'
 import { HELPER, PRIVACY_NOTE, SETTINGS, type DescribedError } from '../copy'
@@ -129,6 +130,8 @@ export function SettingsScreen() {
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.pythonTitle}</h2>{sidecar && <Badge label={sidecar.kind} />}</div>
         <div className="caption">현재 <code>{sidecar?.python ?? '—'}</code></div>
+        {/* 상시 버튼(D8) — 오류 카드가 없어도 여기서 앱 전용 Python을 준비할 수 있다. */}
+        <RuntimeSetup />
         <Disclosure label="고급">
           <div className="caption">기본 실행기 <code>{(sidecar as any)?.basePython ?? '—'}</code> · 오프라인 휠 <code>{(sidecar as any)?.wheelhouse ?? '없음'}</code></div>
           <div className="row" style={{ marginTop: 'var(--sp-2)' }}><input aria-label="Python 경로" style={{ minWidth: 360 }} value={override} onChange={(e) => setOverride(e.target.value)} placeholder="/usr/local/bin/python3.12 (비우면 자동)" /><button onClick={save}>적용·재시작</button></div>

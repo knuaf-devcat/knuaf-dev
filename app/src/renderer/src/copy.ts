@@ -108,14 +108,46 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
   },
   spawn_failed: {
     title: 'Python 실행기를 시작하지 못했어요.',
-    action: '"설정 > Python 실행기"에서 Python 실행기 경로를 확인해 주세요. 비워 두면 자동으로 골라요.',
+    action: '앱 전용 Python을 준비하면 해결할 수 있어요. 준비 버튼이 보이지 않으면 "설정 > Python 실행기"에서 확인해 주세요.',
     kind: 'error'
   },
   // sidecar __main__.py
   python_too_old: {
     title: 'Python 버전이 너무 낮아요. 3.10 이상이 필요해요.',
-    action: '"설정 > Python 실행기"에서 더 최신 Python을 지정해 주세요.',
+    action: '앱 전용 Python을 준비하면 해결할 수 있어요. 준비 버튼이 보이지 않으면 "설정 > Python 실행기"에서 확인해 주세요.',
     kind: 'error'
+  },
+  // 앱 전용 Python 준비(DESIGN D9). 다운로드·검증·해제 실패는 학생이 다시 시도할 수 있는
+  // 일이므로 warning 이다. '아래 버튼' 문구는 버튼이 실제로 보일 때만 RuntimeFix 가 붙인다.
+  runtime_download_failed: {
+    title: 'Python을 내려받지 못했어요.',
+    action: '인터넷 연결을 확인한 뒤 다시 시도해 주세요. 학교·기관망이면 다른 망에서도 해 보세요.',
+    kind: 'warning'
+  },
+  runtime_hash_mismatch: {
+    title: '받은 파일이 예상과 달라 설치하지 않았어요.',
+    action: '안전을 위해 그대로 멈췄어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.',
+    kind: 'warning'
+  },
+  runtime_extract_failed: {
+    title: 'Python 파일을 풀지 못했어요.',
+    action: '다시 시도해 주세요. 계속되면 "설정 > Python 실행기"의 로그를 확인해 주세요.',
+    kind: 'warning'
+  },
+  runtime_tar_missing: {
+    title: '압축을 푸는 도구를 찾지 못했어요.',
+    action: '앱을 다시 설치해 주세요. 그래도 안 되면 내 논문에서 도우미에게 알려 주세요.',
+    kind: 'error'
+  },
+  runtime_unsupported: {
+    title: '이 컴퓨터에서는 자동 준비를 지원하지 않아요.',
+    action: '"설정 > Python 실행기"에서 Python 실행기 경로를 직접 지정해 주세요.',
+    kind: 'error'
+  },
+  runtime_cancelled: {
+    title: 'Python 준비를 취소했어요.',
+    action: null,
+    kind: 'status'
   },
   scripts_missing: {
     title: '점검에 필요한 파일을 찾지 못했어요.',
@@ -1279,6 +1311,32 @@ export const SETTINGS = {
   pythonTitle: 'Python 실행기',
   appInfoTitle: '앱 정보'
 }
+
+/**
+ * 앱 전용 Python 준비(DESIGN D8·D9, §7 PY-D1-02). 학생이 터미널·설정을 몰라도 되게 하는
+ * 문구만 둔다 — 크기 안내에는 실제 내려받기 크기(명세의 size)가 들어간다.
+ */
+export const RUNTIME = {
+  fixTitle: 'Python을 자동으로 준비할 수 있어요.',
+  /** 버튼이 실제로 보일 때만 이 문장을 쓴다(D9). */
+  fixAction: (size: string) => `아래 버튼을 누르면 앱 전용 Python을 내려받아요(약 ${size}, 인터넷 필요). 컴퓨터의 다른 Python은 건드리지 않아요.`,
+  button: 'Python 자동으로 준비하기',
+  again: '다시 시도',
+  cancel: '취소',
+  busyTitle: 'Python을 준비하는 중',
+  installed: '앱 전용 Python을 준비했어요.',
+  installedBody: '이제 이 폴더를 다시 열어 볼게요.',
+  /** 설치 성공과 폴더 복구 성공은 다르다 — 재시도가 또 실패하면 그렇게 말한다(§7). */
+  retryFailedTitle: 'Python은 준비됐지만 이 폴더는 아직 열리지 않았어요.',
+  retryFailedBody: '아래에 새 오류를 같이 보여 드려요.',
+  /** 읽을 수 있는 낡은 venv 는 선택에서 빠지고, cfg 를 못 읽는 venv 만 여기로 온다. */
+  venvStaleAction: '이 폴더 안의 .venv 폴더가 오래된 Python으로 만들어져 있어요. Finder/탐색기에서 .venv 폴더 이름을 .venv-old로 바꾼 뒤 다시 열어 주세요.',
+  settingsNote: '앱 전용 Python을 이 컴퓨터에 준비해요. 컴퓨터에 설치된 Python은 바꾸지 않아요.',
+  /** 진행 이벤트에 단계 이름이 없을 때의 한 단어. */
+  progressFallback: '진행',
+  /** 명세에 크기가 없을 때의 대략값 — 내려받기 크기(설치 후 점유 크기가 아니다). */
+  sizeFallback: '50~150MB'
+} as const
 
 export const HELPER = {
   button: '앱 밖 터미널로 도우미 열기',

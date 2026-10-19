@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ChatSnapshot, Provider } from '../shared/chat'
+import type { OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
 
 type EventHandler = (event: string, data: unknown) => void
 const handlers = new Map<string, EventHandler>()
@@ -23,7 +24,7 @@ const api = {
   },
   /** Cancel the in-flight `call`/`depsEnsure` started with this clientId. Resolves true when something was running. */
   cancel: (clientId: string): Promise<boolean> => ipcRenderer.invoke('rpc:cancel', clientId),
-  openProject: (root: string) => ipcRenderer.invoke('project:open', root),
+  openProject: (root: string): Promise<OpenProjectReply> => ipcRenderer.invoke('project:open', root),
   peekProject: (root: string) => ipcRenderer.invoke('project:peek', root),
   /** 이 작업폴더에서는 판정 불가한 명령도 묻지 않는다(설정에서 되돌릴 수 있다). */
   trustProject: (root: string, on: boolean) => ipcRenderer.invoke('project:trust', root, on),
@@ -42,6 +43,16 @@ const api = {
   setSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
   sidecarInfo: () => ipcRenderer.invoke('sidecar:info'),
   sidecarRestart: () => ipcRenderer.invoke('sidecar:restart'),
+  /** 앱 전용 Python 런타임(D7) — 상태·설치(진행 이벤트)·취소. */
+  runtime: {
+    status: (): Promise<{ result: RuntimeStatus }> => ipcRenderer.invoke('runtime:status'),
+    install: async (onEvent?: EventHandler, clientId?: string): Promise<RpcResult<RuntimeInstallReply>> => {
+      const id = clientId ?? `c${++seq}`
+      if (onEvent) handlers.set(id, onEvent)
+      try { return await ipcRenderer.invoke('runtime:install', id) } finally { handlers.delete(id) }
+    },
+    cancel: (): Promise<{ result: boolean }> => ipcRenderer.invoke('runtime:cancel')
+  },
   depsEnsure: async (root: string, onEvent?: EventHandler, clientId?: string) => {
     const id = clientId ?? `c${++seq}`
     if (onEvent) handlers.set(id, onEvent)
