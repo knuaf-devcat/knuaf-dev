@@ -8,7 +8,7 @@ import { ChatService } from '../src/main/chat/service'
 import { ClaudeConnection } from '../src/main/chat/claude'
 import { findExecutable, skillSource } from '../src/main/agent'
 import { writeCliShim } from './fixtures/fake-codex'
-import { canAdvance, connInfoOf, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
+import { canAdvance, connInfoOf, nextProvider, displayState, useConnect, type ConnInfo } from '../src/renderer/src/store/connect'
 import { useChat } from '../src/renderer/src/store/chat'
 import type { AgentConnection, AgentOptions } from '../src/main/chat/contracts'
 import type { ConnectionStatus, Provider } from '../src/shared/chat'
@@ -53,6 +53,21 @@ test('첫 실행의 전진 조건은 고른 것이 지금 연결돼 있을 때�
   }
   expect(canAdvance('claude', () => 'connected')).toBe(true)
   expect(canAdvance(null, () => 'connected'), '고른 것이 없으면 넘어갈 수 없다').toBe(false)
+})
+
+test('첫 실행 [다음] 은 연결된 AI 하나를 기록한다 — 고른 것이 연결돼 있으면 그대로 둔다', () => {
+  const order = ['codex', 'claude'] as const
+  const only = (on: Provider) => (p: Provider) => (p === on ? 'connected' as const : 'need-login' as const)
+  // 연결된 것이 없으면 [다음] 이 닫힌다.
+  expect(nextProvider(null, order, () => 'need-login')).toBeNull()
+  expect(nextProvider('claude', order, () => 'checking')).toBeNull()
+  // 고른 적이 없고 둘 다 연결 — 행 순서(권장이 먼저)의 첫째.
+  expect(nextProvider(null, order, () => 'connected')).toBe('codex')
+  // 고른 것이 연결돼 있으면 다른 쪽이 연결돼 있어도 바꾸지 않는다.
+  expect(nextProvider('claude', order, () => 'connected')).toBe('claude')
+  // 고른 것이 끊겨 있으면 연결된 쪽으로 넘어간다 — 연결 안 된 선택으로 폴더 단계에 서지 않는다.
+  expect(nextProvider('claude', order, only('codex'))).toBe('codex')
+  expect(nextProvider(null, order, only('claude'))).toBe('claude')
 })
 
 // ---------------------------------------------------------------- 실행 파일 찾기

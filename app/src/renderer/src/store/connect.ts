@@ -142,6 +142,17 @@ export function canAdvance(selected: Provider | null, state: (provider: Provider
   return selected !== null && state(selected) === 'connected'
 }
 
+/**
+ * 첫 실행 1단계의 [다음] 이 기록할 공급자 — 연결된 것이 없으면 null(단추가 닫힌다).
+ * 이 화면에는 고르는 단추가 없다(형님 결정 2026-10-20 — AI 선택은 채팅창 하단에서 한다).
+ * 이미 고른 것이 연결돼 있으면 그대로 두고, 아니면 `order`(화면 행 순서, 권장이 먼저) 중
+ * 처음 연결된 것을 쓴다. 둘 다 연결돼 있어도 학생이 고른 것을 다른 쪽으로 바꾸지 않는다.
+ */
+export function nextProvider(selected: Provider | null, order: readonly Provider[], state: (provider: Provider) => ConnState): Provider | null {
+  if (canAdvance(selected, state)) return selected
+  return order.find((p) => state(p) === 'connected') ?? null
+}
+
 interface ConnectState {
   codex: ConnInfo
   claude: ConnInfo
