@@ -189,7 +189,8 @@ test('GPT 로그인을 기다리는 중에 Claude 로그인을 시작해도 둘 
     await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 30_000 })
     // 먼저 성공한 Claude 가 선택되고, 나중에 연결된 GPT 는 그 선택을 바꾸지 않는다(W2 D3).
     await expect.poll(() => settings(userData).provider_choice?.provider).toBe('claude')
-    await expect(page.locator('[data-provider="codex"]').getByRole('button', { name: ONBOARD.startWith })).toBeVisible()
+    // 1단계에는 고르는 단추가 없다 — 로그인과 [다음]뿐이다(형님 결정 2026-10-20).
+    await expect(page.getByRole('button', { name: '이걸로 시작' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: ONBOARD.connectNext })).toBeEnabled()
   } finally {
     await electronApp.close()
@@ -232,9 +233,12 @@ test('이미 고른 AI 가 연결돼 있으면 새로 연결한 쪽이 선택을
     await expect(row(page, 'claude')).toContainText('로그인이 필요해요', { timeout: 30_000 })
     await page.getByRole('button', { name: 'Claude로 로그인' }).click()
     await expect(row(page, 'claude')).toContainText('연결됐어요', { timeout: 30_000 })
-    // 선택은 codex 그대로, Claude 행에는 "이걸로 시작"이 뜬다.
+    // 선택은 codex 그대로다. [다음] 도 그 선택을 바꾸지 않는다 — 바꾸는 곳은 채팅창 하단이다.
     await expect.poll(() => settings(userData).provider_choice?.provider).toBe('codex')
-    await expect(page.locator('[data-provider="claude"]').getByRole('button', { name: ONBOARD.startWith })).toBeVisible()
+    await expect(page.getByRole('button', { name: '이걸로 시작' })).toHaveCount(0)
+    await page.getByRole('button', { name: ONBOARD.connectNext }).click()
+    await expect(page.locator(FOLDER_STEP)).toBeVisible()
+    expect(settings(userData).provider_choice?.provider).toBe('codex')
   } finally {
     await electronApp.close()
   }
@@ -282,20 +286,22 @@ test('선택 없이 둘을 연달아 로그인하고 한쪽을 취소해도 먼�
   }
 })
 
-test('둘 다 연결돼 있어도 고른 적이 없으면 선택 화면을 보여 준다', async () => {
+test('둘 다 연결돼 있어도 고른 적이 없으면 1단계에 머물고, [다음] 이 권장 AI 를 기록한다', async () => {
   const dir = scratch()
   const bin = join(dir, 'bin')
   const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
   writeFakeClaude(bin)
-  const { electronApp, page } = await launch({ userData: mkdtempSync(join(tmpdir(), 'kd-ud-')), onboarded: false, waitFor: INTRO, env })
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const { electronApp, page } = await launch({ userData, onboarded: false, waitFor: INTRO, env })
   try {
-    // 건너뛰지 않는다: 연결된 것이 있어도 "쓸 AI"는 학생이 고른다.
+    // 건너뛰지 않는다: 고른 적이 없으면 학생이 [다음] 을 누른다.
     await expect(page.locator(INTRO)).toBeVisible()
     await expect(page.locator('text=연결됐어요')).toHaveCount(2, { timeout: 30_000 })
-    // 고르기 전에는 다음으로 갈 수 없다.
-    await expect(page.getByRole('button', { name: ONBOARD.connectNext })).toBeDisabled()
-    await page.getByRole('button', { name: ONBOARD.startWith }).first().click()
+    // 고르는 단추 없이 [다음] 이 열린다. 누르면 행 순서의 첫째(권장)가 기록된다 — 바꾸는 곳은 채팅창 하단.
+    await expect(page.getByRole('button', { name: '이걸로 시작' })).toHaveCount(0)
+    await page.getByRole('button', { name: ONBOARD.connectNext }).click()
     await expect(page.locator(FOLDER_STEP)).toBeVisible()
+    await expect.poll(() => settings(userData).provider_choice?.provider).toBe('codex')
   } finally {
     await electronApp.close()
   }
@@ -456,7 +462,7 @@ for (const scheme of ['light', 'dark'] as const) {
     const one = join(SHOTS, `step1-connected-${scheme}.png`)
     await page.screenshot({ path: one })
     console.log('captured', one, statSync(one).size, 'bytes')
-    await page.getByRole('button', { name: ONBOARD.startWith }).first().click()
+    await page.getByRole('button', { name: ONBOARD.connectNext }).click()
     await expect(page.locator(FOLDER_STEP)).toBeVisible()
     await expect(page.locator('.project').first()).toBeVisible()   // 목록이 다 그려진 뒤에
     await settled(page)
