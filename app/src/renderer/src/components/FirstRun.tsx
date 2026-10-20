@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
-import { displayState, useConnect, canAdvance, type ConnInfo, type ConnState } from '../store/connect'
+import { displayState, useConnect, canAdvance, nextProvider, type ConnInfo, type ConnState } from '../store/connect'
 import type { ChatMode } from '../store/chat'
 import { FolderPicker } from './FolderPicker'
 import { ConnectBadges, ConnectRow } from './ConnectRow'
@@ -22,7 +22,8 @@ import { useShallow } from 'zustand/react/shallow'
  * 끊겨 있으면 같은 건너뛰기 규칙이 자연히 1단계(AI 연결)를 먼저 보여 준다. 두 벌로 두면
  * 한쪽만 고쳐지고, 같은 사실이 두 모양으로 보인다.
  *
- * 두 결정을 한 화면에 겹쳐 묻지 않는다(R5 §3 "한 번에 한 결정"). 모델·논문 제목·저장 경로·
+ * 두 결정을 한 화면에 겹쳐 묻지 않는다(R5 §3 "한 번에 한 결정"). 1단계는 로그인 연결과 [다음]만
+ * 있다 — 어느 AI 로 대화할지는 채팅창 하단에서 고른다(형님 결정 2026-10-20). 모델·논문 제목·저장 경로·
  * 번호 원 스테퍼가 없다. 2단계의 폴더 고르기는 `FolderPicker` 를 쓴다 — 재방문 화면과 같은 부품이다.
  */
 const MODE: Record<Provider, ChatMode> = { codex: 'codex-chat', claude: 'claude-chat' }
@@ -46,10 +47,14 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
   const loginTargets = useRef<Set<Provider>>(new Set())
   /** 선택 확정(비동기 설정 쓰기 + 재조회)이 도는 동안 — 두 성공이 겹쳐 두 번 저장하지 않게. */
   const confirming = useRef(false)
+  /** [다음] 이 선택을 기록하는 동안 — 두 번 눌러 두 번 저장하지 않게. */
+  const [leaving, setLeaving] = useState(false)
+  /** [다음] 의 저장이 실패했다 — 말없이 같은 화면에 남지 않게 알린다(검토 R1-01). */
+  const [saveFailed, setSaveFailed] = useState(false)
   /** 건너뛰기 판정은 한 번만 한다 — 상태가 오갈 때마다 화면이 튀지 않게. */
   const settled = useRef(false)
   /**
-   * **처음 이 화면을 열 때 있던** 선택. 이 세션에서 방금 고른 것(로그인·[이걸로 시작])은 여기
+   * **처음 이 화면을 열 때 있던** 선택. 이 세션에서 방금 고른 것(로그인·[다음])은 여기
    * 들어가지 않는다 — 그때는 설계대로 [다음 — 논문 폴더 고르기]를 학생이 누른다.
    */
   const storedChoice = useRef<Provider | null>(settings?.provider_choice?.provider ?? null)
@@ -89,7 +94,7 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
   /**
    * 로그인이 끝나면 그 공급자를 고른 것으로 기록한다 — 단, **아직 연결된 선택이 없을 때만**
    * (W2 D3). 이미 연결된 공급자를 골라 둔 상태에서 다른 쪽을 추가로 연결하면 선택은 그대로
-   * 두고 그 행에 "이걸로 시작"이 뜬다. 두 번째 연결이 학생 모르게 대화 공급자를 바꾸지 않는다.
+   * 둔다 — 두 번째 연결이 학생 모르게 대화 공급자를 바꾸지 않는다. 바꾸는 곳은 채팅창 하단이다.
    *
    * 후보는 공급자별로 모으고(동시 로그인), 끝난 후보(연결·실패·취소)는 지운다. 두 성공이
    * 겹치면 먼저 성공한 쪽이 확정된다 — `confirming` 이 중복 저장을 막는다.
@@ -110,10 +115,17 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
   }, [codex, claude, loggingIn, selected])
 
   /**
-   * 전진 조건은 하나다 — **고른 것이 지금 연결돼 있다**(P2-R1-03). 저장된 선택만 보고 넘어가면
-   * 연결을 못 마친 첫 실행이 "AI 연결 완료"로 폴더 단계에 선다.
+   * 전진 조건 — **연결된 AI 가 하나라도 있다**. [다음] 은 그 AI 를 선택으로 기록한 뒤 넘어간다
+   * (`nextProvider`). 저장된 선택만 보고 넘어가면 연결을 못 마친 첫 실행이 "AI 연결 완료"로
+   * 폴더 단계에 서므로(P2-R1-03), 기록되는 것은 늘 지금 연결된 공급자다.
    */
-  const advance = canAdvance(selected, stateOf)
+  const target = nextProvider(selected, ROWS, stateOf)
+  const advance = target !== null && !leaving
+  const next = (): void => {
+    if (!target) return
+    setLeaving(true); setSaveFailed(false)
+    void remember(target).then(() => setStep('folder'), () => setSaveFailed(true)).finally(() => setLeaving(false))
+  }
   const connectDone = step === 'folder' && canAdvance(selected ?? storedChoice.current, stateOf)
   /** 지금 하는 단계만 진하게(나머지는 흐리게) — 길잡이 한 줄에서 "여기"를 표시한다. */
   const here = (part: 'connect' | 'folder' | 'start'): string => (part === step ? 'on' : '')
@@ -150,20 +162,17 @@ export function FirstRun({ onFolderOpened }: { onFolderOpened?: (root: string) =
           <div className="choices">
             {ROWS.map((p) => (
               /* 상태 문구·행동 단추는 계정 팝오버와 **같은 부품**이다(ConnectRow). 여기서만
-                 "권장/실험 중" 표시와 "이걸로 시작"이 붙는다. */
+                 "권장/실험 중" 표시가 붙는다 — 고르는 단추는 없다(채팅창 하단에서 고른다). */
               <ConnectRow key={p} provider={p} badges={<ConnectBadges provider={p} />}
-                onLogin={(who) => { loginTargets.current.add(who) }}
-                suffix={stateOf(p) === 'connected' && p === selected ? ONBOARD.chosenSuffix : undefined}
-                extra={stateOf(p) === 'connected' && selected !== p
-                  ? { label: ONBOARD.startWith, run: () => void remember(p).then(() => setStep('folder')) }
-                  : undefined} />
+                onLogin={(who) => { loginTargets.current.add(who) }} />
             ))}
           </div>
 
           <div className="row" style={{ marginTop: 'var(--sp-5)' }}>
-            <button className="primary" disabled={!advance} onClick={() => setStep('folder')}>{ONBOARD.connectNext}</button>
-            {!advance && <span className="caption">{ONBOARD.connectWaiting}</span>}
+            <button className="primary" disabled={!advance} onClick={next}>{ONBOARD.connectNext}</button>
+            {!target && <span className="caption">{ONBOARD.connectWaiting}</span>}
           </div>
+          {saveFailed && <Feedback kind="warning" title={ONBOARD.nextSaveFailedTitle} body={ONBOARD.nextSaveFailedBody} />}
           <p className="caption" style={{ marginTop: 'var(--sp-5)' }}>{PRIVACY_NOTE}</p>
           {/* 개인정보 줄 바로 아래 한 줄 — "둘 다 있나요?"는 보통 글자, 뒤만 링크다(시안 A). */}
           <p className="caption" style={{ marginTop: 'var(--sp-2)' }}>
