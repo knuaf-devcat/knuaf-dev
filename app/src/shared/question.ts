@@ -37,8 +37,12 @@ export interface ParsedQuestion {
   span: { start: number; end: number }
 }
 
-/** `[Qn-m] 제목` — 번호가 있고 제목이 비어 있지 않아야 한다. */
-const TITLE = /^\s*\[Q(\d+)-(\d+)\]\s*(\S.*)$/
+/**
+ * `[Qn-m] 제목` — 번호가 있고 제목이 비어 있지 않아야 한다. 괄호 안 번호 뒤 꼬리말(`[Q2-4 도움] 어느 쪽?`)도
+ * 읽는다(형님 맥 실사용 2026-10-20 — 도우미가 후보 비교 뒤 되묻는 질문을 이 모양으로 썼고 카드가 뜨지 않았다).
+ * 꼬리말이나 괄호 뒤 글 중 하나는 있어야 한다.
+ */
+const TITLE = /^\s*\[Q(\d+)-(\d+)(?:\s+([^\]]*\S))?\s*\]\s*(.*)$/
 /** `1) 보기` — 번호와 보기 글이 있어야 한다. */
 const OPTION = /^\s*(\d+)\)\s*(\S.*)$/
 
@@ -64,9 +68,12 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   let title: RegExpMatchArray | null = null
   for (let i = lines.length - 1; i >= 0; i--) {
     const found = lines[i].match(TITLE)
-    if (found) { titleAt = i; title = found; break }
+    // 번호만 있고 제목이 빈 줄(`[Q2-4]`)은 예전처럼 제목 줄이 아니다 — 더 위를 찾는다.
+    if (found && (found[3] || found[4].trim())) { titleAt = i; title = found; break }
   }
   if (titleAt < 0 || !title) return null
+  const tail = title[3]?.trim() || null
+  const head = title[4].trim()
 
   // ② 제목 줄 아래 첫 `숫자) ` 줄부터 이어지는 보기 줄. 번호는 1부터 연속이어야 한다.
   let first = -1
@@ -107,12 +114,14 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   }
 
   // ④ 질문 문장은 제목 줄과 보기 사이의 비어 있지 않은 줄. 없으면 제목을 쓴다.
+  // 꼬리말이 있고 질문 문장이 머리 줄에 있으면(`[Q2-4 도움] 어느 쪽?`) 위 작은 줄은 꼬리말이다 —
+  // 같은 문장을 두 줄에 쓰지 않는다.
   const between = lines.slice(titleAt + 1, first).map((l) => l.trim()).filter(Boolean)
-  const use = title[3].trim()
+  const use = tail && head && !between.length ? tail : head || tail || ''
   return {
     id: `Q${title[1]}-${title[2]}`,
     use,
-    text: between.length ? between.join(' ') : use,
+    text: between.length ? between.join(' ') : head || use,
     options,
     chapterHint: lines.join('\n').match(CHAPTER)?.[0] ?? null,
     span: { start: first, end }
