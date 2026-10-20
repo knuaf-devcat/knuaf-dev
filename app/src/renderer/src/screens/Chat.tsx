@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useProject } from '../store/project'
 import { chatProvider, resolveChatMode, useChat, type ChatMode } from '../store/chat'
 import { chosenProvider, useConnect } from '../store/connect'
@@ -212,10 +212,12 @@ export function Chat() {
   const connectSelected = useConnect((s) => s.selected)
   const seg: ChatMode = resolveChatMode(mode, settings)
   const provider: Provider = chosenProvider(connectSelected, settings) ?? chatProvider(seg)
-  const endRef = useRef<HTMLDivElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
   /** 입력칸 — 한 줄에서 시작해 글이 늘면 자란다(시안 P/L). 최대 높이 뒤에는 스크롤. */
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [atBottom, setAtBottom] = useState(true)
+  /** 바닥에 붙어 있는가 — 학생이 굴린 결과로만 바뀐다. 글이 늘어나는 것은 scroll 을 부르지 않으므로 늘기 전 값이 남는다. */
+  const stick = useRef(true)
   const [dragging, setDragging] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -229,17 +231,47 @@ export function Chat() {
    *
    * 바닥에 붙어 있을 때만 따라 내려간다 — 위를 읽는 중인 학생의 화면을 빼앗지 않는다.
    * 허락 카드는 예외다. 진행을 막는 것이라 어디를 보고 있든 데려간다.
+   *
+   * 붙어 있는지는 칸의 스크롤 위치로 잰다(형님 맥 실사용 2026-10-20 ③). 예전에는 끝 표시 요소를
+   * IntersectionObserver 로 보고 **메시지 수**가 바뀔 때만 내려갔는데, 도우미 답은 같은 말풍선에
+   * 글이 붙으며 자라서(스트리밍) 수가 그대로였다 — 새 글이 생겨도 화면이 멈춰 있었다. 그래서
+   * 그리기마다(글이 자랄 때마다) 붙어 있으면 바닥으로 맞추고, 아래 칸 높이가 바뀌어 대화 칸이
+   * 줄어들 때도(작업 중 줄 → 입력칸·질문 카드) ResizeObserver 로 다시 맞춘다.
    */
-  const toBottom = (smooth = false): void => endRef.current?.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' })
-  useEffect(() => {
-    const el = endRef.current
+  const toBottom = (smooth = false): void => {
+    const el = threadRef.current
     if (!el) return
-    const io = new IntersectionObserver(([e]) => setAtBottom(e.isIntersecting), { rootMargin: '0px 0px -8px 0px' })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [])
+    stick.current = true
+    setAtBottom(true)
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  }
+  /**
+   * 바닥이면 붙고, **위로** 굴렸을 때만 떨어진다. 아래로 가는 중(맨 아래로의 부드러운 이동)에는 그대로 둔다 —
+   * 이동 도중의 scroll 마다 떨어지면 단추가 깜박인다. 칸이 커져 브라우저가 위치를 당긴 경우는 바닥이라 붙는다.
+   */
+  const lastTop = useRef(0)
+  const onThreadScroll = (): void => {
+    const el = threadRef.current
+    if (!el) return
+    const top = el.scrollTop
+    if (el.scrollHeight - top - el.clientHeight <= 24) stick.current = true
+    else if (top < lastTop.current - 1) stick.current = false
+    lastTop.current = top
+    setAtBottom(stick.current)
+  }
+  // 대화 칸은 폴더가 열린 뒤에야 있다(`NoFolder` 먼저) — 폴더가 바뀔 때마다 다시 단다.
+  useEffect(() => {
+    const el = threadRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => { if (stick.current) el.scrollTop = el.scrollHeight })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [projectRoot])
+  useLayoutEffect(() => {
+    const el = threadRef.current
+    if (el && stick.current) el.scrollTop = el.scrollHeight
+  })
   useEffect(() => { toBottom() }, [root, snapshot?.provider])
-  useEffect(() => { if (atBottom) toBottom() }, [snapshot?.messages.length, snapshot?.state, events.length])
   useEffect(() => { if (snapshot?.permission) toBottom() }, [snapshot?.permission?.id])
 
   const running = snapshot?.state === 'running' || snapshot?.state === 'permission'
@@ -388,17 +420,17 @@ export function Chat() {
         </div>
       )}
 
-      <div className="chat-thread">
+      <div className="chat-thread" ref={threadRef} onScroll={onThreadScroll}>
         {thread.map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
-        <div ref={endRef} aria-hidden="true" />
       </div>
-      {!atBottom && snapshot && snapshot.messages.length > 0 && (
-        <button className="to-bottom" onClick={() => toBottom(true)}>{CHAT.toBottom}</button>
-      )}
 
       {/* 아래 칸 — 질문 카드 · 허락 카드 · 작업 중 한 줄 · 입력칸이 이 한 자리를 번갈아 쓴다.
           무엇이 쓸지는 zone.ts 한 함수가 정한다(설계 §4-1). */}
       <div className="chat-zone">
+        {/* 맨 아래로 — 아래 칸 바로 위 가운데 원형 아래 화살표(형님 맥 실사용 2026-10-20 ④). 화면 구석 고정이 아니다. */}
+        {!atBottom && snapshot && snapshot.messages.length > 0 && (
+          <button type="button" className="to-bottom" title={CHAT.toBottom} aria-label={CHAT.toBottom} onClick={() => toBottom(true)}><Icon name="down" size={18} /></button>
+        )}
         {/* 입력칸 위 한 줄 알림 — 기다림·경고·오류가 쓰는 한 자리(알림창 B안). */}
         {waiting && <ZoneLine tone="wait" title={waiting === 'prep' ? CHAT.preparingLine : CHAT.appBusyTitle}
           sub={waitingPrep ? CHAT.preparingQueued : waiting === 'write' ? CHAT.appBusyWaitSub : undefined} />}
@@ -479,7 +511,7 @@ export function Chat() {
                 <span className="sp" />
                 {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
-                  ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={13} /></button>
+                  ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={20} /></button>
                   : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !!waiting || !canSend}><Icon name="up" size={17} /></button>}
               </div>
             </div>

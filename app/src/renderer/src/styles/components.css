@@ -66,7 +66,7 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .chat-thread { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: var(--sp-6) 30px var(--sp-2); }
 .workspace.solo .chat-thread { padding-top: var(--sp-10); }
 .chat-inner > .feedback, .chat-inner > .chat-empty { margin-left: 30px; margin-right: 30px; }
-.chat-zone { flex: none; padding: var(--sp-3) 22px var(--sp-4); background: var(--panel); }
+.chat-zone { position: relative; flex: none; padding: var(--sp-3) 22px var(--sp-4); background: var(--panel); }
 .chat-event { display: flex; align-items: center; gap: var(--sp-2); font-size: 13px; color: var(--muted); }
 .chat-event svg { color: var(--faint); }
 
@@ -425,8 +425,12 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 
 /* ---- Chat (내 논문) ---- */
 .chat-log { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-4) 0; }
-/* 대화 바닥이 화면 밖일 때만 뜨는 고정 버튼 — 권한 카드와 입력칸이 거기에 있다. */
-.to-bottom { position: fixed; right: var(--sp-8); bottom: var(--sp-6); z-index: 5; box-shadow: var(--shadow-2, 0 2px 10px rgb(0 0 0 / 18%)); }
+/* 대화 바닥이 화면 밖일 때만 뜨는 맨 아래로 — 아래 칸(입력칸) 바로 위 가운데 원형(형님 맥 실사용 2026-10-20 ④).
+   아래 칸 윗변에 붙여 대화 끝자락 위에 떠 있다. 예전 `position: fixed` 는 창 오른쪽 아래 구석에 붙었다. */
+.to-bottom { position: absolute; left: 50%; top: 0; transform: translate(-50%, calc(-100% - 8px)); z-index: 5;
+  width: 36px; height: 36px; border-radius: 50%; padding: 0; display: grid; place-items: center;
+  border: var(--hairline) solid var(--line); background: var(--panel); color: var(--ink-2); box-shadow: var(--shadow-2, 0 2px 10px rgb(0 0 0 / 18%)); }
+.to-bottom:hover { background: var(--hover); color: var(--ink); }
 /* 도우미 답은 **테두리·상자·발화자/시간 머리 없는 본문**이다(시안 D/E/G, N-I01).
    학생 답만 오른쪽의 내용 길이 말풍선(최대 78%). 간격은 `.chat-thread` 의 18px 하나가 맡는다. */
 .chat-msg { font-size: 15px; line-height: 1.7; }
@@ -448,6 +452,10 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-composer[data-dragging] { outline: 2px dashed var(--accent); outline-offset: -4px; }
 /* 안쪽 입력은 테두리·크기조절 손잡이가 없다 — 한 줄에서 시작해 자라고, 최대 높이 뒤에는 스크롤(시안 P/L). */
 .chat-composer textarea { width: 100%; border: 0; outline: 0; resize: none; background: none; font: inherit; font-size: 15px; line-height: 1.55; color: var(--ink); padding: 2px 0 8px; min-height: 26px; max-height: 168px; overflow-y: auto; }
+/* 입력칸 안 스크롤바는 그리지 않는다(형님 맥 실사용 2026-10-20 ① "채팅창에 스크롤바 빼줘" — 캡처에서 빈 입력칸 오른쪽에
+   막대가 보였다. 높이를 글에 맞춰도 줄 높이 소수점(15×1.55) 때문에 1px 남짓 넘쳐 맥 '항상 보기' 설정이면 막대가 선다).
+   최대 높이 뒤 굴리기는 그대로다. */
+.chat-composer textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .chat-composer textarea::placeholder { color: var(--faint); }
 .chat-composer textarea:focus-visible { outline: none; }
 .crow { display: flex; align-items: center; gap: 6px; }
