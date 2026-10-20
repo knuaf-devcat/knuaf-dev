@@ -45,8 +45,11 @@ const ASKS = ['알려달라', '알려 달라', '알려줘', '알려 줘', '알�
 /** 선택형 질문의 맺음 — `QuestionCard` 가 입력칸을 차지하므로 여기 오면 자유 입력형이다. */
 const CHOICE_HINTS = ['→ 번호 또는 자유 입력', '자유 입력']
 
-/** 값 하나를 받는 질문의 표시 — 예시값이나 단위가 붙는다. */
-const VALUE_HINTS = ['(평', '㎡', '원)', '(원', '단위']
+/**
+ * 값 하나를 받는 질문의 표시 — 예시값이나 단위가 붙는다.
+ * `단위` 낱말만으로는 판정하지 않는다: "가족 단위 체험을 기획한 이유" 같은 서술형 질문이 걸린다(검토 R1-01).
+ */
+const VALUE_HINTS = ['(평', '㎡', '원)', '(원']
 
 /**
  * 지금 상황 — 위에서부터 처음 맞는 것 하나다.
@@ -61,8 +64,11 @@ export function situationOf(i: SuggestInput): SuggestSituation | null {
       || lines.some((l) => ASKS.some((a) => l.includes(a)))
       || lines.some((l) => CHOICE_HINTS.some((h) => l.includes(h)))
     if (asks) {
-      // 값 입력형 — 예시값(`예: 600평`)이나 단위(`(평 또는 ㎡)`)를 보여 준 질문.
-      const value = lines.some((l) => /^(예|예시):/.test(l) || VALUE_HINTS.some((h) => l.includes(h)))
+      /**
+       * 값 입력형 — 단위가 붙은 질문(`(평 또는 ㎡)`)이거나, `예:` 줄이 **숫자**를 보여 주는 질문
+       * (`예: 600평 / 2,000㎡`). 숫자 없는 `예: 부모님의 농장을 도우며…` 는 서술형 예시다(R1-01).
+       */
+      const value = lines.some((l) => (/^(예|예시):/.test(l) && /[0-9]/.test(l)) || VALUE_HINTS.some((h) => l.includes(h)))
       return value ? 'answer-value' : 'answer-open'
     }
   }

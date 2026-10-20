@@ -51,6 +51,18 @@ test('도우미가 값을 물으면 값 입력형, 생각을 물으면 서술형
   expect(situationOf(input({ lastAssistant: '어느 쪽이 좋나요?\n\n→ 번호 또는 자유 입력' }))).toBe('answer-open')
 })
 
+test('값 입력형은 숫자·단위를 묻는 질문만이다 — 서술형 질문을 값 입력형으로 오분류하지 않는다 (R1-01)', () => {
+  // 반례 A: `단위` 라는 낱말이 들어 있어도 생각을 묻는 질문이다.
+  expect(situationOf(input({ lastAssistant: '가족 단위 체험을 기획한 이유를 알려 주세요.' })), '반례 A').toBe('answer-open')
+  // 반례 B: `예:` 줄이 있지만 숫자가 없는 서술형 예시다.
+  expect(situationOf(input({ lastAssistant: '창업을 결심한 계기를 알려 주세요.\n예: 부모님의 농장을 도우며 관심이 생겼어요.' })), '반례 B').toBe('answer-open')
+  // 스킬의 실제 값 입력형 예시는 그대로 값 입력형이다 — 예시 줄에 숫자가 있다.
+  const skill = '재배 예정 면적을 알려달라. (평 또는 ㎡)\n예: 600평 / 2,000㎡ / 아직 미정'
+  expect(situationOf(input({ lastAssistant: skill })), '스킬 예시').toBe('answer-value')
+  // 단위만 붙은 질문도 값 입력형이다(숫자 없이).
+  expect(situationOf(input({ lastAssistant: '임차료는 얼마인가요?\n(원 단위)' })), '단위 표기').toBe('answer-value')
+})
+
 test('질문이 없는 보고문은 단계 상황으로 간다', () => {
   const report = 'Ⅰ. 머리말을 저장했어요. 다음은 Ⅱ. 창업 아이템이에요.'
   expect(situationOf(input({ lastAssistant: report, stage: stage(2, { writingIndex: 1 }) }))).toBe('writing')
