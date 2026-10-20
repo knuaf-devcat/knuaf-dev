@@ -19,7 +19,7 @@ import { launch, openProject, paperReady, splitReady, synthProject } from './hel
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 
 /**
  * 앱이 **일을 하는** 것을 기다리는 대기 — 윈도우 러너는 한 걸음이 기본 5초를 넘긴다(실측:

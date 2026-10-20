@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
 
-const BOX = 'textarea[placeholder="답변을 입력하세요"]'
+const BOX = 'textarea[aria-label="답변을 입력하세요"]'
 
 /**
  * 입력칸은 도우미가 **연결됐을 때만** 뜬다(Chat.tsx: `status.connected`). 미연결 화면은

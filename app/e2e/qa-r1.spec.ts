@@ -14,7 +14,7 @@ import { launch, navTo, openProject, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 
 test('허락 카드 뒤 돌아온 입력칸도 5줄 초안 높이를 지킨다 (QA-R1-02)', async () => {
   const dir = scratch()

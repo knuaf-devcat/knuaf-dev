@@ -878,7 +878,13 @@ export const CHAT = {
   attachHint: '파일을 고르거나 끌어 놓으면 경로가 답변 끝에 추가돼요.',
   // 단축키는 툴팁으로 — placeholder는 실제 기능만 말한다(05-어휘교체표 §10).
   placeholder: '답변을 입력하세요',
-  placeholderHint: 'Enter 보내기 · Shift+Enter 줄바꿈',
+  /**
+   * 빈 입력칸의 예시 문구 — **상황별**이다(`suggest.ts` 의 `situationOf` 가 고른다).
+   * 학생이 도우미에게 하는 말이므로 '-요'체로 쓰고, 앱 단추가 하는 일(검토본·파일 만들기)은
+   * 넣지 않는다. `{장}` 은 장 제목으로 바뀐다.
+   */
+  suggestionPlaceholder: (s: string) => `예: "${s}" — → 키로 채우기`,
+  placeholderHint: 'Enter 보내기 · Shift+Enter 줄바꿈 · 비어 있을 때 → 키로 예시 채우기',
   /** 입력칸 아래 한 줄 — 시안 P/L 그대로(아이스 그레이 아님, 조용한 글). */
   disclaimer: '도우미도 틀릴 수 있어요. 수치와 출처는 꼭 확인하세요.',
   send: '보내기',
@@ -968,6 +974,21 @@ export const CHAT = {
   appBusyTitle: '앱이 저장·검사를 마치는 중이에요',
   appBusyBody: '끝나면 다시 보내 주세요.',
   appBusyWaitSub: '끝나면 보낼 수 있어요',
+}
+
+/**
+ * 입력칸 예시 문구 — 대화 상황별 목록(`suggest.ts` 의 `situationOf` 가 상황을 고른다).
+ * 학생이 도우미에게 하는 말이다: '-요'체, 앱 단추가 하는 일(검토본·파일 만들기)은 넣지 않는다.
+ * `{장}` 은 장 제목으로 바뀐다.
+ */
+export const SUGGEST: Record<'answer-value' | 'answer-open' | 'start-writing' | 'writing' | 'all-written' | 'stale' | 'finishing', readonly string[]> = {
+  'answer-value': ['아직 정하지 못했어요', '어림값으로 먼저 적고 나중에 고칠게요', '예시를 보여 주세요'],
+  'answer-open': ['예시를 보여 주세요', '질문을 더 쉽게 다시 설명해 주세요', '이 질문은 나중에 답할게요'],
+  'start-writing': ['어떤 순서로 진행하는지 알려 주세요', '제 창업 아이템부터 설명할게요'],
+  writing: ['\'{장}\' 이어서 써 주세요', '지금까지 정한 내용을 정리해 주세요', '남은 질문이 몇 개인지 알려 주세요'],
+  'all-written': ['보강하면 좋을 곳을 알려 주세요', '\'{장}\' 다시 읽고 어색한 문장을 고쳐 주세요'],
+  stale: ['고친 내용이 다른 장과 어긋나지 않는지 봐 주세요', '무엇을 고쳤는지 정리해 주세요'],
+  finishing: ['교수님께 보여 드리기 전에 고칠 점을 알려 주세요', '제출 전에 제가 직접 할 일을 알려 주세요']
 }
 
 export const MATERIALS = {

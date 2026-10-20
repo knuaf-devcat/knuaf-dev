@@ -12,7 +12,7 @@ import { launch, openProject, paperReady, python, rewriteSection, scripts, synth
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const BODY_800 = '농장A의 재배 면적은 800평이다. 정읍 일대 기후를 고려해 작목을 선택했다.'
 const TABLE = (v: string): string => `| 항목 | 면적 |\n| --- | --- |\n| 농장 | ${v}평 |`
 

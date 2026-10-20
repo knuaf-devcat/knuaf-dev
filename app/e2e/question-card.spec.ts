@@ -13,7 +13,7 @@ import {
 } from './fixtures/fake-codex'
 
 /** 보통 입력칸의 표식 — 카드가 떠 있으면 이 자리에 없다. */
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const OPTION_1 = '1) 농협 공판장'
 const OPTION_2 = '2) 온라인 직거래'
 
