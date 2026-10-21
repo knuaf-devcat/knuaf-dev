@@ -7,7 +7,7 @@ import { launch, openProject, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const at = (min: number): string => new Date(Date.now() - min * 60_000).toISOString()
 const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}`, role: 'assistant', text: `긴 답 ${i}\n`.repeat(6), at: at(120 - i) }))
 

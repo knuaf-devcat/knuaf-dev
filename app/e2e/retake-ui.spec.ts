@@ -7,7 +7,7 @@ import { launch, openProject, PROGRESS, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const at = (min: number): string => new Date(Date.now() - min * 60_000).toISOString()
 
 async function sendFrom(page: import('@playwright/test').Page, text: string): Promise<void> {

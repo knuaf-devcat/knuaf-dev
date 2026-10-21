@@ -13,7 +13,7 @@ import { launch, openProject, python, rewriteSection, scripts, synthProject, PRO
 import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
-const COMPOSER = `textarea[placeholder="${CHAT.placeholder}"]`
+const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const BODY_800 = '농장A의 재배 면적은 800평이다. 정읍 일대 기후를 고려해 작목을 선택했다.'
 
 /** 파싱된 챗 로그의 학생 메시지 텍스트들 — 가짜 서버가 받은 그대로다. */

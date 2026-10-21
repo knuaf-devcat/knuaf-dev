@@ -14,6 +14,8 @@ import { QuestionCard } from '../components/QuestionCard'
 import { Icon } from '../components/Icon'
 import { RuntimeFix } from '../components/RuntimeFix'
 import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, RUNTIME, describeChatError } from '../copy'
+import { chatSuggestion } from '../suggest'
+import { useStage } from '../components/useStage'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
@@ -354,6 +356,21 @@ export function Chat() {
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
   /**
+   * 빈 입력칸의 추천 문구 — 지금 상황(`suggest.ts` 의 `situationOf`)이 먼저고, 그 안에서 보낸
+   * 말 수로 문구를 돌린다. 대화가 비었거나·인용이 붙었거나·작업 중이거나 1단계면 `null` 이고
+   * 그때는 기존 `답변을 입력하세요` 가 그대로 보인다.
+   */
+  const { derived: stage } = useStage()
+  const lastMessage = snapshot?.messages.at(-1)
+  const suggestion = chatSuggestion({
+    hasMessages: (snapshot?.messages.length ?? 0) > 0,
+    hasQuote: !!quote && quote.root === projectRoot,
+    running: zone.kind === 'running',
+    lastAssistant: lastMessage?.role === 'assistant' ? lastMessage.text : null,
+    stage,
+    userCount: snapshot?.messages.filter((m) => m.role === 'user').length ?? 0
+  })
+  /**
    * 진행 표시 판정 하나(형님 확정 전송 중 A안, 시안 검토 R2-01): L = 마지막 **학생** 메시지, R = 작업 중,
    * P = L 이 아직 보내는 중. R 이면 "보내는 중" 글자(L 에만)나 빙글이 줄 중 정확히 하나, R 이 아니면 0개.
    */
@@ -494,9 +511,23 @@ export function Chat() {
                 if (f) insertPath(window.knuaf.pathForFile(f))
               }}>
               {/* 한 줄에서 시작해 글이 늘면 자란다 — 최대 높이 뒤에는 스크롤(시안 P/L). */}
-              <textarea ref={taRef} value={draft} rows={1} placeholder={CHAT.placeholder} title={CHAT.placeholderHint}
+              {/* placeholder 는 추천 문구로 바뀌지만 접근 이름은 고정이다(`aria-label`) — 낭독이 흔들리지 않고
+                  선택자도 placeholder 에 기대지 않는다. `aria-live` 는 붙이지 않는다(입력칸 이름이 조용해야 한다). */}
+              <textarea ref={taRef} value={draft} rows={1} aria-label={CHAT.placeholder}
+                placeholder={suggestion ? CHAT.suggestionPlaceholder(suggestion) : CHAT.placeholder} title={CHAT.placeholderHint}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
+                  /**
+                   * → 키: 빈 입력칸이면 예시를 **채우기만** 한다(보내지 않는다 — Enter 는 학생 몫).
+                   * 조합 중(한글 IME)이거나 수식키를 함께 누른 경우는 건드리지 않는다. Tab 은 쓰지 않는다
+                   * (키보드 사용자의 초점 이동을 빼앗는다).
+                   */
+                  if (e.key === 'ArrowRight' && draft === '' && suggestion && !e.nativeEvent.isComposing
+                    && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault()
+                    setDraft(suggestion)
+                    return
+                  }
                   if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
                   e.preventDefault()
                   // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
