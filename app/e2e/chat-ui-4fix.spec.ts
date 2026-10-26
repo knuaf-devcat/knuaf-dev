@@ -2,7 +2,7 @@
  * 형님 맥 실사용 4건(2026-10-20) — 입력칸 스크롤바·멈추기 단추 비율·자동으로 따라 내려가기·맨 아래로 단추 자리.
  * 질문 카드(②)는 순수 함수라 `question.spec.ts` 에서 고정한다.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launch, openProject, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
@@ -18,6 +18,37 @@ async function push(electronApp: import('@playwright/test').ElectronApplication,
 /** 대화 칸 바닥과의 거리(px). 0 근처면 바닥에 붙어 있다. */
 /** 바닥 여백(8px) 안이면 붙어 있는 것으로 본다 — 예전 방식(끝 표시 요소에 맞추기)은 그 여백만큼 남았다. */
 const gap = (el: Element): number => el.scrollHeight - el.scrollTop - el.clientHeight
+
+/** 두 프레임을 기다린다 — 이 사이에 브라우저가 굴림 단계(렌더링)를 돌아 scroll 이벤트를 보낸다. */
+const twoFrames = (page: Page): Promise<void> =>
+  page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+
+/**
+ * 바닥에서 위로 끝까지 굴려 '맨 아래로' 단추가 뜨게 한다 — 학생이 바닥에서 위로 굴리는 동작 그대로다.
+ *
+ * **바닥에 붙이기와 위로 굴리기를 한 프레임에 몰아 하면 앱이 방향을 못 본다.** 앱은 굴림 이벤트의
+ * 이동 방향(`top < lastTop - 1`)으로 '위를 읽는 중'을 판정하는데(`Chat.tsx` onThreadScroll),
+ * 앱이 자기 자동 스크롤을 관측하기 전에 시험이 위로 굴리면 두 움직임이 한 이벤트로 묶여 방향이
+ * 사라지고, 앱은 계속 바닥에 붙은 것으로 남는다. 그러면 단추는 끝내 뜨지 않는다 — CI 맥 러너에서만
+ * 깨지던 자리다(2026-10-21 run 39581843305 실패, 같은 기계에서 로컬 5/5 통과).
+ *
+ * 그래서 (1) 답이 다 그려져 칸이 넘칠 때까지 기다리고, (2) 바닥으로 내린 뒤 **두 프레임** 쉬어 앱이
+ * 그 굴림을 관측하게 하고, (3) 위로 굴린다. 앱이 늦게 따라오는 기계를 위해 뜰 때까지 되풀이한다 —
+ * 되풀이하는 것은 **자극**(굴리기)이지 단언이 아니다. 단언은 부르는 쪽에 그대로 있다.
+ */
+async function scrollUpFromBottom(page: Page, thread: Locator): Promise<Locator> {
+  const btn = page.getByRole('button', { name: CHAT.toBottom })
+  await expect.poll(() => thread.evaluate((el) => el.scrollHeight - el.clientHeight),
+    '답이 다 그려지기 전에 굴렸다 — 대화 칸이 아직 넘치지 않는다').toBeGreaterThan(100)
+  await expect.poll(async () => {
+    if (await btn.count()) return true
+    await thread.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await twoFrames(page)
+    await thread.evaluate((el) => { el.scrollTop = 0 })
+    return (await btn.count()) > 0
+  }, '맨 아래로 단추가 뜨지 않는다').toBe(true)
+  return btn
+}
 
 test('입력칸 안에 스크롤바가 서지 않는다 — 빈 칸도, 최대 높이를 넘은 긴 글도 (형님 2026-10-20 ①)', async () => {
   const dir = scratch()
@@ -78,8 +109,8 @@ test('위를 읽는 중이면 끌어내리지 않고, 맨 아래로 단추가 �
     await openProject(page, root)
     const thread = page.locator('.chat-thread')
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
-    await thread.evaluate((el) => { el.scrollTop = 0 })
-    const btn = page.getByRole('button', { name: CHAT.toBottom })
+    // 위를 읽는 중 — 바닥에서 위로 굴린다. 앱이 그 굴림을 볼 때까지 기다리는 까닭은 helper 주석에.
+    const btn = await scrollUpFromBottom(page, thread)
     await expect(btn).toBeVisible()
     await push(electronApp, { root, provider: 'codex', state: 'idle', messages: [...base, { id: 'n1', role: 'assistant', text: '새 답\n'.repeat(10), at: at(1) }] })
     await expect.poll(() => thread.evaluate((el) => el.scrollTop), '읽는 중인 화면을 끌어내렸다').toBe(0)
