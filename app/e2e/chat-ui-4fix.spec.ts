@@ -135,7 +135,12 @@ test('위를 읽는 중이면 끌어내리지 않고, 맨 아래로 단추가 �
     expect(c.y - (b.y + b.height), '입력칸에서 너무 멀다').toBeLessThan(48)
     expect(Math.abs(b.x + b.width / 2 - (t.x + t.width / 2)), '가운데가 아니다').toBeLessThan(2)
     expect(await btn.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%')
-    await btn.click()
+    // 사람처럼 누른다 — 누름과 떼기 사이에 시간이 있다. 예전에는 전역 `button:active { transform: scale(.97) }` 가
+    // 이 단추의 자리 잡기 transform(translate)을 통째로 덮어, 누르는 동안 단추가 커서 아래로 미끄러졌다.
+    // 떼는 자리가 단추 밖(대화 칸)이 되어 click 이 단추에 오지 않았고, 화면은 그대로였다(윈도우 실기기
+    // QA-02, 2026-10-27 — pointerdown 은 단추 안 path, pointerup 은 .chat-thread 로 실측). 지연 없는
+    // click() 은 전환이 움직이기 전에 떼서 이 결함을 못 봤다.
+    await btn.click({ delay: 150 })
     await expect.poll(() => thread.evaluate(gap)).toBeLessThan(12)
     await expect(btn).toHaveCount(0)
   } finally {
