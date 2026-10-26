@@ -3,7 +3,7 @@
  * 질문 카드(②)는 순수 함수라 `question.spec.ts` 에서 고정한다.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launch, openProject, synthProject } from './helpers'
+import { launch, openProject, splitReady, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
 
@@ -11,6 +11,17 @@ const COMPOSER = `textarea[aria-label="${CHAT.placeholder}"]`
 const at = (min: number): string => new Date(Date.now() - min * 60_000).toISOString()
 const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}`, role: 'assistant', text: `긴 답 ${i}\n`.repeat(6), at: at(120 - i) }))
 
+/**
+ * main 이 보내는 대화 스냅샷을 시험이 직접 보낸다. main 의 ChatService 는 이 값을 모른다 — 그래서
+ * 이 뒤에 화면이 `load()` 를 **새로 시작하면** main 의 값(디스크의 대화)으로 되돌아간다.
+ *
+ * 폴더 열기(`project.ts` open)는 `refresh()`(sidecar status + peek)를 기다린 **뒤에** `load()` 를
+ * 한 번 더 부른다. 느린 러너에서 그 `load()` 가 push 뒤에 시작되면 push 가 지워진다 — run
+ * 40305503765 macOS 의 135줄 시험이 그랬다(중단 단추가 보였다가 사라져 boundingBox 가 30초를 다 썼다).
+ * 그래서 push 하는 시험은 `openProject(page, root, splitReady)` 로 연다: 두 칸 배치는 `refresh()` 뒤의
+ * `loadSections()` 가 돌아와야 서므로, 그때는 그 `load()` 가 이미 시작됐다(진행 중이면 `snapMoved` 로
+ * push 를 지키고, 끝났으면 덮을 것이 없다).
+ */
 async function push(electronApp: import('@playwright/test').ElectronApplication, snap: Record<string, unknown>): Promise<void> {
   await electronApp.evaluate(({ BrowserWindow }, snap) => { BrowserWindow.getAllWindows()[0].webContents.send('chat:snapshot', snap) }, snap)
 }
@@ -81,7 +92,7 @@ test('도우미 답이 같은 말풍선에서 자라도 바닥에 붙어 따라 
   seedChat(root, base)
   const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)   // push 가 열기 뒤 load() 에 지워지지 않게 — push() 주석
     const thread = page.locator('.chat-thread')
     await expect(thread).toBeVisible({ timeout: 30_000 })
     await expect.poll(() => thread.evaluate(gap)).toBeLessThan(12)
@@ -107,7 +118,7 @@ test('위를 읽는 중이면 끌어내리지 않고, 맨 아래로 단추가 �
   seedChat(root, base)
   const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)   // push 가 열기 뒤 load() 에 지워지지 않게 — push() 주석
     const thread = page.locator('.chat-thread')
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
     // 위를 읽는 중 — 바닥에서 위로 굴린다. 앱이 그 굴림을 볼 때까지 기다리는 까닭은 helper 주석에.
@@ -138,7 +149,7 @@ test('멈추기 단추의 네모는 단추 지름의 1/3 이상이다 (형님 20
   seedChat(root, many(2))
   const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)   // push 가 열기 뒤 load() 에 지워지지 않게 — push() 주석
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
     await push(electronApp, { root, provider: 'codex', state: 'running', messages: [...many(2), { id: 'u1', role: 'user', text: '다음', at: at(1), delivery: 'sent' }] })
     const stop = page.getByRole('button', { name: CHAT.stop })
