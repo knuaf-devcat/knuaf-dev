@@ -169,7 +169,7 @@ test('팝오버 — 만든 파일과 만들기 네 줄이 종이 머리에서 �
   await openProject(page, root)
   await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
-  await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+  await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
   const pop = page.locator('.paperpane .popover')
   await expect(pop).toBeVisible()
   // 만들기 4줄(v2 §4-2 조건 그대로) — 인터뷰 중에도 검토본은 켜져 있다.

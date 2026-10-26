@@ -31,10 +31,19 @@ import { pipeline } from 'node:stream/promises'
 import { spawnSync } from 'node:child_process'
 import { createGunzip } from 'node:zlib'
 
-/** 동봉 버전. 올릴 때: 아래 URL 로 받아 SHA-256 을 재고 이 두 상수를 함께 고친다. */
-export const DEFAULT_VERSION = '0.162.1'
-/** `@openai/codex@<version>-win32-x64` tgz 의 SHA-256 (2026-10-19 실측). */
-export const DEFAULT_SHA256 = '5d48824f11a512b0ecb351461c2e90a1040c80de1026bc4a80815d5121f3936d'
+/**
+ * 동봉 버전. 올릴 때: 아래 URL 로 받아 SHA-256 을 재고 이 두 상수를 함께 고친다.
+ *
+ * **0.163.0 이상이어야 한다**(윈도우 실기기 QA-01, 2026-10-27). 0.162.1 은 학생 PC 에 Codex 데스크톱
+ * 앱이 함께 깔려 `[windows] sandbox = "elevated"` 이고 그 앱의 `node_repl.exe` 가 실행 중이면, 명령마다
+ * 도는 샌드박스 권한 갱신(setup refresh)이 그 실행 파일을 쓰기 권한으로 열다 공유 위반(os error 32)으로
+ * 실패해 **모든 셸 명령이** `helper_unknown_error: setup refresh had errors` 로 막혔다 — 대화는 되는데
+ * 파일 도구가 하나도 안 돈다. 상류 수정은 openai/codex#51822(0.163.0 부터). 같은 기기에서 0.162.1 은
+ * 실패, 0.164.0 은 통과를 번갈아 확인했다.
+ */
+export const DEFAULT_VERSION = '0.164.0'
+/** `@openai/codex@<version>-win32-x64` tgz 의 SHA-256 (2026-10-27 실측, npm 레지스트리 sha1 과도 일치). */
+export const DEFAULT_SHA256 = '4fbd23473a2fc223396cdd8490d3f658d368438134c12a3f1dac9d1e2041a65b'
 export const TARGET = 'x86_64-pc-windows-msvc'
 export const MARKER = '.complete'
 

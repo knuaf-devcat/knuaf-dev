@@ -132,7 +132,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await files.page.setViewportSize({ width: 1280, height: 800 })
       await openProject(files.page, froot)
       await expect(files.page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-      await files.page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+      await files.page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
       await shot(files.page, '05-files-many')
     } finally {
       await files.electronApp.close()
