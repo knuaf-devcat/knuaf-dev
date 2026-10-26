@@ -239,7 +239,7 @@ test('파일 팝오버는 16개에서도 목록만 스크롤하고 아래 이동
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     await expect(pop).toBeVisible()
     const m = await pop.evaluate((el) => ({ h: el.getBoundingClientRect().height, bottom: el.getBoundingClientRect().bottom }))

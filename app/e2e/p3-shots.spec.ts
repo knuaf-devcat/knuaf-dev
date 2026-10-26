@@ -46,7 +46,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
     await shoot(page, `split-1280-${scheme}`)
 
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     await shoot(page, `files-popover-1280-${scheme}`)
     // 팝오버에서 바로 만들고, 고지·결과가 그 줄 아래에 남은 모습(R1-01).
     await page.locator('.paper-head .popover .pop-make:has(b:text-is("검토본 만들기"))').getByRole('button').click()

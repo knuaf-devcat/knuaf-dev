@@ -44,7 +44,7 @@ test('팝오버의 만들기 고지·결과가 그 줄 아래에 남는다 (P3-R
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     const reviewRow = pop.locator('.pop-make:has(b:text-is("검토본 만들기"))')
     await reviewRow.getByRole('button').click()
@@ -74,7 +74,7 @@ test('팝오버를 닫아도 결과가 종이 머리 아래 한 줄로 이어진
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     await pop.locator('.pop-make:has(b:text-is("검토본 만들기"))').getByRole('button').click()
     await expect(pop).toContainText('검토본을 만들었어요', { timeout: 60_000 })
@@ -85,7 +85,7 @@ test('팝오버를 닫아도 결과가 종이 머리 아래 한 줄로 이어진
     await expect(page.locator('.paper-fb')).toContainText('검토본을 만들었어요')
 
     // 결과물 전체 보기에서도 같은 실행의 결과가 이어진다(같은 훅 상태).
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     await page.getByRole('button', { name: '결과물 전체 보기' }).click()
     const sheet = page.locator('[data-screen="artifacts"]')
     await expect(sheet).toContainText('검토본을 만들었어요')
@@ -121,7 +121,7 @@ test('검토본 줄은 각자 자기 기록 기준으로 말한다 (P3-R1-03)', 
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     // 두 줄이 서로 다른 기준을 말한다 — 최신 N 을 둘 다에 붙이면 여기서 걸린다.
     await expect(pop).toContainText('2번째 기록 기준')
@@ -137,7 +137,7 @@ test('나중에 생긴 표지 입력을 새로고침이 알아챈다 (P3-R1-05)'
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     const docxRow = pop.locator('.pop-make:has(b:text-is("논문 파일(워드) 만들기"))')
     await expect(docxRow.getByRole('button'), '표지 입력도 본문도 없으면 잠겨 있는 것이 맞다').toBeDisabled()
@@ -188,7 +188,7 @@ test('파일 현재성 문구는 근거 없는 파일에만 "모름"을 남긴�
   try {
     await openProject(page, root)
     await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     await expect(page.locator('.paper-head .popover .pop-row').filter({ hasText: 'unknown.docx' })).toContainText('앱이 몰라요')
   } finally {
     await electronApp.close()
@@ -257,7 +257,7 @@ test('만드는 중에도 시도 시점 고지가 두 자리에 보인다 (반�
     await expect(strip.locator('.make-fb.running')).toContainText('만드는 중')
 
     // 같은 실행의 팝오버 줄에도 고지가 보인다.
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     const fb = pop.locator('[data-make="review"] .make-fb')
     await expect(fb.filter({ hasText: '다른 사람 검토' })).toBeVisible()
@@ -321,7 +321,10 @@ test('DOCX 성공 결과가 두 자리에 보인다 (반례 ③)', async () => {
     await expect(strip.locator('.make-fb.completion')).toContainText('DOCX를 만들었어요')
     await expect(strip.getByRole('button', { name: '폴더에서 보기' })).toBeVisible()
 
-    await page.locator('.paper-head').getByRole('button', { name: /파일/ }).click()
+    // 파일 팝오버 단추는 이름이 '파일 N'으로 **끝나는** 것으로 집는다(앞에 '다시 만들어야 할' 점 이름이 붙을 수 있다). 결과 줄은 만들기가 끝난 즉시 뜨고
+    // 권하는 단추는 뒤이은 refresh()(project.status) 뒤에 바뀐다 — 그 사이에는 '논문 파일 만들기'가
+    // 남아 있어 `/파일/` 이 두 단추를 잡았다(윈도우 CI run 40407100458, 사이드카가 느린 때만).
+    await page.locator('.paper-head').getByRole('button', { name: /파일 \d+$/ }).click()
     const pop = page.locator('.paper-head .popover')
     await expect(pop.locator('[data-make="docx"] .make-fb.completion')).toContainText('DOCX를 만들었어요')
     await expect(pop.locator('[data-make="docx"] .make-fb.completion').getByRole('button', { name: '폴더에서 보기' })).toBeVisible()
