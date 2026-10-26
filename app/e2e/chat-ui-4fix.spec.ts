@@ -19,34 +19,35 @@ async function push(electronApp: import('@playwright/test').ElectronApplication,
 /** 바닥 여백(8px) 안이면 붙어 있는 것으로 본다 — 예전 방식(끝 표시 요소에 맞추기)은 그 여백만큼 남았다. */
 const gap = (el: Element): number => el.scrollHeight - el.scrollTop - el.clientHeight
 
-/** 두 프레임을 기다린다 — 이 사이에 브라우저가 굴림 단계(렌더링)를 돌아 scroll 이벤트를 보낸다. */
-const twoFrames = (page: Page): Promise<void> =>
-  page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
-
 /**
  * 바닥에서 위로 끝까지 굴려 '맨 아래로' 단추가 뜨게 한다 — 학생이 바닥에서 위로 굴리는 동작 그대로다.
  *
- * **바닥에 붙이기와 위로 굴리기를 한 프레임에 몰아 하면 앱이 방향을 못 본다.** 앱은 굴림 이벤트의
- * 이동 방향(`top < lastTop - 1`)으로 '위를 읽는 중'을 판정하는데(`Chat.tsx` onThreadScroll),
- * 앱이 자기 자동 스크롤을 관측하기 전에 시험이 위로 굴리면 두 움직임이 한 이벤트로 묶여 방향이
- * 사라지고, 앱은 계속 바닥에 붙은 것으로 남는다. 그러면 단추는 끝내 뜨지 않는다 — CI 맥 러너에서만
- * 깨지던 자리다(2026-10-21 run 39581843305 실패, 같은 기계에서 로컬 5/5 통과).
+ * 앱은 '위를 읽는 중'을 굴림 이벤트의 이동 방향(`top < lastTop - 1`)으로 판정하고(`Chat.tsx`
+ * onThreadScroll), 그때만 단추를 그린다(`!atBottom`). 그래서 이 자극은 (1) 바닥으로 내려 앱이 그
+ * 자리를 보게 하고, (2) 맨 위로 올린 뒤 **바닥을 다시 쓰지 않고** 단추를 기다린다. 앱이 굴림을 늦게
+ * 보는 기계에서는 (2)의 값이 앱에 닿기 전에 바닥으로 되붙이면 방향이 통째로 사라진다 — 윈도 러너가
+ * 그랬고(run 40299562503: 5초 안에 두 번 돌고 단추는 끝내 안 떴다), 회차마다 3초를 주고 되풀이한다.
  *
- * 그래서 (1) 답이 다 그려져 칸이 넘칠 때까지 기다리고, (2) 바닥으로 내린 뒤 **두 프레임** 쉬어 앱이
- * 그 굴림을 관측하게 하고, (3) 위로 굴린다. 앱이 늦게 따라오는 기계를 위해 뜰 때까지 되풀이한다 —
+ * 한때 '두 프레임을 기다리기'로 같은 것을 하려 했는데, 숨은 창에서는 `requestAnimationFrame` 이
+ * 1초에 한 번꼴(윈도 실측 두 번에 1.9초)로만 돌아 대기가 예산을 다 먹었다. 프레임을 세지 않는다.
+ *
  * 되풀이하는 것은 **자극**(굴리기)이지 단언이 아니다. 단언은 부르는 쪽에 그대로 있다.
  */
 async function scrollUpFromBottom(page: Page, thread: Locator): Promise<Locator> {
   const btn = page.getByRole('button', { name: CHAT.toBottom })
   await expect.poll(() => thread.evaluate((el) => el.scrollHeight - el.clientHeight),
     '답이 다 그려지기 전에 굴렸다 — 대화 칸이 아직 넘치지 않는다').toBeGreaterThan(100)
-  await expect.poll(async () => {
-    if (await btn.count()) return true
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    // (1) 바닥으로 — 첫 회차에는 이미 바닥이라 아무 일도 일어나지 않는다.
     await thread.evaluate((el) => { el.scrollTop = el.scrollHeight })
-    await twoFrames(page)
+    await expect.poll(() => thread.evaluate(gap), '바닥으로 내리지 못했다').toBeLessThan(12)
+    // (2) 맨 위로. 여기서부터는 **바닥을 다시 쓰지 않고** 단추를 기다린다 — 숨은 창에서는 앱이 굴림을
+    //     1초에 한 번꼴로 보므로, 곧바로 바닥으로 되붙이면 위로 굴린 값이 앱에 닿기 전에 지워진다
+    //     (run 40299562503 윈도 레그: 5초 안에 두 번 돌고 단추는 끝내 안 떴다).
     await thread.evaluate((el) => { el.scrollTop = 0 })
-    return (await btn.count()) > 0
-  }, '맨 아래로 단추가 뜨지 않는다').toBe(true)
+    if (await btn.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)) return btn
+  }
+  await expect(btn, '맨 아래로 단추가 뜨지 않는다').toBeVisible()
   return btn
 }
 
