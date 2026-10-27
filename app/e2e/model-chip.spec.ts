@@ -1,18 +1,19 @@
 // 모델 칩의 **뒷단**(ChatGPT 먼저) — 같은 회사 모델을 골라 같은 대화에서 이어 가는 통로.
 // 실제 AI 로그인·실제 turn/start·실제 계정 model/list 는 쓰지 않는다. 가짜 app-server 만 쓴다.
 import { expect, test } from '@playwright/test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { CodexConnection } from '../src/main/chat/codex'
-import { skillSource } from '../src/main/agent'
+import { findExecutable, installSkill, skillSource, skillTargets, skillVersion } from '../src/main/agent'
 import { useChat } from '../src/renderer/src/store/chat'
 import {
   CODEX_TIER_MODELS, codexRecommendations, effectiveModelChoice,
   type ChatModelInfo, type ModelChoice
 } from '../src/shared/chat'
 import type { AgentConnection, AgentEvents, AgentOptions } from '../src/main/chat/contracts'
+import { subscriptionEnv } from '../src/main/chat/contracts'
 import { fakeCodexEnv } from './fixtures/fake-codex'
 
 const appRoot = resolve(__dirname, '..')
@@ -74,8 +75,8 @@ test('고른 값은 이 계정 목록에 비춰 정규화된다 (없는 모델=�
 
 const noopEvents: AgentEvents = { message: () => {}, permission: () => {}, note: () => {}, session: () => {}, skill: () => {} }
 
-/** 가짜 app-server 환경 — fakeCodexEnv 가 실제로 만든 플랫폼별 shim 경로를 직접 넘긴다. */
-function codexSandbox(extra: Record<string, string>) {
+/** 실제 앱과 같은 설치·탐색·구독 환경을 쓰는 가짜 app-server 샌드박스. */
+function codexSandbox(extra: Record<string, string>, root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))) {
   const dir = mkdtempSync(join(tmpdir(), 'kd-model-bin-'))
   const paths = {
     log: join(dir, 'turns.jsonl'),
@@ -86,16 +87,21 @@ function codexSandbox(extra: Record<string, string>) {
   writeFileSync(paths.log, '')
   writeFileSync(paths.applied, '')
   writeFileSync(paths.state, 'chatgpt\n')
-  const root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))
+  // ChatService.send()를 건너뛰는 직접 연결이므로 그 전제인 프로젝트 스킬 설치를 수행한다.
+  const skill = skillTargets(root).codex
+  installSkill(source, skill, skillVersion(source))
+  const env = {
+    ...subscriptionEnv(),
+    ...fakeCodexEnv(dir, {
+      FAKE_CODEX_STATE: paths.state, FAKE_CODEX_TURN_LOG: paths.log,
+      FAKE_CODEX_APPLIED_LOG: paths.applied, FAKE_CODEX_THREAD_STATE: paths.threads, ...extra
+    })
+  }
+  // PATH 전용 탐색으로 실제 shim(.cmd 포함)을 찾고 Windows의 Path/PATH 중복도 정리한다.
+  const binary = findExecutable('codex', env)
+  if (!binary) throw new Error('시험용 Codex 실행 파일을 찾지 못했어요.')
   const connect = (choiceOf: () => ModelChoice | null, chosenOf?: () => boolean) => new CodexConnection({
-    binary: join(dir, process.platform === 'win32' ? 'codex.cmd' : 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'),
-    env: {
-      ...process.env,
-      ...fakeCodexEnv(dir, {
-        FAKE_CODEX_STATE: paths.state, FAKE_CODEX_TURN_LOG: paths.log,
-        FAKE_CODEX_APPLIED_LOG: paths.applied, FAKE_CODEX_THREAD_STATE: paths.threads, ...extra
-      })
-    },
+    binary, root, skill, env,
     openExternal: async () => {}, modelChoice: choiceOf, modelChosen: chosenOf
   })
   return { paths, root, connect }
@@ -119,6 +125,35 @@ async function withCodex(
     await conn.stop()
   }
 }
+
+test('스킬 파일이 없으면 대화를 시작하지 않고 학생에게 설치 오류를 알린다', async () => {
+  const box = codexSandbox({})
+  unlinkSync(join(skillTargets(box.root).codex, 'SKILL.md'))
+  const conn = box.connect(() => null)
+  try {
+    await expect(conn.run('보내지 않아야 할 글', undefined, noopEvents)).rejects.toThrow('프로젝트의 knuaf-dev 스킬을 찾지 못했어요.')
+    expect(readJsonLines(box.paths.log)).toEqual([])
+    expect(readJsonLines(box.paths.applied)).toEqual([])
+  } finally { await conn.stop() }
+})
+
+test('한글·공백 폴더의 별칭에서도 설치된 스킬을 확인하고 고른 모델로 보낸다', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kd-model-alias-'))
+  const physical = join(dir, '논문 작업 폴더')
+  const alias = join(dir, 'PROJECT~1')
+  mkdirSync(physical)
+  // Windows junction은 관리자 권한 없이 만든다. Unix에서는 디렉터리 심링크다.
+  symlinkSync(physical, alias, 'junction')
+  const box = codexSandbox({}, alias)
+  const conn = box.connect(() => ({ model: 'gpt-sol', effort: 'high' }))
+  let loaded = false
+  try {
+    await conn.run('별칭 폴더에서 보내기', undefined, { ...noopEvents, skill: () => { loaded = true } })
+    expect(loaded).toBe(true)
+    expect(readJsonLines(box.paths.log)).toEqual([{ model: 'gpt-sol', effort: 'high' }])
+    expect(readJsonLines(box.paths.applied)).toEqual([{ model: 'gpt-sol', effort: 'high' }])
+  } finally { await conn.stop() }
+})
 
 test('고른 모델·생각 깊이가 turn/start 에 실리고, 안 고르면 키 자체가 없다', async () => {
   await withCodex({}, async (conn, { log, setChoice }) => {

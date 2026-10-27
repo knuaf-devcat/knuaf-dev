@@ -25,7 +25,8 @@
  *                           기본값 조회용 `thread/start(ephemeral:true)` 를 그 횟수만큼 오류로 거절한다
  *   FAKE_CODEX_MODELS_FAIL_TIMES  모델 목록 조회를 처음 N회 오류로 거절한다(복구 UI 시험).
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const MODE = process.env.FAKE_CODEX_MODE ?? 'logged-in'
 if (MODE === 'dead') process.exit(1)
@@ -135,7 +136,10 @@ function handle(message) {
       return out({ id, result: { loginId: 'fake', authUrl: 'about:blank' } })
     case 'skills/list': {
       const cwd = (params.cwds ?? [])[0] ?? process.cwd()
-      return out({ id, result: { data: [{ skills: [{ path: `${cwd}/.agents/skills/knuaf-dev/SKILL.md`, enabled: true }] }] } })
+      const skill = join(cwd, '.agents', 'skills', 'knuaf-dev', 'SKILL.md')
+      // 실제 Codex처럼 설치된 파일만 보고하고 경로 별칭·구분자를 정규화한다.
+      const skills = existsSync(skill) ? [{ path: realpathSync(skill), enabled: true }] : []
+      return out({ id, result: { data: [{ skills }] } })
     }
     case 'thread/start':
     case 'thread/resume': {

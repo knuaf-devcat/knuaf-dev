@@ -71,8 +71,11 @@ Claude는 모델 목록·추천 없이 기존 계정 기본값을 유지합니�
 화면에 반영하지 않습니다(MC1-03). 관련 회귀는 `e2e/model-chip.spec.ts`,
 실제 Electron 조작·같은 대화 전송·밝음/어두움·1440/1024 배치는 `e2e/model-picker-ui.spec.ts`에서 확인합니다.
 캡처가 필요하면 `KNUAF_CHIP_CAPTURE_DIR=<저장 폴더>`를 지정해 후자를 실행합니다.
-직접 가짜 Codex 연결을 만드는 시험도 `fakeCodexEnv()`가 만든 파일명을 넘겨야 합니다:
-Windows는 `codex.cmd`, Unix는 `codex`입니다. Windows에서 확장자를 빼면 `.cmd` 실행 분기를 타지 못합니다.
+직접 가짜 Codex 연결을 만드는 시험도 `skillTargets()`·`installSkill()`로 프로젝트 스킬을 실제 설치하고,
+`subscriptionEnv()`·`fakeCodexEnv()`·`findExecutable()`로 구독 환경과 실행 파일 탐색을 공유합니다.
+Windows의 `codex.cmd`·`Path/PATH`와 설치 파일의 경로 별칭을 시험에서 따로 추측하지 않습니다.
+가짜 서버의 `skills/list`도 존재하는 `SKILL.md`만 realpath로 보고합니다. 스킬 누락 시 전송 차단과
+한글·공백 폴더를 가리키는 별칭(Windows junction/Unix 심링크)의 전송 회귀를 `model-chip.spec.ts`에 둡니다.
 
 ## 개발
 
