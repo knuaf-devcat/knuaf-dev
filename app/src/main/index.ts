@@ -128,6 +128,8 @@ else {
     // Wait for owned sidecar processes as well as agent connections before exiting.
     if (!quitting) {
       quitting = true
+      chat?.beginShutdown()
+      if (win && !win.isDestroyed()) win.webContents.send('app:quitting')
       e.preventDefault()
       void Promise.allSettled([sidecar.stop(), chat?.close() ?? Promise.resolve()]).then((results) => {
         for (const result of results) if (result.status === 'rejected') console.error('Shutdown failed:', result.reason)

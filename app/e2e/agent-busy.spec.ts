@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { launch, openProject, plantStaleLock, synthProject } from './helpers'
@@ -41,5 +41,68 @@ test('a running chat turn rejects sidecar writes with agent_busy, then recovers'
     }, { timeout: 15_000 }).toBe('ok')
   } finally {
     await electronApp.close()
+  }
+})
+
+test('종료 시작 뒤 늦은 상태 조회가 연결이나 Codex를 되살리지 않는다', async () => {
+  const bindir = mkdtempSync(join(tmpdir(), 'kd-quit-bin-'))
+  const starts = join(bindir, 'starts.txt')
+  const script = join(bindir, 'hold.cjs')
+  writeFileSync(script, `require('node:fs').appendFileSync(${JSON.stringify(starts)}, process.cwd() + '\\n'); setInterval(() => {}, 1000)\n`)
+  writeCliShim(bindir, 'codex', `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`, `"${process.execPath}" "${script}"`)
+  const root = synthProject({ withContent: false })
+  const other = synthProject({ withContent: false })
+  const { electronApp, page } = await launch({ env: { PATH: [bindir, '/usr/bin', '/bin'].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1' } })
+  let closed = false
+  try {
+    await openProject(page, root)
+    await expect.poll(() => existsSync(starts) ? readFileSync(starts, 'utf8') : '', { timeout: 30000 }).toContain('connect-probe')
+    await expect.poll(() => readFileSync(starts, 'utf8'), { timeout: 30000 }).toContain(root)
+    await electronApp.evaluate(({ app, ipcMain }, file) => {
+      const fs = process.getBuiltinModule('node:fs')!
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      const state = { quitting: false, release: false, calls: [] as string[], before: '' }
+      Object.assign(globalThis, { quitProbe: state })
+      for (const channel of ['chat:status', 'connect:status']) {
+        const original = handlers.get(channel)!
+        handlers.set(channel, (...args) => {
+          if (state.quitting) state.calls.push(channel)
+          return original(...args)
+        })
+      }
+      app.prependListener('before-quit', () => {
+        if (!state.quitting) state.before = fs.readFileSync(file, 'utf8')
+        state.quitting = true
+      })
+      // 앱이 창을 닫기 전에 명시적 IPC 결과를 확인한다. 해제 뒤 실제 종료는 그대로 진행한다.
+      app.on('before-quit', (e) => { if (!state.release) e.preventDefault() })
+    }, starts)
+    await page.evaluate(({ root, other }) => {
+      window.knuaf.onAppQuitting(() => {
+        void Promise.all([
+          window.knuaf.chat.status(root, 'codex'),
+          window.knuaf.chat.status(other, 'codex'),
+          window.knuaf.connect.status('codex')
+        ]).then((results) => { Object.assign(window, { quitProbeResults: results }) })
+      })
+    }, { root, other })
+    await electronApp.evaluate(({ app }) => { setImmediate(() => app.quit()) })
+    await page.waitForFunction(() => Array.isArray(Reflect.get(window, 'quitProbeResults')))
+    const results = await page.evaluate(() => Reflect.get(window, 'quitProbeResults')) as { error?: { message: string } }[]
+    expect(results).toHaveLength(3)
+    expect(results.every((r) => r.error?.message.includes('앱을 종료하고 있어요'))).toBe(true)
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('확인 실패', { timeout: 30000 })
+    const state = await electronApp.evaluate(() => Reflect.get(globalThis, 'quitProbe')) as { calls: string[]; before: string }
+    expect(state.calls.filter((c) => c === 'chat:status')).toHaveLength(2)
+    expect(state.calls.filter((c) => c === 'connect:status')).toHaveLength(1)
+    expect(readFileSync(starts, 'utf8')).toBe(state.before)
+    await electronApp.evaluate(() => { Reflect.get(globalThis, 'quitProbe').release = true })
+    await electronApp.close(); closed = true
+    expect(readFileSync(starts, 'utf8')).toBe(state.before)
+  } finally {
+    if (!closed) {
+      await electronApp.evaluate(() => { const state = Reflect.get(globalThis, 'quitProbe'); if (state) state.release = true })
+      await electronApp.close()
+    }
   }
 })

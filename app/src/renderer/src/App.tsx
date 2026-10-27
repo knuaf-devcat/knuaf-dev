@@ -39,8 +39,11 @@ export function App() {
   useEffect(() => {
     const targets = new Set<Provider>()
     let saving = false
+    let quitting = false
+    const offQuitting = window.knuaf.onAppQuitting(() => { quitting = true })
     let fromChat = false
     const offChat = useChat.subscribe((state, before) => {
+      if (quitting) return
       if (!state.root || state.connState === 'checking') return
       if (state.status === before.status && state.statusFailed === before.statusFailed && state.connState === before.connState) return
       const info = state.statusFailed || !state.status
@@ -50,6 +53,7 @@ export function App() {
       try { useConnect.getState().observeChat(state.provider, info) } finally { fromChat = false }
     })
     const offConnect = useConnect.subscribe((state, before) => {
+      if (quitting) return
       for (const p of ['codex', 'claude'] as const) {
         if (state.loggingIn[p]) targets.add(p)
         if (!fromChat && state[p].state !== before[p].state && state[p].state !== 'checking') {
@@ -67,7 +71,7 @@ export function App() {
         } else if (!state.loggingIn[p] && before.loggingIn[p]) targets.delete(p)
       }
     })
-    return () => { offChat(); offConnect() }
+    return () => { offQuitting(); offChat(); offConnect() }
   }, [])
   useEffect(() => {
     void loadSettings()

@@ -25,6 +25,7 @@
   다른 작업을 저장한 뒤 컴퓨터 재시작을 안내합니다. 앱 종료도 사이드카 종료 결과를 기다립니다.
 - `src/main/chat/` — Codex App Server(`codex app-server`)·Claude Agent SDK와의 구조화 채팅. 스냅샷은
   `<프로젝트>/.knuaf-gui/chat-<provider>.json`에 남고, 실행 중 종료는 `interrupted`/`uncertain`으로 복구됩니다.
+  앱 종료가 시작되면 연결 상태를 다시 조회하거나 새 도우미 연결을 만들지 않고 기존 연결을 정리합니다.
   도우미 실행 중에는 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
   `~/.codex/skills`·`~/.agents/skills`에 남은 전역 `knuaf-dev` 사본은 codex `-c skills.config=…` 오버라이드로
   그 세션에서만 끕니다(사용자 config.toml은 건드리지 않음) — 낡은 사본이 프로젝트 사본과 이름 충돌하지 않게.
