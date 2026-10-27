@@ -21,6 +21,12 @@ export class ChatService {
   private connections = new Map<string, AgentConnection>()
   private owners = new Set<string>()
   private runs = new Map<string, Promise<void>>()
+  private shuttingDown = false
+  /** 종료 시작과 동시에 새 연결·상태 확인을 막는다. 기존 연결은 close()가 정리한다. */
+  beginShutdown(): void { this.shuttingDown = true }
+  private ensureActive(): void {
+    if (this.shuttingDown) throw new Error('앱을 종료하고 있어요.')
+  }
   /**
    * 아직 카드로 올리지 못한 권한 요청 줄. 카드는 한 번에 하나만 뜨지만 요청은 동시에
    * 온다 — 도우미가 서브에이전트를 띄우면 그쪽 도구 호출도 같은 통로로 들어온다.
@@ -178,6 +184,7 @@ export class ChatService {
   }
   private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-dev') }
   private connection(root: string, provider: Provider): AgentConnection {
+    this.ensureActive()
     const key = this.key(root, provider)
     let c = this.connections.get(key)
     if (!c) {
@@ -201,6 +208,7 @@ export class ChatService {
     return c
   }
   async status(root: string, provider: Provider): Promise<ConnectionStatus> {
+    this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     return this.connection(root, provider).status()
   }
@@ -288,6 +296,7 @@ export class ChatService {
     return this.globalRoot
   }
   private globalConnection(provider: Provider): AgentConnection {
+    this.ensureActive()
     let c = this.globals.get(provider)
     if (!c) {
       const root = this.connectRoot()
@@ -313,6 +322,7 @@ export class ChatService {
    * 조회가 실패하면(`probe:'failed'`) — 확인하지 못한 것을 "로그인 필요"로 꾸미지 않는다.
    */
   async globalStatus(provider: Provider): Promise<ConnectionStatus> {
+    this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     try {
       return await this.globalConnection(provider).status()
@@ -450,6 +460,7 @@ export class ChatService {
     await this.runs.get(key)
   }
   async close() {
+    this.beginShutdown()
     await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) }))
     await Promise.all([...this.globals.values()].map((c) => c.stop()))
     this.globals.clear()

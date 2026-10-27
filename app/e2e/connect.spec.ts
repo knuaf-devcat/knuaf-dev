@@ -198,6 +198,35 @@ test('전역 연결은 폴더 연결과 섞이지 않는다', async () => {
   await svc.close()
 })
 
+test('종료 시작 뒤 기존·새 프로젝트와 전역 상태 확인은 연결을 만들지 않는다', async () => {
+  const roots: string[] = []
+  const stopped: string[] = []
+  let probes = 0
+  const { svc } = service((_p, options) => {
+    roots.push(options.root)
+    return fake({
+      status: async () => { probes += 1; return status({ connected: true }) },
+      stop: async () => { stopped.push(options.root) }
+    })
+  })
+  const project = mkdtempSync(join(tmpdir(), 'kd-proj-'))
+  const other = mkdtempSync(join(tmpdir(), 'kd-proj-'))
+  await svc.globalStatus('codex')
+  await svc.status(project, 'codex')
+  expect(roots).toHaveLength(2)
+  expect(probes).toBe(2)
+  svc.beginShutdown()
+  await expect(svc.status(project, 'codex')).rejects.toThrow('앱을 종료하고 있어요')
+  await expect(svc.status(other, 'codex')).rejects.toThrow('앱을 종료하고 있어요')
+  await expect(svc.globalStatus('codex')).rejects.toThrow('앱을 종료하고 있어요')
+  await expect(svc.globalStatus('claude')).rejects.toThrow('앱을 종료하고 있어요')
+  expect(roots).toHaveLength(2)
+  expect(probes).toBe(2)
+  await svc.close()
+  expect(stopped.sort()).toEqual(roots.sort())
+  await expect(svc.status(other, 'codex')).rejects.toThrow('앱을 종료하고 있어요')
+})
+
 test('전역 연결로는 아무것도 보낼 수 없다', async () => {
   // 파일을 쓰는 일(스킬 설치)은 send() 안에서만 일어난다. 전역 연결이 run 에 닿지 못하면
   // 첫 화면이 논문 폴더에 흔적을 남기지 않는다는 성질이 코드로 지켜진다.

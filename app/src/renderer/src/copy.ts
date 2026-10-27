@@ -940,7 +940,7 @@ export const CHAT = {
    * 빈 대화(자동 시작이 안 된 경우) — AI 는 첫 실행·계정 팝오버에서 고른다. 여기서 다시 고르게
    * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
    */
-  emptyChangeAi: '다른 AI로 바꾸려면 오른쪽 위 계정에서 바꿀 수 있어요',
+  emptyChangeAi: '다른 AI로 바꾸려면 입력칸의 모델 칩을 열어 주세요',
   // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',
@@ -1412,3 +1412,18 @@ export const HELPER = {
     ? '처음이면 터미널 안내에 따라 ChatGPT 계정으로 로그인해요.'
     : '처음이면 브라우저에 Claude 로그인 창이 떠요.'} 터미널에 오류가 보이면 그 내용을 확인해 주세요. 인터뷰 답변은 그 터미널 창에서 해요. 도우미가 저장할 때마다 이 앱을 새로고침하면 결과가 보여요.`,
 }
+
+export const PROJECT_FOLDER = {
+  title: '논문 파일을 어디에 둘까요?',
+  body: '원고와 자료, 만든 파일이 한 곳에 모여요. 같은 이름이 있으면 번호를 붙여요.',
+  name: '논문 이름',
+  create: '앱이 만들어 둘게요',
+  recommended: '추천',
+  location: (name: string) => `문서 / knuaf-dev / ${name}`,
+  pick: '내 폴더 고르기',
+  pickBody: '이미 쓰던 원고 폴더가 있으면 골라 주세요.',
+  finder: 'Finder에서 열기',
+  explorer: '파일 탐색기에서 열기',
+  openFailed: '폴더를 열지 못했어요.',
+  createFailed: '폴더를 만들지 못했어요. 다시 시도하거나 내 폴더를 골라 주세요.'
+} as const

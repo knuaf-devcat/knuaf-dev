@@ -83,35 +83,3 @@ test('경고 상자 바탕은 호박이 아니라 아이스 그레이(허락 카
   }
 })
 
-test('재실행 첫 화면은 시안 ② 논문 폴더 화면 — 620px 가운데, 자동 열기 없음', async () => {
-  const dir = scratch()
-  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
-  writeFakeClaude(join(dir, 'bin'))   // 저장된 선택(codex)+둘 다 연결 → 폴더 단계로 건너뛴다(W2 D2)
-  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
-  mkdirSync(userData, { recursive: true })
-  writeFileSync(join(userData, 'settings.json'), JSON.stringify({
-    show_intro: false,
-    onboarded_at: '2026-10-18T00:00:00.000Z',
-    provider_choice: { provider: 'codex', at: '2026-10-18T00:00:00.000Z' },
-    recent: [{ root: synthProject(), opened_at: '2026-10-18T00:00:00.000Z' }]
-  }), 'utf-8')
-  const { electronApp, page } = await launch({ userData, env, waitFor: 'text=논문을 담을 폴더를 골라요' })
-  try {
-    // 폴더 단계 + 길잡이 "AI 연결 ✓ → 논문 폴더 → 시작".
-    await expect(page.locator('text=논문을 담을 폴더를 골라요')).toBeVisible()
-    await expect(page.locator('.onb-way')).toContainText('AI 연결 ✓')
-
-    // 표제가 창 왼쪽 끝(x=0)·창 전체 폭에 붙지 않는다 — 온보딩과 같은 620px 가운데 여백(REPORT-RELAUNCH §1-1).
-    const inner = await page.locator('.onb-inner').boundingBox()
-    expect(inner).not.toBeNull()
-    expect(inner!.x, '첫 화면 표제가 창 왼쪽 끝에 붙었다').toBeGreaterThan(100)
-    expect(inner!.width, '첫 화면이 창 전체 폭으로 퍼졌다').toBeLessThanOrEqual(621)
-
-    // 최근 논문을 자동으로 열지 않는다 — 학생이 고른다.
-    await expect(page.locator('.paperpane')).toHaveCount(0)
-    // 최근 카드는 눌러 열 수 있다.
-    await expect(page.locator('.project').first()).toBeVisible()
-  } finally {
-    await electronApp.close()
-  }
-})

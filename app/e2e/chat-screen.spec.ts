@@ -20,7 +20,9 @@ test('a failed status check is a confirmed failure, not a dead end', async () =>
     await openProject(page, root)
     await expect(page.locator('.chat-pane')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('text=도우미 상태를 확인하지 못했어요')).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByRole('button', { name: '다시 확인' })).toBeVisible()
+    await page.getByTitle('이 논문의 도우미').click()
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
+    await page.keyboard.press('Escape')
     // "확인 중"은 어느 자리에도 남으면 안 된다 — 아래 칸의 캡션도 포함해서.
     await expect(page.locator('text=연결 확인 중…')).toHaveCount(0)
     // 실패 원문은 입력칸 위 한 줄 알림의 "자세히" 아래로 간다 — 헤드라인은 학생용 문장(알림창 B안).

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { mkdir, lstat } from 'node:fs/promises'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import type { Sidecar } from './sidecar'
 import type { ProjectPeek, WindowInfo } from '../shared/types'
@@ -12,6 +13,7 @@ import { openGuide } from './menu'
 import { loadSettings, rememberRecent, saveSettings } from './settings'
 import { APP_NAME } from '../shared/name'
 import { hideAppDirs } from './hidden'
+import { projectFolderName } from '../shared/project-folder'
 
 /** Chrome hints the renderer uses to lay out its title bar; also used by main when creating the window. */
 export function windowInfo(): WindowInfo {
@@ -337,6 +339,23 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       return { error }
     } finally {
       inflight.delete(clientId)
+    }
+  })
+  ipcMain.handle('project:create-folder', async (_e, title: unknown) => {
+    if (typeof title !== 'string') return { error: { code: 'invalid_name', message: '논문 이름을 확인해 주세요.' } }
+    const parent = join(app.getPath('documents'), 'knuaf-dev')
+    try {
+      await mkdir(parent, { recursive: true })
+      if (!(await lstat(parent)).isDirectory()) throw new Error('논문 폴더 위치가 실제 폴더가 아닙니다.')
+      const name = projectFolderName(title)
+      for (let n = 1; n <= 10000; n++) {
+        const root = join(parent, n === 1 ? name : `${name} (${n})`)
+        try { await mkdir(root); return { result: { root } } }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+      }
+      throw new Error('같은 이름의 폴더가 너무 많아요.')
+    } catch (error) {
+      return { error: { code: 'create_folder_failed', message: String(error) } }
     }
   })
 

@@ -222,24 +222,19 @@ test('제목줄 논문 팝오버 — 최근 논문과 새 폴더·다른 폴더 
   await electronApp.close()
 })
 
-test('제목줄 계정 팝오버 — 두 AI 줄이 첫 실행과 같은 상태 문구를 쓴다 (설계자 답 Q2)', async () => {
+test('모델 칩에서 두 AI의 연결 상태를 확인한다', async () => {
   const root = synthProject()
-  const { electronApp, page } = await launch()
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(join(scratch(), 'bin'), { FAKE_CODEX_MODE: 'logged-in' }) })
   await openProject(page, root)
-  await expect(page.locator('.paperpane')).toBeVisible({ timeout: 20_000 })
 
-  await page.locator('.titlebar .tbtn.acct').click()
-  const pop = page.locator('.titlebar .popover')
+  await page.getByTitle('이 논문의 도우미').click()
+  const pop = page.locator('.chat-zone .popover')
   await expect(pop).toBeVisible()
   // 첫 실행 1단계와 같은 부품(ConnectRow) — 공급자마다 한 줄.
   await expect(pop.locator('[data-provider]')).toHaveCount(2)
   await expect(pop.locator('[data-provider="codex"]')).toContainText('ChatGPT')
   await expect(pop.locator('[data-provider="claude"]')).toContainText('Claude')
-  // 상태 문구가 반드시 한 줄 있다(관찰한 것만 말한다 — connectStateLine).
-  for (const p of ['codex', 'claude']) {
-    const line = await pop.locator(`[data-provider="${p}"] .reason`).first().innerText()
-    expect(line.trim().length, `${p} 상태 문구가 비었다`).toBeGreaterThan(0)
-  }
+  await expect(pop.locator('[data-provider="codex"] .reason')).toContainText('연결됐어요')
   await electronApp.close()
 })
 

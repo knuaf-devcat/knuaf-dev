@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ProjectSidebar } from './ProjectSidebar'
 
 /**
  * 앱 틀 — 제목줄 · 작업 공간 · 시트가 한 세로 줄기에 앉는다 (DESIGN §1-1).
@@ -15,7 +16,7 @@ export function Shell({ titleBar, children, sheets }: { titleBar: ReactNode; chi
     <div className="app">
       <div className="drag-strip" aria-hidden="true" />
       {titleBar}
-      <main className="stage">{children}</main>
+      <main className="stage"><ProjectSidebar />{children}</main>
       {sheets}
     </div>
   )

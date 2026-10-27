@@ -29,6 +29,7 @@ const api = {
   /** 이 작업폴더에서는 판정 불가한 명령도 묻지 않는다(설정에서 되돌릴 수 있다). */
   trustProject: (root: string, on: boolean) => ipcRenderer.invoke('project:trust', root, on),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('project:pick'),
+  createProjectFolder: (title: string): Promise<{ result: { root: string } } | { error: { code: string; message: string } }> => ipcRenderer.invoke('project:create-folder', title),
   pickFile: (opts: { title?: string; filters?: { name: string; extensions: string[] }[]; defaultPath?: string }): Promise<string | null> => ipcRenderer.invoke('file:pick', opts),
   reveal: (path: string) => ipcRenderer.invoke('shell:reveal', path),
   openPath: (path: string) => ipcRenderer.invoke('shell:open', path),
@@ -62,6 +63,11 @@ const api = {
     const listener = (_e: unknown, action: { type: string; root?: string; screen?: string }) => fn(action)
     ipcRenderer.on('menu', listener)
     return () => ipcRenderer.removeListener('menu', listener)
+  },
+  onAppQuitting: (fn: () => void) => {
+    const listener = () => fn()
+    ipcRenderer.on('app:quitting', listener)
+    return () => ipcRenderer.removeListener('app:quitting', listener)
   },
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   isDir: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:is-dir', p),
