@@ -29,9 +29,9 @@ export function MakeFeedbackLine({ fb, compact, submission, gate }: { fb: MakeFe
       <div className="t">{fb.kind === 'warning' && <span className="dot attn" aria-hidden="true" />}{fb.title}</div>
       {submitBlocked ? (
         <>
-          <div className="b"><strong>먼저 할 일:</strong> {checks[0].label}</div>
-          <div className="caption submission-count">그 밖에 조건 {checks.length - 1}개 더</div>
-          <Disclosure label="자세한 진단 보기">
+          <div className="b"><strong>{ARTIFACTS.make.firstAction}</strong> {checks[0].label}</div>
+          <div className="caption submission-count">{ARTIFACTS.make.remainingConditions(checks.length - 1)}</div>
+          <Disclosure label={ARTIFACTS.make.diagnostics}>
             <div className="submission-details">
               <ul>{checks.map((check) => <li key={check.id}><code>{check.id}{check.count > 1 ? ` ×${check.count}` : ''}</code> · {check.label}</li>)}</ul>
               {fb.body && <div className="b">{fb.body}</div>}

@@ -156,10 +156,10 @@ export function SettingsScreen() {
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
         <div className="caption">{APP_NAME} · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
         {info && <div className="row app-build-info" style={{ marginTop: 'var(--sp-2)' }}>
-          <code title={`${info.buildDate} ${info.buildCommit}`}>빌드 {info.buildDate} · 커밋 {info.buildCommit}</code>
-          <button className="quiet" onClick={() => void copyBuildInfo()} aria-label="빌드 정보 복사">{buildCopy === 'copied' ? '복사했어요' : '빌드 정보 복사'}</button>
+          <code title={`${info.buildDate} ${info.buildCommit}`}>{SETTINGS.buildInfo(info.buildDate, info.buildCommit)}</code>
+          <button className="quiet" onClick={() => void copyBuildInfo()} aria-label={SETTINGS.copyBuildInfo}>{buildCopy === 'copied' ? SETTINGS.buildInfoCopied : SETTINGS.copyBuildInfo}</button>
           <button onClick={() => window.knuaf.openPath(info.logs)}>로그 폴더 열기</button>
-          {buildCopy === 'failed' && <span role="alert" className="caption">복사하지 못했어요</span>}
+          {buildCopy === 'failed' && <span role="alert" className="caption">{SETTINGS.buildInfoCopyFailed}</span>}
         </div>}
         <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{PRIVACY_NOTE}</p>
       </section>

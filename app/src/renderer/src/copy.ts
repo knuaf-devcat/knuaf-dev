@@ -1068,6 +1068,9 @@ export const ARTIFACTS = {
     xlsxNoInput: '학교 재무 양식 파일이 아직 없어요. 도우미에게 양식 파일 위치를 알려 주면 여기서 이어서 만들어요',
     gateBlocked: '제출용 후보를 만들 수 없어요. 먼저 필요한 것',
     gateDetails: '자세히',
+    firstAction: '먼저 할 일:',
+    remainingConditions: (n: number) => `그 밖에 조건 ${n}개 더`,
+    diagnostics: '자세한 진단 보기',
     advancedOpen: '고급 도구에서 직접 실행',
     /** 실패했는데 스크립트가 이유를 안 남긴 경우 — 제목만 띄우고 끝내지 않는다(GUI-08). */
     failNoReason: '도구가 이유를 남기지 않았어요. "자세히"의 실행 기록을 확인해 주세요.',
@@ -1163,7 +1166,7 @@ export const PAPER = {
   tocTitle: '차례 — 누르면 그 장으로 가요',
   /** 장 상태 말. 숫자로 세지 않는다("7장 중 2장" 금지, DESIGN §2). */
   stateDone: '초안 다 씀',
-  stateWriting: '쓰는 중',
+  stateDraft: '초안',
   stateEmpty: '아직',
   /** 등록된 절이 하나도 없을 때. 가짜 차례를 만들지 않는다(R4 원칙). */
   empty: '아직 등록된 장이 없어요',
@@ -1172,7 +1175,7 @@ export const PAPER = {
   emptyLine: '아직 쓴 글이 없어요',
   /** 질문 원문에 장이 적혀 있을 때만, 그 장 끝에 한 줄(DESIGN §2). */
   questionSlot: '지금 질문의 답은 이 장에 쓰여요',
-  writingTag: '도우미가 쓰는 중',
+  assistantRunning: '도우미가 작업 중',
   materialsCount: (n: number) => `자료 ${n}`,
   filesCount: (n: number) => `파일 ${n}`,
   /** 파일에 다시 만들어야 할 것이 있을 때만 옆에 붙는 호박색 점의 이름(낭독용). */
@@ -1330,7 +1333,11 @@ export const SETTINGS = {
   toolsTitle: '고급 도구',
   toolsNote: '직접 실행 — 평소엔 필요 없어요',
   pythonTitle: 'Python 실행기',
-  appInfoTitle: '앱 정보'
+  appInfoTitle: '앱 정보',
+  buildInfo: (date: string, commit: string) => `빌드 ${date} · 커밋 ${commit}`,
+  copyBuildInfo: '빌드 정보 복사',
+  buildInfoCopied: '복사했어요',
+  buildInfoCopyFailed: '복사하지 못했어요'
 }
 
 /**
