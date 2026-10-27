@@ -49,6 +49,36 @@ def test_provided_answer_is_reused(project):
     assert core.question(core.load(project), "farm.area") == "reuse"
 
 
+# --- 허용값 밖의 사실은 어느 칸이 틀렸는지 밝히고 거절돼야 한다 -----------------
+
+FACT_ENUM_BAD = (
+    ("kind", "interview", core.KINDS),
+    ("answer_state", "confirmed", core.STATES),
+    ("verification", "user_stated", core.VERIFY),
+    ("verification", ["user_stated"], core.VERIFY),  # 문자열 아닌 값도 같은 문구로 끝난다
+)
+
+
+@pytest.mark.parametrize("field, bad, allowed_values", FACT_ENUM_BAD)
+def test_bad_fact_enum_error_names_field_value_and_allowed(project, field, bad, allowed_values):
+    """MQ-R1-02: 세 필드가 한 문구로 거절돼 AI가 어느 칸을 고쳐야 할지 알 수
+    없었다. 받은 값과 허용값이 문구에 있어야 한 번에 고칠 수 있다."""
+    change = basic_change()
+    change["request_id"] = "bad-enum:%s:%r" % (field, bad)
+    for op in change["ops"]:
+        if op["collection"] == "facts":
+            op["value"][field] = bad
+    revision = core.load(project)["revision"]
+    with pytest.raises(ValueError) as err:
+        core.apply(project, change, revision)
+    msg = str(err.value)
+    assert field in msg
+    assert json.dumps(bad, ensure_ascii=False) in msg
+    for allowed in allowed_values:
+        assert allowed in msg
+    assert core.load(project)["revision"] == revision
+
+
 # --- 빈 내보내기는 성공이 아니다 -----------------------------------------------
 
 def test_export_refuses_a_project_with_no_sections(empty_folder):
