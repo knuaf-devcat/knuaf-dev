@@ -179,6 +179,12 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .make-fb .b { color: var(--ink-2); margin-top: 2px; }
 .make-fb .b code { word-break: break-all; }
 .make-fb .row { margin-top: 6px; }
+.make-fb .submission-count { margin-top: 3px; }
+.make-fb .submission-details ul { margin: 0 0 var(--sp-2); padding-left: 20px; }
+.make-fb .submission-details li { margin: 2px 0; }
+.make-fb .submission-raw { color: var(--ink-2); overflow-wrap: anywhere; }
+.paper-live { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 4px 9px; font-size: var(--fs-caption); white-space: nowrap; }
+.paper-live .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .make-fb.warning { background: var(--alert-bg); border-color: var(--alert-border); }
 .make-fb.completion { background: var(--ok-soft); border-color: transparent; }
 .make-fb.error { background: var(--bad-soft); border-color: transparent; }

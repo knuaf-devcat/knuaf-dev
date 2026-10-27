@@ -195,7 +195,9 @@ test('차례 팝오버 — 등록된 절만, 상태 말과 함께', async () => 
   await expect(pop).toBeVisible()
   await expect(pop.locator('.pop-row')).toHaveCount(1)
   await expect(pop).toContainText('Ⅰ. 머리말')
-  await expect(pop).toContainText('쓰는 중')
+  // P02: drafting은 저장된 초안 상태이며, 도우미의 실제 실행 표시는 별도다.
+  await expect(pop).toContainText('초안')
+  await expect(page.locator('.paper-live')).toHaveCount(0)
   // 가짜 차례를 만들지 않는다 — 등록되지 않은 장은 없다.
   await expect(pop).not.toContainText('Ⅶ')
   await electronApp.close()
