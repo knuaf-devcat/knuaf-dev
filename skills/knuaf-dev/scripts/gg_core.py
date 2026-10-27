@@ -496,12 +496,22 @@ def validate(p):
         ):
             if key not in f:
                 raise ValueError("사실 필드 누락: " + key)
-        if (
-            f["kind"] not in KINDS
-            or f["answer_state"] not in STATES
-            or f["verification"] not in VERIFY
+        # 한 문구로 세 필드를 뭉뚱그리면 호출자는 어느 칸이 틀렸는지 알 수 없다.
+        # 필드 이름·받은 값·허용값을 적어야 한 번에 고칠 수 있다.
+        for name, allowed in (
+            ("kind", KINDS),
+            ("answer_state", STATES),
+            ("verification", VERIFY),
         ):
-            raise ValueError("잘못된 사실 상태")
+            if not isinstance(f[name], str) or f[name] not in allowed:
+                raise ValueError(
+                    "사실 %s 허용값 오류: 받은 값 %s (허용값: %s)"
+                    % (
+                        name,
+                        json.dumps(f[name], ensure_ascii=False),
+                        "/".join(sorted(allowed)),
+                    )
+                )
         if f["answer_state"] == "provided" and f["value"] is None:
             raise ValueError("제공됨 상태에는 값 필요")
         if f["answer_state"] != "provided" and f["value"] is not None:
