@@ -423,10 +423,12 @@ function batQuote(s: string): string {
 const BAT_META = /([()\][!^"`<>&|;, *?])/g
 
 /**
- * 배치의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
+ * 배치 shim의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
  * 막는다(`win.ts` 의 `escapeCommand` 와 같은 규칙 — `%` 는 배치 확장이라 `%%`).
  * 두 층으로 막으면 첫 cmd 해석 뒤에도 `^` 가 남아 실행 파일 이름을 찾지 못한다
  * (W1C-R1-01 확인. cross-spawn `parse.js` 도 명령에는 `escape.command` 만 쓴다).
+ * 네이티브 실행물에는 쓰지 않는다. 공백을 ^로만 막으면 cmd가 실행물을 찾더라도 CRT가
+ * 따옴표 없는 argv[0]을 공백에서 잘라 경로 뒷부분을 추가 인자로 만든다(Windows CI QA-04).
  */
 function batCommand(s: string): string {
   return batLiteral(s).replace(BAT_META, '^$1')
@@ -437,17 +439,23 @@ function batCommand(s: string): string {
  * 쓰지 않는다(W1C-R1-01). 순서가 중요하다:
  *   1. `%` → `%%` — 배치 확장은 여기서만 막을 수 있다.
  *   2. MSVCRT 인용 — `"` 앞과 끝의 역슬래시를 두 배로.
- *   3. cmd 메타문자를 `^` 로 — **두 번**. 대상(`claude.cmd`/`codex.cmd`)이 npm shim 이라
- *      `%*` 로 한 번 더 파싱되기 때문이다(`win.ts` 주석의 cross-spawn 규칙과 같은 이유).
+ *   3. cmd 메타문자를 `^` 로 — 대상이 npm shim(`claude.cmd`/`codex.cmd`)이면 **두 번**.
+ *      shim 은 `%*` 로 한 번 더 파싱되기 때문이다(`win.ts` 주석의 cross-spawn 규칙과 같은 이유).
+ *      대상이 `.exe`(설치본에 동봉한 `codex.exe`)면 **한 번**만 — cmd 가 한 번 읽고 바로
+ *      MSVCRT 로 넘기므로, 두 번 막으면 `^` 가 인자에 남아 설정값이 깨진다(실기기 QA-04).
  */
-function batArg(s: string): string {
+function batArg(s: string, doubleEscape: boolean): string {
   let a = batLiteral(s)
   a = a.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"')
   a = a.replace(/(?=(\\+?)?)\1$/, '$1$1')
   a = `"${a}"`
   a = a.replace(BAT_META, '^$1')
-  a = a.replace(BAT_META, '^$1')
+  if (doubleEscape) a = a.replace(BAT_META, '^$1')
   return a
+}
+/** 대상이 `%*` 로 인자를 다시 읽는 배치(npm shim)인지 — `win.ts` 의 `CMD_SHIM` 과 같은 규칙. */
+function isBatchShim(path: string): boolean {
+  return /\.(cmd|bat)$/i.test(path)
 }
 /** cmd 인자는 **한 줄**이라야 한다 — 첫 프롬프트의 줄바꿈을 한 칸으로 눌러 담는다. */
 function oneLine(s: string): string {
@@ -489,19 +497,44 @@ function buildLaunchScriptPosix(o: LaunchScriptOptions): string {
  *
  * 다른 곳 둘: cmd 에는 `exec` 가 없고(그냥 실행한다), **한 인자에 줄바꿈을 담을 수 없다** —
  * 첫 프롬프트의 줄바꿈은 한 칸으로 눌러 한 줄로 만든다(문장 뜻은 그대로다).
+ *
+ * **코드페이지.** 파일은 UTF-8(BOM 없음)로 쓰는데 cmd 는 배치 줄을 콘솔 코드페이지(한국어
+ * 윈도우는 949)로 읽는다. 그러면 한글 경로가 깨져 `cd` 가 "구문이 잘못되었습니다" 로 실패한다
+ * (실기기 QA-04). cmd 는 배치를 **한 줄씩 다시 읽으므로** 둘째 줄에서 `chcp 65001` 로 바꾸면
+ * 그 뒤 줄은 UTF-8 로 읽힌다 — 그래서 그 앞 두 줄은 ASCII 여야 한다.
+ *
+ * **실패하면 창을 남긴다.** 이동·실행이 실패하면 창이 바로 닫혀 학생은 이유를 못 본다 —
+ * 오류가 나면 `pause` 로 멈춘다(정상 종료 0 이면 그냥 닫힌다). 다른 배치를 직접 실행하면
+ * 제어가 돌아오지 않으므로 실행 부분은 자식 cmd 에 맡긴다. `call` 은 사용자 경로/인자를
+ * 다시 확장하므로 쓰지 않는다. 부모 배치가 종료 코드를 보존하고 실패를 보여 준다.
  */
 function buildLaunchScriptWin(o: LaunchScriptOptions): string {
   // 윈도우에는 홈브루 자리가 없다(agentBinDirs 의 그 둘은 맥 전용) — venv·번들만 앞에 둔다.
   const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
   const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
+  const dbl = isBatchShim(o.agentPath)
+  // .exe의 명령 이름은 argv[0]으로도 읽힌다. cmd escape 대신 경로 전체를 인용해야 한다.
+  const command = dbl ? batCommand(o.agentPath) : batQuote(o.agentPath)
   const execLine = o.agent === 'claude'
-    ? `${batCommand(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion')} ${batArg(oneLine(o.firstPrompt))}`
-    : `${batCommand(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff)}` : ''}`
+    ? `${command} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion', dbl)} ${batArg(oneLine(o.firstPrompt), dbl)}`
+    : `${command}${skillOff ? ` -c ${batArg(skillOff, dbl)}` : ''}`
 
   return [
     '@echo off',
+    // 이 줄까지는 ASCII 다 — 다음 줄부터 UTF-8 로 읽힌다(위 주석의 코드페이지).
+    'chcp 65001 >nul',
     // 지연 확장을 끈다 — `!` 가 든 경로·문장이 글자 그대로 가게(레지스트리 설정과 무관하게).
     'setlocal DisableDelayedExpansion',
+    'if "%~1"=="--knuaf-run" goto knuaf-run',
+    // 자식은 같은 파일의 실행 절만 읽는다. 고정 인자 하나뿐이고 원문 프롬프트를 재확장하지 않는다.
+    '"%ComSpec%" /d /v:off /s /c ""%~f0" --knuaf-run"',
+    'set "KNUAF_LAUNCH_EXIT=%errorlevel%"',
+    'if "%KNUAF_LAUNCH_EXIT%"=="0" exit /b 0',
+    'echo.',
+    'echo 도우미를 실행하지 못했거나 오류로 끝났어요. 위 오류 내용을 확인해 주세요. 종료 코드: %KNUAF_LAUNCH_EXIT%',
+    'pause',
+    'exit /b %KNUAF_LAUNCH_EXIT%',
+    ':knuaf-run',
     `cd /d ${batQuote(o.root)} || exit /b 1`,
     `set "PATH=${dirs.join(';')}${dirs.length ? ';' : ''}%PATH%"`,
     'set "KNUAF_DOC_APP=1"',
@@ -509,6 +542,7 @@ function buildLaunchScriptWin(o: LaunchScriptOptions): string {
     `echo ${batLiteral(BANNER)}`,
     'echo.',
     execLine,
+    'exit /b %errorlevel%',
     ''
   ].join('\r\n')
 }

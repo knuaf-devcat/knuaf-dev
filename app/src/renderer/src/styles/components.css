@@ -46,7 +46,9 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 
 /* ---- 작업 공간 ---- */
 .stage { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.workspace { flex: 1; display: grid; min-width: 0; min-height: 0; }
+/* auto 행은 오른쪽 종이의 내용 높이까지 자라 왼쪽 입력칸을 창 밖으로 밀었다(QA-05).
+   한 행을 작업 공간 높이로 제한하고, 각 칸의 본문 스크롤에 넘친 내용을 맡긴다. */
+.workspace { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
 /* 두 칸: 대화는 clamp(460, W−680, 540), 종이가 나머지를 가져간다(IMPL-PLAN §4-2). */
 .workspace.split { grid-template-columns: var(--chat-w, 540px) minmax(680px, 1fr); }
 .workspace.solo { grid-template-columns: minmax(0, 1fr); }
