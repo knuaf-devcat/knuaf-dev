@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { useProject, type Screen } from './store/project'
-import { useConnect } from './store/connect'
+import { connInfoOf, useConnect } from './store/connect'
 import { useChat } from './store/chat'
 import { Chat } from './screens/Chat'
 import { Materials } from './screens/Materials'
@@ -39,12 +39,24 @@ export function App() {
   useEffect(() => {
     const targets = new Set<Provider>()
     let saving = false
-    return useConnect.subscribe((state, before) => {
+    let fromChat = false
+    const offChat = useChat.subscribe((state, before) => {
+      if (!state.root || state.connState === 'checking') return
+      if (state.status === before.status && state.statusFailed === before.statusFailed && state.connState === before.connState) return
+      const info = state.statusFailed || !state.status
+        ? { state: state.connState, detail: state.error ?? '', version: null }
+        : connInfoOf(state.status)
+      fromChat = true
+      try { useConnect.getState().observeChat(state.provider, info) } finally { fromChat = false }
+    })
+    const offConnect = useConnect.subscribe((state, before) => {
       for (const p of ['codex', 'claude'] as const) {
         if (state.loggingIn[p]) targets.add(p)
-        if (state[p].state === 'connected' && before[p].state !== 'connected') {
+        if (!fromChat && state[p].state !== before[p].state && state[p].state !== 'checking') {
           const chat = useChat.getState()
           if (chat.root && chat.provider === p) void chat.refreshStatus()
+        }
+        if (state[p].state === 'connected' && before[p].state !== 'connected') {
           if (targets.has(p) && !saving && (!state.selected || state[state.selected].state !== 'connected')) {
             saving = true
             void window.knuaf.setSettings({ helper_mode: p === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider: p, at: new Date().toISOString() } })
@@ -55,6 +67,7 @@ export function App() {
         } else if (!state.loggingIn[p] && before.loggingIn[p]) targets.delete(p)
       }
     })
+    return () => { offChat(); offConnect() }
   }, [])
   useEffect(() => {
     void loadSettings()

@@ -61,6 +61,10 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 ```
 
 사이드카 프로토콜 테스트는 저장소 루트의 `tests/test_sidecar.py`에 있습니다.
+
+알려진 A안 한계(독립검토 A1): 사용자 문구의 `copy.ts` 중앙관리 AST 검사는 대체 없이 제거되어
+일부 새 화면 문구가 인라인입니다(A1-04). 첫 화면에는 시안의 세 가지 시작 제안 칩이 없습니다(A1-05).
+
 브리지 수명주기·격리 회귀는 `e2e/sidecar-lifecycle.spec.ts`, 실제 Electron 재시작·오류 표시·PID 정리는
 `e2e/sidecar-app.spec.ts`에서 확인합니다: `pnpm -C app build && pnpm -C app exec playwright test sidecar-lifecycle.spec.ts sidecar-app.spec.ts`.
 
