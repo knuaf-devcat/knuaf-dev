@@ -79,3 +79,27 @@ def test_first_entry_still_names_the_tool_and_the_save_location():
     head = SKILL.read_text(encoding="utf-8").split("## 시작·재개")[0]
     assert "KNUAF-Dev · 창업논문 작성 도우미" in head
     assert "저장 위치" in head
+
+
+# The app-side AI writes facts from the allowed values it reads in the reference docs.
+# A value outside the core set is rejected, so a doc list that drifted from the code
+# blocks fact registration with no way to see why. The skill here is a copy of
+# starceas/knuaf-doc, so this test must fail if that copy brings back a stale list.
+FACT_ENUMS = (("kind", "KINDS"), ("answer_state", "STATES"), ("verification", "VERIFY"))
+
+
+def test_fact_allowed_values_in_docs_match_the_core():
+    import gg_core as core
+
+    text = (REFS / "mid-work-questions.md").read_text(encoding="utf-8")
+    bad = []
+    for field, const in FACT_ENUMS:
+        line = re.search(r"^- `%s` 허용값: (.+)$" % field, text, re.M)
+        if line is None:
+            bad.append("%s: 허용값 줄 없음" % field)
+            continue
+        listed = {v.strip().strip("`") for v in line.group(1).split("/")}
+        actual = getattr(core, const)
+        if listed != actual:
+            bad.append("%s: 문서 %s != 코어 %s" % (field, sorted(listed), sorted(actual)))
+    assert not bad, bad
