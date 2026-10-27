@@ -15,7 +15,8 @@ test('첫 메시지에서 폴더를 열고 가짜 도우미에 전달한다', as
     await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
     await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('딸기 농장 창업 논문을 쓰고 싶어요')
     await page.getByRole('button', { name: '보내기', exact: true }).click()
-    await expect(page.getByText('딸기 농장 창업 논문을 쓰고 싶어요')).toBeVisible({ timeout: 30000 })
+    await expect(page.getByText('딸기 농장 창업 논문을 쓰고 싶어요', { exact: true })).toBeVisible({ timeout: 30000 })
+    await page.getByRole('button', { name: /내 폴더 고르기/ }).click()
     await expect(page.getByText('첫 답변입니다')).toBeVisible({ timeout: 30000 })
     expect((await page.evaluate(() => window.knuaf.getSettings())).provider_choice?.provider).toBe('codex')
     await expect(page.getByLabel('프로젝트').getByRole('button', { name: basename(root), exact: true })).toBeVisible()
@@ -34,6 +35,7 @@ test('기존 논문을 고를 때 저장된 미전송 초안을 보존한다', a
     await electronApp.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected], bookmarks: [] }) }, root)
     await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('새 질문')
     await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await page.getByRole('button', { name: /내 폴더 고르기/ }).click()
     await expect(page.getByText('첫 답변입니다')).toBeVisible({ timeout: 30000 })
     await expect(page.getByRole('textbox', { name: '답변을 입력하세요' })).toHaveValue('기존에 쓰던 초안')
   } finally { await electronApp.close() }

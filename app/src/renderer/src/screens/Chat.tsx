@@ -12,11 +12,12 @@ import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Icon } from '../components/Icon'
 import { RuntimeFix } from '../components/RuntimeFix'
-import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROVIDER_NAME, RUNTIME, describeChatError } from '../copy'
+import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROJECT_FOLDER, PROVIDER_NAME, RUNTIME, describeChatError } from '../copy'
 import { chatSuggestion } from '../suggest'
 import { useStage } from '../components/useStage'
 import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
+import { projectFolderName } from '../../../shared/project-folder'
 import { useShallow } from 'zustand/react/shallow'
 
 /** 프로젝트 안 상대경로처럼 생긴 것만. 주소(http:)·절대경로·.. 는 제외한다. */
@@ -199,7 +200,11 @@ function EventLine({ title, onGo }: { title: string; onGo: () => void }) {
   )
 }
 
-function NoFolder({ text, setText, onSubmit }: { text: string; setText: (text: string) => void; onSubmit: () => void }) {
+function NoFolder({ text, setText, onSubmit, submitted, name, setName, onPick, onCreate, busy, createError, onBack }: {
+  text: string; setText: (text: string) => void; onSubmit: () => void; submitted: string | null
+  name: string; setName: (name: string) => void; onPick: () => void; onCreate: () => void
+  busy: boolean; createError: string | null; onBack: () => void
+}) {
   const error = useProject((s) => s.error)
   const failure = useProject((s) => s.openFailure)
   const retryFailed = useProject((s) => s.retryFailed)
@@ -207,15 +212,31 @@ function NoFolder({ text, setText, onSubmit }: { text: string; setText: (text: s
   const clearError = useProject((s) => s.clearError)
   return (
     <div className="new-chat">
-      <h1>어떤 논문을 쓰고 있어요?</h1>
-      <p>주제 한 줄이면 돼요. 도우미가 질문하면서 논문을 같이 채워 갈게요.</p>
+      {!submitted && <><h1>어떤 논문을 쓰고 있어요?</h1>
+      <p>주제 한 줄이면 돼요. 도우미가 질문하면서 논문을 같이 채워 갈게요.</p></>}
       {error && <ZoneLine tone={toneOf(error.kind)} title={error.title} sub={error.action} raw={error.raw} onClose={clearError} />}
       {failure && <>{retryFailed && <ZoneLine tone="attn" title={RUNTIME.retryFailedTitle} sub={RUNTIME.retryFailedBody} />}<RuntimeFix failure={failure} onRetry={async () => retryOpen(failure.root)} /></>}
-      <div className="chat-composer">
+      {submitted ? <div className="folder-question">
+        <div className="folder-message">{submitted}</div>
+        <section className="folder-card">
+          <h2>{PROJECT_FOLDER.title}</h2>
+          <p>{PROJECT_FOLDER.body}</p>
+          <label>{PROJECT_FOLDER.name}<input value={name} onChange={(e) => setName(e.target.value)} disabled={busy} /></label>
+          <button className="folder-option recommended" onClick={onCreate} disabled={busy}>
+            <strong>{PROJECT_FOLDER.create} · {PROJECT_FOLDER.recommended}</strong>
+            <small>{PROJECT_FOLDER.location(projectFolderName(name))}</small>
+          </button>
+          <button className="folder-option" onClick={onPick} disabled={busy}>
+            <strong>{PROJECT_FOLDER.pick}</strong><small>{PROJECT_FOLDER.pickBody}</small>
+          </button>
+          {createError && <p role="alert">{createError}</p>}
+          <button className="quiet" onClick={onBack} disabled={busy}>돌아가기</button>
+        </section>
+      </div> : <div className="chat-composer">
         <textarea rows={2} aria-label={CHAT.placeholder} value={text} placeholder="예: 카페 창업 계획으로 창업 논문을 쓰려고 해요"
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit() } }} />
         <div className="crow"><ComposerModelChip placement="down" /><span className="sp" /><button className="send" aria-label={CHAT.send} disabled={!text.trim()} onClick={onSubmit}><Icon name="up" size={17} /></button></div>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -276,6 +297,7 @@ const toneOf = (kind: string): ZoneTone => kind === 'error' ? 'bad' : kind === '
 /** "내 논문": 도우미와의 대화 — 인터뷰와 작문이 일어나는 곳. 폴더가 없으면 폴더 고르기 상태가 된다. */
 export function Chat() {
   const projectRoot = useProject((s) => s.root)
+  const newProjectSeq = useProject((s) => s.newProjectSeq)
   const settings = useProject((s) => s.settings)
   const pStatus = useProject((s) => s.status)
   const pError = useProject((s) => s.error)
@@ -313,22 +335,82 @@ export function Chat() {
   const stick = useRef(true)
   const [dragging, setDragging] = useState(false)
   const [newText, setNewText] = useState('')
-  const [queued, setQueued] = useState<{ root: string; text: string } | null>(null)
+  const [submitted, setSubmitted] = useState<string | null>(null)
+  const [folderName, setFolderName] = useState('')
+  const [folderBusy, setFolderBusy] = useState(false)
+  const [folderError, setFolderError] = useState<string | null>(null)
+  const createdFolder = useRef<{ name: string; root: string } | null>(null)
+  const submission = useRef(0)
+  const folderOpening = useRef<number | null>(null)
+  const [queued, setQueued] = useState<{ root: string; text: string; submission: number } | null>(null)
   const [switchNotice, setSwitchNotice] = useState<Provider | null>(null)
   const previous = useRef<{ root: string | null; provider: Provider }>({ root: projectRoot, provider })
   const recordingFirstRun = useRef(false)
-  const submitNew = async (): Promise<void> => {
+  const submitNew = (): void => {
     if (!newText.trim()) return
-    const dir = await window.knuaf.pickFolder()
-    if (!dir) return
+    submission.current += 1
+    setQueued(null)
+    setSubmitted(newText.trim())
+    setFolderName(projectFolderName(newText))
+    setFolderError(null)
+  }
+  const openFirstFolder = async (dir: string, generation: number, projectSeq: number): Promise<void> => {
+    const live = (): boolean => submission.current === generation && useProject.getState().newProjectSeq === projectSeq
+    if (!submitted || !live()) return
     if (!settings?.provider_choice && useConnect.getState()[provider].state === 'connected') {
       await window.knuaf.setSettings({ helper_mode: provider === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider, at: new Date().toISOString() } })
+      if (!live()) return
       useConnect.getState().select(provider)
       await useProject.getState().loadSettings()
+      if (!live()) return
     }
-    setQueued({ root: dir, text: newText })
+    if (!live() || useProject.getState().root) return
+    setQueued({ root: dir, text: submitted, submission: generation })
     await useProject.getState().open(dir)
   }
+  const chooseFolder = async (automatic: boolean): Promise<void> => {
+    if (folderOpening.current !== null) return
+    const generation = submission.current
+    const projectSeq = useProject.getState().newProjectSeq
+    const live = (): boolean => submission.current === generation && useProject.getState().newProjectSeq === projectSeq
+    folderOpening.current = generation
+    setFolderBusy(true)
+    setFolderError(null)
+    try {
+      let dir: string | null
+      if (automatic) {
+        const name = projectFolderName(folderName)
+        if (createdFolder.current?.name === name) dir = createdFolder.current.root
+        else {
+          const result = await window.knuaf.createProjectFolder(name)
+          if (!live()) return
+          if ('error' in result) { setFolderError(PROJECT_FOLDER.createFailed); return }
+          dir = result.result.root
+          createdFolder.current = { name, root: dir }
+        }
+      } else {
+        dir = await window.knuaf.pickFolder()
+        if (!live()) return
+      }
+      if (dir && live()) await openFirstFolder(dir, generation, projectSeq)
+    } catch {
+      if (live()) setFolderError(PROJECT_FOLDER.createFailed)
+    } finally {
+      if (folderOpening.current === generation) {
+        folderOpening.current = null
+        setFolderBusy(false)
+      }
+    }
+  }
+  useEffect(() => {
+    submission.current += 1
+    folderOpening.current = null
+    setFolderBusy(false)
+    setNewText(''); setSubmitted(null); setQueued(null); setFolderError(null); createdFolder.current = null
+  }, [newProjectSeq])
+  useEffect(() => {
+    if (projectRoot && submitted && !queued) setQueued({ root: projectRoot, text: submitted, submission: submission.current })
+  }, [projectRoot, submitted, queued])
   useEffect(() => {
     if (previous.current.root === projectRoot && projectRoot && previous.current.provider !== provider) setSwitchNotice(provider)
     else if (previous.current.root !== projectRoot) setSwitchNotice(null)
@@ -337,17 +419,22 @@ export function Chat() {
   useEffect(() => {
     if (!projectRoot || !settings || settings.onboarded_at || recordingFirstRun.current) return
     recordingFirstRun.current = true
-    if (!queued || queued.root !== projectRoot) useChat.getState().armStart(projectRoot)
+    if ((!queued || queued.root !== projectRoot) && !submitted) useChat.getState().armStart(projectRoot)
     void window.knuaf.setSettings({ onboarded_at: new Date().toISOString() })
       .then(() => useProject.getState().loadSettings())
       .finally(() => { recordingFirstRun.current = false })
-  }, [projectRoot, settings, queued])
+  }, [projectRoot, settings, queued, submitted])
   useEffect(() => {
-    if (!queued || queued.root !== projectRoot || root !== projectRoot || !snapshot || snapshot.provider !== provider) return
+    if (!queued || queued.submission !== submission.current || queued.text !== submitted || queued.root !== projectRoot || root !== projectRoot || !snapshot || snapshot.provider !== provider) return
     const text = queued.text
     const target = queued.root
     setNewText('')
+    setSubmitted(null)
     setQueued(null)
+    if (status?.connected && !settings?.provider_choice && !useConnect.getState().selected) {
+      void window.knuaf.setSettings({ helper_mode: provider === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider, at: new Date().toISOString() } })
+        .then(() => { useConnect.getState().select(provider); return useProject.getState().loadSettings() })
+    }
     if (status?.connected) {
       void send(text).then((ok) => {
         if (!ok && useChat.getState().root === target) useChat.getState().appendDraft(text)
@@ -355,7 +442,7 @@ export function Chat() {
     } else {
       useChat.getState().appendDraft(text)
     }
-  }, [queued, projectRoot, root, snapshot, provider, status, send])
+  }, [queued, submitted, projectRoot, root, snapshot, provider, status, settings, send])
 
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
   // codex 대화가 claude 화면에 남는 식의 혼합은 없어야 한다.
@@ -531,7 +618,9 @@ export function Chat() {
     if (paperClosed) setPaperClosed(false)
   }
 
-  if (!projectRoot) return <NoFolder text={newText} setText={setNewText} onSubmit={() => void submitNew()} />
+  if (!projectRoot) return <NoFolder text={newText} setText={setNewText} onSubmit={submitNew} submitted={submitted}
+    name={folderName} setName={setFolderName} onPick={() => void chooseFolder(false)} onCreate={() => void chooseFolder(true)}
+    busy={folderBusy} createError={folderError} onBack={() => { submission.current += 1; setQueued(null); setSubmitted(null); setFolderError(null) }} />
 
   /**
    * 대화 기록과 이벤트 줄을 **시각 순으로** 섞는다 — 이벤트 줄은 저장된 글이 아니라 앱이

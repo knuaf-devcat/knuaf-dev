@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useProject } from '../store/project'
 import { useChat } from '../store/chat'
 import type { Settings } from '../../../shared/types'
+import { PROJECT_FOLDER } from '../copy'
 
 export function ProjectSidebar() {
   const [drawer, setDrawer] = useState(false)
+  const [openError, setOpenError] = useState(false)
   const root = useProject((s) => s.root)
   const recent = useProject((s) => s.settings?.recent ?? [])
   const loading = useProject((s) => s.loading)
@@ -14,6 +16,7 @@ export function ProjectSidebar() {
     if (busy || loading) return
     useProject.setState({
       root: null, hasProject: false, status: null, peek: null, sidecar: null, depsReady: null,
+      newProjectSeq: useProject.getState().newProjectSeq + 1,
       sections: null, materials: null, artifacts: null, buildTree: null, projectLoad: null,
       events: [], focusedSection: null, paneView: 'chat', error: null, openFailure: null, retryFailed: null
     })
@@ -43,6 +46,10 @@ export function ProjectSidebar() {
         <button className="project-remove" aria-label={`목록에서 제거: ${r.root}`} onClick={() => void remove(r.root)}>×</button>
       </div>)}
       <button className="project-nav" onClick={() => void pick()}>+ 논문 추가</button>
+      {root && <button className="project-nav" onClick={() => { void window.knuaf.openPath(root).then((error: string) => setOpenError(!!error)).catch(() => setOpenError(true)) }}>
+        {window.knuaf.platform === 'darwin' ? PROJECT_FOLDER.finder : PROJECT_FOLDER.explorer}
+      </button>}
+      {openError && <p role="alert" className="caption">{PROJECT_FOLDER.openFailed}</p>}
     </aside>
   </>
 }

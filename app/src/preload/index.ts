@@ -29,6 +29,7 @@ const api = {
   /** 이 작업폴더에서는 판정 불가한 명령도 묻지 않는다(설정에서 되돌릴 수 있다). */
   trustProject: (root: string, on: boolean) => ipcRenderer.invoke('project:trust', root, on),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('project:pick'),
+  createProjectFolder: (title: string): Promise<{ result: { root: string } } | { error: { code: string; message: string } }> => ipcRenderer.invoke('project:create-folder', title),
   pickFile: (opts: { title?: string; filters?: { name: string; extensions: string[] }[]; defaultPath?: string }): Promise<string | null> => ipcRenderer.invoke('file:pick', opts),
   reveal: (path: string) => ipcRenderer.invoke('shell:reveal', path),
   openPath: (path: string) => ipcRenderer.invoke('shell:open', path),

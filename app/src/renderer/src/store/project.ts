@@ -37,6 +37,7 @@ export type SettingsFocus = string | null
 
 interface ProjectState {
   root: string | null
+  newProjectSeq: number
   hasProject: boolean
   status: Status | null
   peek: ProjectPeek | null
@@ -168,6 +169,7 @@ let quietFailures = 0
 
 export const useProject = create<ProjectState>((set, get) => ({
   root: null,
+  newProjectSeq: 0,
   hasProject: false,
   status: null,
   peek: null,
