@@ -1,9 +1,9 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   agentApi, buildLaunchScript, bundledAgentDirs, bundledDirs, codexSkillConfigOverride, findExecutable, firstPromptFor, installSkill, launch, launchScriptExt, probeVersion,
   setAgentPlatformForTest, setBundledDirsProvider, skillBackupDir, skillSource, skillState, skillTargets, skillVersion, sq, VERSION_FILE
@@ -444,10 +444,21 @@ test.describe('buildLaunchScript', () => {
     }
     const s = buildLaunchScript(o, 'win32')
     expect(s.startsWith('@echo off\r\n')).toBe(true)
+    // 실기기 QA-04 — 둘째 줄에서 UTF-8 코드페이지로 바꾼다. cmd 는 배치를 콘솔 코드페이지(949)로
+    // 읽으므로, 그 전 줄들은 ASCII 여야 하고 한글은 그 뒤에만 나온다.
+    const lines = s.split('\r\n')
+    expect(lines[1]).toBe('chcp 65001 >nul')
+    expect(lines.slice(0, 2).join('\r\n')).toMatch(/^[\x20-\x7e\r\n]*$/)
+    expect(s.charCodeAt(0), 'BOM 이 있으면 첫 줄이 깨진다').toBe('@'.charCodeAt(0))
     // 지연 확장을 끈다(`!` 가 경로·문장에서 글자 그대로 가게).
     expect(s).toContain('\r\nsetlocal DisableDelayedExpansion\r\n')
-    // 작업 폴더로 이동(드라이브까지) — 공백·한글 경로가 인용된다.
+    // 작업 폴더로 이동(드라이브까지) — 공백·한글 경로가 인용된다. 실패하면 창을 남긴다.
     expect(s).toContain('cd /d "C:\\Users\\학생\\내 논문" || exit /b 1')
+    // 도우미가 오류로 끝나면 창을 남긴다(바로 닫히면 학생이 이유를 못 본다).
+    expect(s).toContain('set "KNUAF_LAUNCH_EXIT=%errorlevel%"')
+    expect(s).toContain('pause\r\nexit /b %KNUAF_LAUNCH_EXIT%')
+    expect(s).toContain('if "%KNUAF_LAUNCH_EXIT%"=="0" exit /b 0')
+    expect(lines.filter(Boolean).at(-1)).toBe('exit /b %errorlevel%')
     // PATH 는 `;` 이고 .venv 가 앞에 온다. 원래 PATH 를 덮지 않는다.
     expect(s).toContain('set "PATH=C:\\Users\\학생\\내 논문\\.venv\\Scripts;%PATH%"')
     expect(s).toContain('set "KNUAF_DOC_APP=1"')
@@ -494,24 +505,44 @@ test.describe('buildLaunchScript', () => {
   })
 
   /**
+   * 실기기 QA-04 — 설치본은 `codex.exe` 를 동봉한다. `.exe` 는 cmd 가 한 번 읽고 바로 MSVCRT 로
+   * 넘기므로 인자의 `^` 는 **한 층**이다. 두 층이면 `^"` 가 남아 `-c` 설정값이 깨진다.
+   */
+  test('win32 배치 — 대상이 .exe 면 인자를 한 층만 막는다 (QA-04)', () => {
+    const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
+    mkdirSync(join(home, '.codex', 'skills', 'knuaf-dev'), { recursive: true })
+    writeFileSync(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n')
+    const base = { root: 'C:\\Users\\이뚠냥\\Downloads\\QA 한글 시험', agent: 'codex' as const, venvBin: null, bundledBin: null, firstPrompt: '', home }
+    const exeLine = buildLaunchScript({ ...base, agentPath: 'C:\\Program Files\\knuaf\\resources\\codex\\codex.exe' }, 'win32')
+      .split('\r\n').find((l) => l.includes('codex.exe'))!
+    const shimLine = buildLaunchScript({ ...base, agentPath: 'C:\\Users\\a\\AppData\\Roaming\\npm\\codex.cmd' }, 'win32')
+      .split('\r\n').find((l) => l.includes('codex.cmd'))!
+    const exeArg = exeLine.split(' -c ')[1]
+    const shimArg = shimLine.split(' -c ')[1]
+    expect(exeArg.startsWith('^"skills.config=')).toBe(true)
+    expect(exeArg).not.toContain('^^')
+    expect(shimArg.startsWith('^^^"skills.config=')).toBe(true)
+  })
+
+  /**
    * W1C-R1-01(④) **실행** 반례 — 생성한 배치를 직접 `cmd /d /c` 로 돌린다(터미널 창 없이).
    * 가짜 `codex.cmd` 가 받은 argv 를 남기고, `Program Files` 공백 경로·`A&B` 홈의 설정값·
    * `&` 부수 명령이 명령으로 갈라지지 않았는지 본다. 맥은 문자열 단언만 — skip 아니라 분기다.
    */
   test('win32 배치를 실제로 실행해도 argv 가 그대로 온다 (W1 ④, 실행)', async () => {
     const base = mkdtempSync(join(tmpdir(), 'kd-batch-'))
-    // 루트는 ASCII 로 둔다 — 배치 **파일 내용**의 한글은 cmd 코드페이지에 달려 있어(별도 한계)
-    // 여기서는 argv 보존만 본다. 한글 argv 는 ①(명령줄) 시험이 CreateProcessW 경로로 검사한다.
-    const root = join(base, 'thesis folder')                // 공백
+    // 실기기 QA-04 — 루트·홈에 **한글과 공백**을 둔다. 배치 파일은 UTF-8 이고 cmd 는 콘솔
+    // 코드페이지(한국어 949, CI 러너 437)로 읽으므로, `chcp 65001` 이 없으면 `cd` 부터 실패한다.
+    const root = join(base, '한글 논문 폴더')                // 한글 + 공백
     const agentDir = join(base, 'Program Files', 'npm')    // 공백 경로
-    const home = join(base, 'A&B')                         // cmd 메타문자
+    const home = join(base, '이뚠냥 A&B')                    // 한글 + cmd 메타문자
     const argvFile = join(base, 'argv.json')
     const marker = join(base, 'PWNED.txt')
     const recorder = join(base, 'recorder.mjs')
     const agentPath = join(agentDir, 'codex.cmd')
     for (const d of [root, agentDir, join(home, '.codex', 'skills', 'knuaf-dev')]) mkdirSync(d, { recursive: true })
     writeFileSync(join(home, '.codex', 'skills', 'knuaf-dev', 'SKILL.md'), '# old\n', 'utf-8')
-    writeFileSync(recorder, `import { writeFileSync } from 'node:fs'\nwriteFileSync(process.env.ARGV_OUT, JSON.stringify(process.argv.slice(2)))\n`, 'utf-8')
+    writeFileSync(recorder, `import { writeFileSync } from 'node:fs'\nwriteFileSync(process.env.ARGV_OUT, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }))\n`, 'utf-8')
     // npm shim 과 같은 모양 — `%*` 로 인자를 그대로 넘긴다(그래서 인자만 두 번 막는다).
     writeFileSync(agentPath, `@echo off\r\n"${process.execPath}" "${recorder}" %*\r\n`, 'utf-8')
 
@@ -529,19 +560,65 @@ test.describe('buildLaunchScript', () => {
     expect(claude).not.toMatch(/(^|[^^])&/)
     if (process.platform !== 'win32') return
 
-    const run = (script: string): Promise<number | null> => new Promise((resolve) => {
+    const run = (script: string, env: Record<string, string> = {}): Promise<{ code: number | null; stdout: string }> => new Promise((resolve, reject) => {
       const file = join(base, 'run.cmd')
       writeFileSync(file, script, 'utf-8')
-      spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', file], { env: { ...process.env, ARGV_OUT: argvFile }, windowsHide: true, stdio: 'ignore' })
-        .on('exit', resolve)
+      // 실기기와 같은 CP949에서 시작한다. ASCII 진입 배치가 생성한 UTF-8 배치를 읽는다.
+      const entry = join(base, 'start.cmd')
+      writeFileSync(entry, '@echo off\r\nchcp 949 >nul\r\n"%~dp0run.cmd"\r\n', 'utf-8')
+      const child = spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', entry], { env: { ...process.env, ARGV_OUT: argvFile, ...env }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
+      child.stdout.setEncoding('utf-8').on('data', (s) => { stdout += s })
+      child.stderr.setEncoding('utf-8').on('data', (s) => { stdout += s })
+      child.on('error', reject).on('close', (code) => resolve({ code, stdout }))
     })
-    expect(await run(codex), 'codex 배치가 실패했다').toBe(0)
-    expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'codex argv 가 다르다').toEqual(['-c', config])
+    const recorded = (): { argv: string[]; cwd: string } => JSON.parse(readFileSync(argvFile, 'utf-8'))
+    expect((await run(codex)).code, 'codex 배치가 실패했다(한글 경로로 cd 하지 못했을 수 있다)').toBe(0)
+    expect(recorded().argv, 'codex argv 가 다르다').toEqual(['-c', config])
+    expect(realpathSync.native(recorded().cwd), '한글·공백 작업 폴더로 이동하지 않았다').toBe(realpathSync.native(root))
     expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
-    expect(await run(claude), 'claude 배치가 실패했다').toBe(0)
-    expect(JSON.parse(readFileSync(argvFile, 'utf-8')), 'claude argv 가 다르다')
+    expect((await run(claude)).code, 'claude 배치가 실패했다').toBe(0)
+    expect(recorded().argv, 'claude argv 가 다르다')
       .toEqual(['--setting-sources', 'project,local', '--disallowedTools=AskUserQuestion', evil])
     expect(existsSync(marker), '`&` 뒤의 부수 명령이 실행됐다').toBe(false)
+
+    // 실기기 QA-04 — 설치본의 동봉 `codex.exe`(npm shim 이 아님). 받은 원래 argv 를 남기는 `.exe` 로
+    // 파이썬 실행 파일을 `codex.exe` 이름으로 복사해 쓴다: `sitecustomize` 가 시작하자마자
+    // `sys.orig_argv` 를 적고 끝낸다(`-c` 뒤 설정값은 코드로 실행되지 않는다).
+    const py = process.env.KNUAF_PYTHON
+    expect(py && existsSync(py), 'CI 는 KNUAF_PYTHON(절대 경로)을 준다 — .exe 실행 시험에 필요하다').toBeTruthy()
+    const exeDir = join(base, 'Program Files', '동봉 codex')
+    mkdirSync(exeDir, { recursive: true })
+    const exe = join(exeDir, 'codex.exe')
+    copyFileSync(py!, exe)
+    for (const f of readdirSync(dirname(py!))) if (/\.dll$/i.test(f)) copyFileSync(join(dirname(py!), f), join(exeDir, f))
+    const site = join(base, 'site')
+    mkdirSync(site, { recursive: true })
+    writeFileSync(join(site, 'sitecustomize.py'), [
+      'import json, os, sys',
+      "with open(os.environ['ARGV_OUT'], 'w', encoding='utf-8') as f:",
+      "    json.dump({'argv': sys.orig_argv[1:], 'cwd': os.getcwd()}, f)",
+      "os._exit(int(os.environ.get('FAKE_AGENT_EXIT', '0')))",
+      ''
+    ].join('\n'), 'utf-8')
+    const exeScript = buildLaunchScript({ root, agent: 'codex', agentPath: exe, venvBin: null, bundledBin: null, firstPrompt: '', home }, 'win32')
+    writeFileSync(argvFile, '{}', 'utf-8')
+    expect((await run(exeScript, { PYTHONHOME: dirname(py!), PYTHONPATH: site })).code, 'codex.exe 배치가 실패했다').toBe(0)
+    expect(recorded().argv, 'codex.exe 가 받은 설정값이 다르다(^ 가 남았을 수 있다)').toEqual(['-c', config])
+    expect(realpathSync.native(recorded().cwd), '한글·공백 작업 폴더로 이동하지 않았다').toBe(realpathSync.native(root))
+
+    // 실패 시 원래 종료 코드와 안내가 남는다. shim은 직접 실행하면 부모로 돌아오지 않는다.
+    writeFileSync(agentPath, '@echo off\r\nexit /b 7\r\n', 'utf-8')
+    const shimFailure = await run(codex)
+    expect(shimFailure.code, shimFailure.stdout).toBe(7)
+    expect(shimFailure.stdout).toContain('종료 코드: 7')
+    const exeFailure = await run(exeScript, { PYTHONHOME: dirname(py!), PYTHONPATH: site, FAKE_AGENT_EXIT: '9' })
+    expect(exeFailure.code, exeFailure.stdout).toBe(9)
+    expect(exeFailure.stdout).toContain('종료 코드: 9')
+    const missingRoot = buildLaunchScript({ root: join(base, '없는 폴더'), agent: 'codex', agentPath: exe, venvBin: null, bundledBin: null, firstPrompt: '' }, 'win32')
+    const cdFailure = await run(missingRoot)
+    expect(cdFailure.code, cdFailure.stdout).toBe(1)
+    expect(cdFailure.stdout).toContain('종료 코드: 1')
   })
 
   test('codex gets no positional prompt and no -c without a global skill copy; sq escapes single quotes', () => {

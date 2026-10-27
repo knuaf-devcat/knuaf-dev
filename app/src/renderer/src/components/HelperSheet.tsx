@@ -28,7 +28,7 @@ export function HelperSheet() {
           <p className="caption">규칙집 상태 — Claude: {st.skill.claude === 'installed' ? '최신' : st.skill.claude === 'outdated' ? '갱신 예정' : '설치 예정'}{st.codex.found ? ` · Codex: ${st.skill.codex === 'installed' ? '최신' : st.skill.codex === 'outdated' ? '갱신 예정' : '설치 예정'}` : ''}</p>
         </div>
       )}
-      {helper.result && <Feedback kind="completion" title={HELPER.launchedTitle} body={HELPER.launchedBody} />}
+      {helper.result && <Feedback kind="completion" title={HELPER.launchedTitle} body={HELPER.launchedBody(helper.result.kind)} />}
     </Sheet>
   )
 }
