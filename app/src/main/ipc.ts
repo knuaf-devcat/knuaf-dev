@@ -236,6 +236,12 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     // 고른 모델은 설정에 남는다(대화 파일 형식은 그대로). 전송할 때마다 새로 읽으므로
     // 칩에서 바꾼 값이 다음 메시지부터 적용된다.
     modelChoice: (provider) => loadSettings().chat_models?.[provider] ?? null,
+    // "고른 적 있음"은 설정에 그 공급자 키가 있는지로 판정한다. 키가 없으면(처음부터 안 고름)
+    // 기본값 조회·복귀 확인을 하지 않아, 요청이 지금까지와 똑같이 나간다(검토 L-02).
+    modelChosen: (provider) => {
+      const m = loadSettings().chat_models
+      return !!m && typeof m === 'object' && Object.prototype.hasOwnProperty.call(m, provider)
+    },
     // 고른 값은 설정에 남는다(대화 파일 형식은 그대로). 저장 위치를 서비스가 정하는 이유는
     // 선택의 선후를 한 곳에서 지키기 위해서다(검토 MC1-03).
     storeModelChoice: (provider, choice) => {

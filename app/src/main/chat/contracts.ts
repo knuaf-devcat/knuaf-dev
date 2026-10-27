@@ -44,6 +44,12 @@ export interface AgentOptions {
    * 칩에서 바꾼 값이 다음 메시지부터 적용되어야 하고, 연결은 폴더·공급자마다 한 번만 만들어진다.
    */
   modelChoice?: () => ModelChoice | null
+  /**
+   * 이 공급자로 모델을 **고른 적이 있는가**. 없으면 되돌릴 덮어쓰기도 없으므로 기본값 조회
+   * (ephemeral 대화)와 재개 확인을 하지 않고, 요청은 지금까지처럼 model·effort 없이 나간다.
+   * 값이 없으면 `true` 로 읽는다(이 옵션을 모르는 호출자의 기존 동작 보존).
+   */
+  modelChosen?: () => boolean
   /** `auth status` 확인 제한 시간. 시험 이음매 — 기본 12초. */
   statusTimeoutMs?: number
 }

@@ -52,6 +52,11 @@ export class ChatService {
      */
     modelChoice?: (provider: Provider) => ModelChoice | null
     /**
+     * 이 공급자로 모델을 고른 적이 있는가(설정에 흔적이 있는가). 없으면 해제를 저장하지도,
+     * 기본값 복귀를 확인하지도 않는다 — 고른 적 없는 학생의 요청은 지금까지와 같아야 한다.
+     */
+    modelChosen?: (provider: Provider) => boolean
+    /**
      * 고른 값을 설정에 남기는 통로(ipc 가 settings.json 에 쓴다). 저장을 여기서 하는 이유는
      * **선택의 선후**를 한 곳에서 지키기 위해서다 — 느린 검증이 나중에 끝나도 마지막 선택을
      * 덮지 않는다(검토 MC1-03).
@@ -180,7 +185,8 @@ export class ChatService {
         binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
         openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false,
         // 연결은 폴더·공급자마다 한 번만 만들어진다 — 선택은 전송할 때마다 다시 읽는다.
-        modelChoice: () => this.effectiveChoice(root, provider)
+        modelChoice: () => this.effectiveChoice(root, provider),
+        modelChosen: () => this.opts.modelChosen?.(provider) ?? false
       }
       if (this.opts.connectionFactory) {
         c = this.opts.connectionFactory(provider, options)
@@ -245,7 +251,9 @@ export class ChatService {
     const seq = (this.selectionSeq.get(provider) ?? 0) + 1
     this.selectionSeq.set(provider, seq)
     if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) {
-      this.opts.storeModelChoice?.(provider, null)
+      // 고른 적 없는 학생의 "해제"는 아무것도 남기지 않는다 — 흔적을 만들면 다음 재개부터
+      // 기본값 조회가 돌아, 고른 적 없는 학생의 동작이 달라진다(검토 L-02).
+      if (this.opts.modelChosen?.(provider) ?? true) this.opts.storeModelChoice?.(provider, null)
       return null
     }
     const list = await this.models(root, provider)

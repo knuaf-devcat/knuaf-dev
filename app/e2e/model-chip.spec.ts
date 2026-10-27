@@ -87,7 +87,7 @@ function codexSandbox(extra: Record<string, string>) {
   writeFileSync(paths.applied, '')
   writeFileSync(paths.state, 'chatgpt\n')
   const root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))
-  const connect = (choiceOf: () => ModelChoice | null) => new CodexConnection({
+  const connect = (choiceOf: () => ModelChoice | null, chosenOf?: () => boolean) => new CodexConnection({
     binary: join(dir, 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'),
     env: {
       ...process.env,
@@ -96,7 +96,7 @@ function codexSandbox(extra: Record<string, string>) {
         FAKE_CODEX_APPLIED_LOG: paths.applied, FAKE_CODEX_THREAD_STATE: paths.threads, ...extra
       })
     },
-    openExternal: async () => {}, modelChoice: choiceOf
+    openExternal: async () => {}, modelChoice: choiceOf, modelChosen: chosenOf
   })
   return { paths, root, connect }
 }
@@ -211,6 +211,24 @@ test('재개 때 기본값 조회가 실패하면 보내지 않고, 다음 메�
   ])
 })
 
+test('고른 적 없는 학생은 재개해도 기본값을 묻지 않고 지금과 똑같이 보낸다 (L-02)', async () => {
+  // 기본값 조회가 **한 번이라도 일어나면** 실패하도록 둔다 — 고른 적 없는 학생에게는 조회 자체가 없어야 한다.
+  const box = codexSandbox({
+    FAKE_CODEX_DEFAULT_MODEL: 'gpt-default', FAKE_CODEX_DEFAULT_EFFORT: 'medium',
+    FAKE_CODEX_EPHEMERAL_FAIL_TIMES: '99'
+  })
+  // 이 대화는 다른 곳에서 Sol/high 로 덮여 있다. 그래도 앱이 고른 적이 없으면 건드리지 않는다.
+  writeFileSync(box.paths.threads, JSON.stringify({ threadId: 't-fake', model: 'gpt-sol', effort: 'high' }))
+  const events: AgentEvents = { ...noopEvents }
+  const conn = box.connect(() => null, () => false)
+  try {
+    await conn.prepare('t-fake')
+    await conn.run('이어서', 't-fake', events)
+  } finally { await conn.stop() }
+  expect(readJsonLines(box.paths.log)).toEqual([{}])
+  expect(readJsonLines(box.paths.applied)).toEqual([{ model: 'gpt-sol', effort: 'high' }])
+})
+
 test('초기화가 끝나기 전에 상태·목록을 동시에 물어도 둘 다 성공한다 (MC1-02)', async () => {
   await withCodex({ FAKE_CODEX_INIT_DELAY_MS: '50' }, async (conn) => {
     // 대역 서버는 initialize 전 요청을 `Not initialized` 로 거절한다(문서의 초기화 계약).
@@ -239,7 +257,7 @@ test('model/list 를 읽어 화면이 쓸 모양으로 옮기고, 숨긴 모델�
 function serviceWith(
   list: { current: ChatModelInfo[] },
   stored: { current: ModelChoice | null },
-  over: { models?: () => Promise<ChatModelInfo[]>; store?: (choice: ModelChoice | null) => void } = {}
+  over: { models?: () => Promise<ChatModelInfo[]>; store?: (choice: ModelChoice | null) => void; chosen?: () => boolean } = {}
 ) {
   const seen: AgentOptions[] = []
   const conn: AgentConnection = {
@@ -257,6 +275,7 @@ function serviceWith(
     openExternal: async () => {},
     connectionFactory: (_provider, options) => { seen.push(options); return conn },
     modelChoice: () => stored.current,
+    modelChosen: over.chosen,
     storeModelChoice: (_provider, choice) => { stored.current = choice; over.store?.(choice) }
   })
   return { svc, seen }
@@ -288,6 +307,23 @@ test('main 쪽: 목록으로 검증해 저장하고, 전송할 때 그 값이 �
   expect((await svc.models(root, 'codex')).selected).toBeNull()
   await svc.send(root, 'codex', '다음 질문', 'req-model-2')
   expect(seen[0].modelChoice?.()).toBeNull()
+})
+
+test('고른 적 없는 학생의 해제는 설정에 흔적을 남기지 않는다 (L-02)', async () => {
+  const list = { current: FOUR }
+  const stored: { current: ModelChoice | null } = { current: null }
+  const writes: (ModelChoice | null)[] = []
+  const root = mkdtempSync(join(tmpdir(), 'kd-model-project-'))
+
+  // 고른 적 없음 → 해제해도 아무것도 쓰지 않는다(다음 재개부터 기본값 조회가 돌지 않게).
+  const never = serviceWith(list, stored, { chosen: () => false, store: (c) => writes.push(c) })
+  expect(await never.svc.setModel(root, 'codex', null)).toBeNull()
+  expect(writes).toEqual([])
+
+  // 고른 적 있음 → 해제를 null 로 남긴다(지금 동작 그대로).
+  const once = serviceWith(list, stored, { chosen: () => true, store: (c) => writes.push(c) })
+  expect(await once.svc.setModel(root, 'codex', null)).toBeNull()
+  expect(writes).toEqual([null])
 })
 
 test('느린 선택 검증이 나중의 선택 해제를 되살리지 않는다 (MC1-03 main)', async () => {

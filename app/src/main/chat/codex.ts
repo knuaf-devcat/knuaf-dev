@@ -274,6 +274,10 @@ export class CodexConnection implements AgentConnection {
    *
    * 기본값은 `model/list` 의 isDefault 나 CLI 설정을 **추측하지 않는다** — 서버에 새 대화를
    * 하나 물어(ephemeral) 실제로 쓸 model·effort 를 받아 그대로 보낸다.
+   *
+   * **이 공급자로 모델을 고른 적이 없는 학생은 3·4 를 하지 않는다**(검토 L-02). 덮어쓴 적이
+   * 없으니 되돌릴 것도 없고, 요청은 첫 발주서 그대로 model·effort 키 없이 나간다 — 실서버에서
+   * 아직 검증하지 않은 조회도 하지 않는다.
    */
   private async turnModelParams(resumed: boolean): Promise<{ params: { model?: string; effort?: string }; clears: boolean }> {
     const choice = this.options.modelChoice?.() ?? null
@@ -282,6 +286,7 @@ export class CodexConnection implements AgentConnection {
       const effort = choice.effort ?? await this.defaultEffortOf(choice.model)
       return { params: { model: choice.model, ...(effort ? { effort } : {}) }, clears: false }
     }
+    if (!this.everChosen) return { params: {}, clears: false }
     if (!this.overridden && resumed && !this.resumeChecked) {
       const base = await this.serverDefaultsOrFail()
       // **성공했을 때만** 확인을 마쳤다고 표시한다. 실패를 확인 완료로 치면 다음 메시지에서
@@ -302,10 +307,13 @@ export class CodexConnection implements AgentConnection {
    */
   async prepare(sessionId: string | undefined): Promise<void> {
     if (!sessionId) return
+    if (!this.everChosen) return
     if (this.options.modelChoice?.()?.model) return
     if (!this.overridden && this.resumeChecked) return
     await this.serverDefaultsOrFail()
   }
+  /** 이 공급자로 모델을 **고른 적이 있는가**(설정의 흔적). 없으면 기본값 조회 자체를 하지 않는다. */
+  private get everChosen(): boolean { return this.options.modelChosen?.() ?? true }
   /** 기본값 조회 실패를 학생이 읽을 수 있는 오류로 바꾼다 — 조용히 이전 모델로 보내지 않는다. */
   private async serverDefaultsOrFail(): Promise<{ model: string; effort: string | null }> {
     try {
