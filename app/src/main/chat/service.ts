@@ -348,6 +348,9 @@ export class ChatService {
       }
       const connection = this.connection(root, provider)
       if (!(await connection.status()).connected) throw new Error('AI 계정 연결을 먼저 완료해 주세요.')
+      // 전송 전 확인 — 여기서 던지면 보낸 말이 대화에 남지 않고 초안도 그대로다. 예전 모델로
+      // 조용히 보내는 대신 학생에게 오류로 알린다(검토 MC1-01).
+      await connection.prepare?.(s.sessionId)
       s.skillHash = version; s.skillLoaded = false; s.state = 'running'; s.error = undefined
       s.messages.push({ id: requestId, role: 'user', text, at: new Date().toISOString(), delivery: 'pending' })
       this.publish(s)

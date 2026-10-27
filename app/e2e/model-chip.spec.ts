@@ -182,6 +182,35 @@ test('앱을 다시 켠 뒤 재개한 대화가 기본값과 다르면 선택 �
   ])
 })
 
+test('재개 때 기본값 조회가 실패하면 보내지 않고, 다음 메시지에서 다시 조회해 복귀한다 (MC1-01)', async () => {
+  const box = codexSandbox({
+    FAKE_CODEX_DEFAULT_MODEL: 'gpt-default', FAKE_CODEX_DEFAULT_EFFORT: 'medium',
+    // 첫 기본값 조회만 실패 — 실패를 '확인 완료'로 남기면 이후 메시지가 영영 Sol/high 로 간다.
+    FAKE_CODEX_EPHEMERAL_FAIL_TIMES: '1'
+  })
+  let session: string | undefined
+  const events: AgentEvents = { ...noopEvents, session: (id) => { session = id } }
+  let choice: ModelChoice | null = { model: 'gpt-sol', effort: 'high' }
+  const first = box.connect(() => choice)
+  try { await first.run('Sol 로', undefined, events) } finally { await first.stop() }
+
+  // 2세션: 저장된 선택 없음. 첫 메시지는 기본값을 확인하지 못해 **보내지 않는다**.
+  choice = null
+  const second = box.connect(() => choice)
+  try {
+    await expect(second.prepare(session)).rejects.toThrow('기본 모델을 확인하지 못해')
+    // 보내지 않았으므로 적용 기록은 1세션 것 하나뿐이다.
+    expect(readJsonLines(box.paths.applied)).toHaveLength(1)
+    // 다음 메시지: 다시 조회 → 성공 → 기본값을 명시해 복귀한다.
+    await second.prepare(session)
+    await second.run('이어서', session, events)
+  } finally { await second.stop() }
+  expect(readJsonLines(box.paths.applied)).toEqual([
+    { model: 'gpt-sol', effort: 'high' },
+    { model: 'gpt-default', effort: 'medium' }
+  ])
+})
+
 test('초기화가 끝나기 전에 상태·목록을 동시에 물어도 둘 다 성공한다 (MC1-02)', async () => {
   await withCodex({ FAKE_CODEX_INIT_DELAY_MS: '50' }, async (conn) => {
     // 대역 서버는 initialize 전 요청을 `Not initialized` 로 거절한다(문서의 초기화 계약).
@@ -297,7 +326,7 @@ test('늦게 끝난 목록 응답이 새 선택을 되돌리지 않는다 (MC1-0
   }
   useChat.setState({
     root: '/p/model-order', provider: 'codex', visit: 0, error: null,
-    models: null, modelsSupported: true, modelsError: null, modelChoice: null, modelSeq: 0
+    models: null, modelsSupported: true, modelsError: null, modelChoice: null, modelReadSeq: 0, modelChoiceSeq: 0
   })
   const loading = useChat.getState().loadModels()
   expect(await useChat.getState().chooseModel({ model: 'gpt-terra', effort: null })).toBe(true)
@@ -307,6 +336,69 @@ test('늦게 끝난 목록 응답이 새 선택을 되돌리지 않는다 (MC1-0
   await loading
   expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
   expect(useChat.getState().models).toEqual([])
+})
+
+test('선택 보류 중에 시작한 목록 읽기가 그 선택의 성공을 취소하지 못한다 (MC1-03 화면)', async () => {
+  // 설정·화면이 Sol 인 상태에서 Terra 를 고르는 중(검증 보류). 그 사이 목록을 다시 읽는다.
+  let releaseChoice!: (value: unknown) => void
+  const pendingChoice = new Promise((resolve) => { releaseChoice = resolve })
+  ;(globalThis as unknown as { window: unknown }).window = {
+    knuaf: {
+      chat: {
+        models: async () => ({ result: { provider: 'codex', supported: true, models: [], selected: { model: 'gpt-sol', effort: 'high' } } }),
+        setModel: () => pendingChoice
+      }
+    }
+  }
+  useChat.setState({
+    root: '/p/model-order-2', provider: 'codex', visit: 0, error: null,
+    models: null, modelsSupported: true, modelsError: null,
+    modelChoice: { model: 'gpt-sol', effort: 'high' }, modelReadSeq: 0, modelChoiceSeq: 0
+  })
+  const choosing = useChat.getState().chooseModel({ model: 'gpt-terra', effort: null })
+  // 목록 읽기는 선택보다 먼저 끝나 낡은 선택(Sol)을 들고 온다 — 이 읽기가 선택 번호를 올리면
+  // 곧 도착할 Terra 성공을 무효로 만들어, 저장값과 화면이 갈린다.
+  await useChat.getState().loadModels()
+  releaseChoice({ result: { model: 'gpt-terra', effort: null } })
+  expect(await choosing).toBe(true)
+  expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
+})
+
+test('전송 전 확인이 실패하면 보낸 말이 대화에 남지 않는다 (MC1-01)', async () => {
+  const conn: AgentConnection = {
+    status: async () => ({ installed: true, connected: true, version: '0.0.0-test', detail: '' }),
+    login: async () => {},
+    run: async () => { throw new Error('이 턴은 실행되면 안 된다') },
+    respond: () => {},
+    stop: async () => {},
+    prepare: async () => { throw new Error('Codex 기본 모델을 확인하지 못해 이전 모델 설정을 되돌리지 못했어요.') }
+  }
+  const svc = new ChatService({
+    skillSource: source,
+    userData: mkdtempSync(join(tmpdir(), 'kd-model-ud-')),
+    emit: () => {},
+    openExternal: async () => {},
+    connectionFactory: () => conn
+  })
+  const root = mkdtempSync(join(tmpdir(), 'kd-model-project-'))
+  await expect(svc.send(root, 'codex', '써 둔 답', 'req-preflight')).rejects.toThrow('기본 모델을 확인하지 못해')
+  // 보내지 못한 글이 '전송 중/불확실' 말풍선으로 남지 않는다 — 화면은 초안을 그대로 들고 있다.
+  expect(svc.snapshot(root, 'codex').messages).toEqual([])
+})
+
+test('보내기가 오류로 막히면 초안은 그대로 남는다 (MC1-01)', async () => {
+  ;(globalThis as unknown as { window: unknown }).window = {
+    knuaf: {
+      chat: {
+        send: async () => ({ error: { code: 'chat', message: 'Codex 기본 모델을 확인하지 못해 이전 모델 설정을 되돌리지 못했어요.' } }),
+        setDraft: async () => ({ result: true })
+      }
+    }
+  }
+  useChat.setState({ root: '/p/model-draft', provider: 'codex', visit: 0, draft: '써 둔 답', draftSeq: 1, busy: false, error: null })
+  expect(await useChat.getState().send()).toBe(false)
+  expect(useChat.getState().draft).toBe('써 둔 답')
+  expect(useChat.getState().error).toContain('기본 모델을 확인하지 못해')
 })
 
 test('모델 목록 통로가 없는 공급자(이번 판의 Claude)는 supported:false 로 답한다', async () => {

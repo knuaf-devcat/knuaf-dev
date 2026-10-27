@@ -283,17 +283,37 @@ export class CodexConnection implements AgentConnection {
       return { params: { model: choice.model, ...(effort ? { effort } : {}) }, clears: false }
     }
     if (!this.overridden && resumed && !this.resumeChecked) {
+      const base = await this.serverDefaultsOrFail()
+      // **성공했을 때만** 확인을 마쳤다고 표시한다. 실패를 확인 완료로 치면 다음 메시지에서
+      // 다시 묻지 않고, 선택 없음인데 이전 모델로 계속 보내게 된다(검토 MC1-01).
       this.resumeChecked = true
-      try {
-        const base = await this.serverDefaults()
-        const baseEffort = base.effort ?? await this.defaultEffortOf(base.model)
-        this.overridden = this.threadModel !== base.model || this.threadEffort !== baseEffort
-      } catch { /* 기본값을 못 물으면 지금까지처럼 생략한다 — 보내던 요청을 막지 않는다 */ }
+      const baseEffort = base.effort ?? await this.defaultEffortOf(base.model)
+      this.overridden = this.threadModel !== base.model || this.threadEffort !== baseEffort
     }
     if (!this.overridden) return { params: {}, clears: false }
-    const base = await this.serverDefaults()
+    const base = await this.serverDefaultsOrFail()
     const effort = base.effort ?? await this.defaultEffortOf(base.model)
     return { params: { model: base.model, ...(effort ? { effort } : {}) }, clears: true }
+  }
+  /**
+   * 전송 전 확인. 되돌릴 기본값이 필요할 수 있는데 그것을 확인하지 못하면 **여기서 던진다** —
+   * 보낸 글이 대화에 남거나 초안이 사라지기 전에 막고, 학생이 다시 보낼 수 있게 한다.
+   * 새 대화(`sessionId` 없음)는 덮어쓴 적이 없으므로 묻지 않는다.
+   */
+  async prepare(sessionId: string | undefined): Promise<void> {
+    if (!sessionId) return
+    if (this.options.modelChoice?.()?.model) return
+    if (!this.overridden && this.resumeChecked) return
+    await this.serverDefaultsOrFail()
+  }
+  /** 기본값 조회 실패를 학생이 읽을 수 있는 오류로 바꾼다 — 조용히 이전 모델로 보내지 않는다. */
+  private async serverDefaultsOrFail(): Promise<{ model: string; effort: string | null }> {
+    try {
+      return await this.serverDefaults()
+    } catch (e) {
+      const detail = e instanceof Error && e.message ? ` (${e.message})` : ''
+      throw new Error(`Codex 기본 모델을 확인하지 못해 이전 모델 설정을 되돌리지 못했어요. 잠시 뒤 다시 보내 주세요.${detail}`)
+    }
   }
   /**
    * 서버가 새 대화에 쓰는 기본 model·effort. `ephemeral` 대화는 디스크에 남지 않는다.

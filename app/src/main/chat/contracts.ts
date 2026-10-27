@@ -25,6 +25,12 @@ export interface AgentConnection {
    * ChatService 가 `supported:false` 로 답하고 화면은 추천을 띄우지 않는다(이번 판의 Claude).
    */
   models?(): Promise<ChatModelInfo[]>
+  /**
+   * 전송을 받아들이기 **전에** 필요한 확인(이번 판: 재개한 대화의 기본값 복귀 판정).
+   * 여기서 던지면 보낸 글은 대화에 남지 않고 초안도 그대로다 — 조용히 예전 모델로 보내는
+   * 대신 학생이 알 수 있는 오류로 막는다(검토 MC1-01).
+   */
+  prepare?(sessionId: string | undefined): Promise<void>
   respond(id: string, allow: boolean): void
   stop(): Promise<void>
 }

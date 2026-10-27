@@ -21,6 +21,8 @@
  *                           새 대화(과 `ephemeral` 대화)의 서버 기본값. 기본 `gpt-default` / `medium`
  *   FAKE_CODEX_INIT_DELAY_MS
  *                           initialize 응답을 늦추고, 그 전에 온 요청을 `Not initialized` 로 거절한다
+ *   FAKE_CODEX_EPHEMERAL_FAIL_TIMES
+ *                           기본값 조회용 `thread/start(ephemeral:true)` 를 그 횟수만큼 오류로 거절한다
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -46,6 +48,8 @@ const DEFAULT_MODEL = process.env.FAKE_CODEX_DEFAULT_MODEL ?? 'gpt-default'
 const DEFAULT_EFFORT = process.env.FAKE_CODEX_DEFAULT_EFFORT ?? 'medium'
 /** initialize 전 요청 거절 + 응답 지연(서버가 아직 초기화 중인 상태 재현). */
 const INIT_DELAY_MS = Math.max(0, Number(process.env.FAKE_CODEX_INIT_DELAY_MS ?? 0) || 0)
+/** 기본값 조회(ephemeral thread)만 실패시키는 횟수 — 실패 뒤 재조회 경로를 시험한다. */
+let ephemeralFailures = Math.max(0, Number(process.env.FAKE_CODEX_EPHEMERAL_FAIL_TIMES ?? 0) || 0)
 const MODELS = (() => {
   const raw = process.env.FAKE_CODEX_MODELS
   if (raw) { try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] } }
@@ -135,6 +139,10 @@ function handle(message) {
     case 'thread/resume': {
       // `ephemeral` 은 앱이 '서버 기본값'을 물을 때 쓴다 — 디스크에 남지 않는 대화 하나.
       if (params.ephemeral === true) {
+        if (ephemeralFailures > 0) {
+          ephemeralFailures -= 1
+          return out({ id, error: { code: -32603, message: 'temporary failure' } })
+        }
         const ephId = `t-ephemeral-${++ephemeralSeq}`
         threads.set(ephId, { model: DEFAULT_MODEL, effort: DEFAULT_EFFORT })
         return out({ id, result: threadResult(ephId) })
