@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
 import { fakeCodexEnv, replyFile, scratch, writeFakeClaude } from './fixtures/fake-codex'
 
@@ -19,7 +19,7 @@ test('첫 메시지에서 폴더를 열고 가짜 도우미에 전달한다', as
     await page.getByRole('button', { name: /내 폴더 고르기/ }).click()
     await expect(page.getByText('첫 답변입니다')).toBeVisible({ timeout: 30000 })
     expect((await page.evaluate(() => window.knuaf.getSettings())).provider_choice?.provider).toBe('codex')
-    await expect(page.getByLabel('프로젝트').getByRole('button', { name: root.split('/').pop()!, exact: true })).toBeVisible()
+    await expect(page.getByLabel('프로젝트').getByRole('button', { name: basename(root), exact: true })).toBeVisible()
   } finally { await electronApp.close() }
 })
 

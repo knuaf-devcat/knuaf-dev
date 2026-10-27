@@ -17,8 +17,6 @@ import { bundle, bundledProject, launchInstalled, seededUserData } from './launc
 import { openProject, paperReady } from '../e2e/helpers'
 import { APP_NAME } from '../src/shared/name'
 
-/** 첫 실행 화면의 1단계 문구 — `copy.ts` 의 `ONBOARD.connectTitle` 과 같다. */
-const FIRST_RUN = 'text=먼저, 쓰고 있는 AI를 연결해요'
 
 /** 이 저장소의 앱 버전 — 설치본이 낡은 빌드면 여기서 갈린다. */
 function repoVersion(): string {
@@ -29,12 +27,10 @@ function repoVersion(): string {
   return pkg.version
 }
 
-test('처음 켜면 첫 실행 화면이 뜨고, 동봉 리소스가 앱 안에 있다', async () => {
+test('처음 켜면 대화 입력칸이 뜨고, 동봉 리소스가 앱 안에 있다', async () => {
   const b = bundle()
   // userData 를 넘기지 않는다 — 학생의 첫 실행과 같은 자리(앱이 스스로 고르는 폴더)를 본다.
-  // 첫 실행 화면은 **크롬(제목줄) 없이** 뜬다(`Onboarding` 은 `Shell` 밖이다) — 그래서 준비
-  // 신호가 `.titlebar` 가 아니라 그 화면 자신(`.onb`)이다.
-  const { electronApp, page } = await launchInstalled({ userData: null, waitFor: '.onb' })
+  const { electronApp, page } = await launchInstalled({ userData: null })
   try {
     const info = await page.evaluate(() => window.knuaf.appInfo())
     // ① 설치본으로 돌고 있다(개발 트리 `out/main/index.js` 가 아니다).
@@ -43,9 +39,10 @@ test('처음 켜면 첫 실행 화면이 뜨고, 동봉 리소스가 앱 안에 
     // ② 첫 실행의 userData 자리는 표시이름(productName) 폴더다 — 여기가 어긋나면 학생의
     //    설정·최근 폴더가 매번 새로 시작한다.
     expect(info.userData).toBe(join(homedir(), 'Library', 'Application Support', 'knuaf-dev'))
-    // ③ 첫 실행 화면(온보딩 1단계). 개발 빌드 e2e 는 늘 `onboarded_at` 을 심고 보므로,
-    //    이 화면이 실제로 뜨는지 보는 곳은 여기뿐이다.
-    await expect(page.locator(FIRST_RUN)).toBeVisible({ timeout: 60_000 })
+    // ③ 첫 실행부터 단계 화면 없이 대화 입력칸과 모델 칩을 쓸 수 있다.
+    await expect(page.getByRole('heading', { name: '어떤 논문을 쓰고 있어요?' })).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole('textbox', { name: '답변을 입력하세요' })).toBeVisible()
+    await expect(page.getByTitle('이 논문의 도우미')).toBeVisible()
     // ④ 창이 떴다(숨김 실행이어도 창 객체와 렌더는 살아 있다).
     expect(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
 

@@ -64,6 +64,11 @@ const api = {
     ipcRenderer.on('menu', listener)
     return () => ipcRenderer.removeListener('menu', listener)
   },
+  onAppQuitting: (fn: () => void) => {
+    const listener = () => fn()
+    ipcRenderer.on('app:quitting', listener)
+    return () => ipcRenderer.removeListener('app:quitting', listener)
+  },
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   isDir: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:is-dir', p),
   agentStatus: (root: string | null) => ipcRenderer.invoke('agent:status', root),
