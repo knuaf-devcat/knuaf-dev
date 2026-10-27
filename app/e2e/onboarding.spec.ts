@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { launch, openProject, synthProject } from './helpers'
@@ -56,6 +56,92 @@ test('가짜 로그인 뒤 선택을 기록하고 첫 논문에서 자동으로 
     await expect(page.getByText('첫 질문')).toBeVisible({ timeout: 30000 })
     expect(settings(userData).onboarded_at).toBeTruthy()
     await expect(page.locator('.chat-msg.user')).toHaveCount(1)
+  } finally { await electronApp.close() }
+})
+
+test('로그인 중 폴더를 열어도 전역 감시가 완료와 선택을 기록한다 (A1-01)', async () => {
+  const dir = scratch()
+  const state = join(dir, 'login-state')
+  const root = synthProject()
+  const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-out', FAKE_CODEX_STATE: state })
+  const { electronApp, page } = await launch({ userData, onboarded: false, env })
+  try {
+    await electronApp.evaluate(({ shell, dialog }, folder) => {
+      shell.openExternal = async () => {}
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [folder] })) as typeof dialog.showOpenDialog
+    }, root)
+    await page.getByTitle('이 논문의 도우미').click()
+    await expect(row(page, 'codex')).toContainText('로그인이 필요해요')
+    await page.getByRole('button', { name: 'ChatGPT로 로그인' }).click()
+    await expect(page.getByRole('button', { name: '취소' })).toBeVisible()
+    await expect.poll(() => existsSync(state)).toBe(true)
+    unlinkSync(state)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: '+ 논문 추가' }).click()
+    await expect(page.getByText('ChatGPT 로그인이 필요해요')).toBeVisible()
+    writeFileSync(state, 'connected')
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 15000 })
+    await expect.poll(() => settings(userData).provider_choice?.provider, { timeout: 15000 }).toBe('codex')
+    await expect(page.getByText('ChatGPT 로그인이 필요해요')).not.toBeVisible()
+  } finally { await electronApp.close() }
+})
+
+test('폴더를 열 때 외부 로그아웃을 발견하면 칩에서 다시 연결한다 (A1-02)', async () => {
+  const dir = scratch()
+  const state = join(dir, 'login-state')
+  writeFileSync(state, 'connected')
+  const root = synthProject()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-out', FAKE_CODEX_STATE: state })
+  const { electronApp, page } = await launch({ onboarded: false, env })
+  try {
+    await electronApp.evaluate(({ shell, dialog }, folder) => {
+      shell.openExternal = async () => {}
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [folder] })) as typeof dialog.showOpenDialog
+    }, root)
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
+    unlinkSync(state)
+    await page.getByRole('button', { name: '+ 논문 추가' }).click()
+    await expect(page.getByText('ChatGPT 로그인이 필요해요')).toBeVisible()
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('다시 연결할 메시지')
+    await expect(page.getByRole('button', { name: '보내기', exact: true })).toBeDisabled()
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('로그인 필요')
+    await page.getByTitle('이 논문의 도우미').click()
+    await expect(page.getByRole('button', { name: 'ChatGPT로 로그인' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
+    await page.getByRole('button', { name: 'ChatGPT로 로그인' }).click()
+    await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 15000 })
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: '보내기', exact: true })).toBeEnabled({ timeout: 15000 })
+    await expect(page.getByRole('textbox', { name: '답변을 입력하세요' })).toHaveValue('다시 연결할 메시지')
+  } finally { await electronApp.close() }
+})
+
+test('대화 연결 확인이 실패하면 칩에서 다시 확인한다 (A1-02)', async () => {
+  const dir = scratch()
+  const root = synthProject()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
+    await electronApp.evaluate(({ ipcMain, dialog }, folder) => {
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      ;(globalThis as unknown as { originalStatus: (...args: unknown[]) => unknown }).originalStatus = handlers.get('chat:status')!
+      handlers.set('chat:status', () => ({ error: { code: 'internal', message: '확인 실패' } }))
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [folder] })) as typeof dialog.showOpenDialog
+    }, root)
+    await page.getByRole('button', { name: '+ 논문 추가' }).click()
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('확인 실패')
+    await page.getByTitle('이 논문의 도우미').click()
+    await expect(page.getByRole('button', { name: '다시 확인' }).first()).toBeVisible()
+    await electronApp.evaluate(({ ipcMain }) => {
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      handlers.set('chat:status', (globalThis as unknown as { originalStatus: (...args: unknown[]) => unknown }).originalStatus)
+    })
+    await page.getByRole('button', { name: '다시 확인' }).first().click()
+    await expect(row(page, 'codex')).toContainText('연결됐어요', { timeout: 15000 })
+    await page.keyboard.press('Escape')
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨')
   } finally { await electronApp.close() }
 })
 
