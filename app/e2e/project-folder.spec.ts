@@ -96,6 +96,127 @@ test('새 논문 시작을 누르면 폴더 카드와 이전 메시지가 지워
   } finally { await electronApp.close() }
 })
 
+test('돌아가 고친 메시지만 기존 생성 폴더로 보낸다 (C1-01)', async () => {
+  const dir = scratch()
+  const root = join(dir, 'knuaf-dev', '재시도')
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, '수정 답변') })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await electronApp.evaluate(({ app, ipcMain, dialog }, args) => {
+      app.setPath('documents', args.docs)
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      const original = handlers.get('project:open')!
+      let first = true
+      handlers.set('project:open', (...args) => {
+        if (first) { first = false; return { error: { code: 'internal', message: 'C1 controlled open failure' } } }
+        return original(...args)
+      })
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [args.root] })) as typeof dialog.showOpenDialog
+    }, { docs: dir, root })
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('폐기할 첫 메시지')
+    await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await page.getByRole('textbox', { name: '논문 이름' }).fill('재시도')
+    await page.getByRole('button', { name: /앱이 만들어 둘게요/ }).click()
+    await expect(page.locator('.zline')).toBeVisible()
+    await expect(page.getByRole('button', { name: '돌아가기' })).toBeEnabled()
+    expect(existsSync(root)).toBe(true)
+    await page.getByRole('button', { name: '돌아가기' }).click()
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('실제로 보낼 수정 메시지')
+    await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await expect(page.getByText('실제로 보낼 수정 메시지', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '+ 논문 추가' }).click()
+    await expect(page.getByText('수정 답변')).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1)
+    await expect(page.locator('.chat-msg.user')).toContainText('실제로 보낼 수정 메시지')
+    await expect(page.getByText('폐기할 첫 메시지', { exact: true })).toHaveCount(0)
+    const saved = join(root, '.knuaf-gui', 'chat-codex.json')
+    await expect.poll(() => existsSync(saved) ? readFileSync(saved, 'utf8') : '').toContain('실제로 보낼 수정 메시지')
+    expect(readFileSync(saved, 'utf8')).not.toContain('폐기할 첫 메시지')
+  } finally { await electronApp.close() }
+})
+
+test('폴더 열기 실패 후 재시도는 만든 폴더를 다시 사용한다 (C1-01)', async () => {
+  const dir = scratch()
+  const root = join(dir, 'knuaf-dev', '재시도')
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, '재시도 답변') })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await electronApp.evaluate(({ app, ipcMain }, docs) => {
+      app.setPath('documents', docs)
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      const original = handlers.get('project:open')!
+      let first = true
+      handlers.set('project:open', (...args) => {
+        if (first) { first = false; return { error: { code: 'internal', message: 'C1 controlled open failure' } } }
+        return original(...args)
+      })
+    }, dir)
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('재시도할 메시지')
+    await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await page.getByRole('textbox', { name: '논문 이름' }).fill('재시도')
+    await page.getByRole('button', { name: /앱이 만들어 둘게요/ }).click()
+    await expect(page.locator('.zline')).toBeVisible()
+    await expect(page.getByRole('button', { name: /앱이 만들어 둘게요/ })).toBeEnabled()
+    await page.getByRole('button', { name: /앱이 만들어 둘게요/ }).click()
+    await expect(page.getByText('재시도 답변')).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1)
+    await expect(page.locator('.chat-msg.user')).toContainText('재시도할 메시지')
+    expect(existsSync(root)).toBe(true)
+    expect(existsSync(`${root} (2)`)).toBe(false)
+  } finally { await electronApp.close() }
+})
+
+test('새 논문 시작 뒤 늦은 폴더 생성 응답은 새 제출을 바꾸지 않는다 (C1-02)', async () => {
+  const dir = scratch()
+  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, '새 논문 답변') })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await electronApp.evaluate(({ app, ipcMain }, docs) => {
+      app.setPath('documents', docs)
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      const original = handlers.get('project:create-folder')!
+      const entered = Promise.withResolvers<void>()
+      Object.assign(globalThis, { c1Entered: entered.promise })
+      let first = true
+      handlers.set('project:create-folder', async (...args) => {
+        const result = await original(...args)
+        if (first) {
+          first = false
+          const held = Promise.withResolvers<void>()
+          Object.assign(globalThis, { c1Release: held.resolve })
+          entered.resolve()
+          await held.promise
+        }
+        return result
+      })
+    }, dir)
+    await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨', { timeout: 30000 })
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('취소한 이전 논문 메시지')
+    await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await page.getByRole('textbox', { name: '논문 이름' }).fill('이전 논문')
+    await page.getByRole('button', { name: /앱이 만들어 둘게요/ }).click()
+    await electronApp.evaluate(async () => { await Reflect.get(globalThis, 'c1Entered') })
+    await page.getByRole('button', { name: '새 논문 시작' }).click()
+    await page.getByRole('textbox', { name: '답변을 입력하세요' }).fill('새 논문에 보낼 메시지')
+    await page.getByRole('button', { name: '보내기', exact: true }).click()
+    await expect(page.getByText('새 논문에 보낼 메시지', { exact: true })).toBeVisible()
+    await electronApp.evaluate(() => { Reflect.get(globalThis, 'c1Release')() })
+    await page.getByRole('textbox', { name: '논문 이름' }).fill('이전 논문')
+    await page.getByRole('button', { name: /앱이 만들어 둘게요/ }).click()
+    await expect(page.getByText('새 논문 답변')).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1)
+    await expect(page.locator('.chat-msg.user')).toContainText('새 논문에 보낼 메시지')
+    await expect(page.getByText('취소한 이전 논문 메시지', { exact: true })).toHaveCount(0)
+    expect(existsSync(join(dir, 'knuaf-dev', '이전 논문 (2)'))).toBe(true)
+    await expect(page.locator('.titlebar .tbtn.title')).toContainText('이전 논문 (2)')
+    const saved = join(dir, 'knuaf-dev', '이전 논문 (2)', '.knuaf-gui', 'chat-codex.json')
+    await expect.poll(() => existsSync(saved) ? readFileSync(saved, 'utf8') : '').toContain('새 논문에 보낼 메시지')
+    expect(readFileSync(saved, 'utf8')).not.toContain('취소한 이전 논문 메시지')
+  } finally { await electronApp.close() }
+})
+
 test('폴더 선택 카드는 기본·1180·1024 창에서 표시된다', async () => {
   const dir = scratch()
   const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })

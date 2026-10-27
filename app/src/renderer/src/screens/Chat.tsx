@@ -340,30 +340,40 @@ export function Chat() {
   const [folderBusy, setFolderBusy] = useState(false)
   const [folderError, setFolderError] = useState<string | null>(null)
   const createdFolder = useRef<{ name: string; root: string } | null>(null)
-  const folderOpening = useRef(false)
-  const [queued, setQueued] = useState<{ root: string; text: string } | null>(null)
+  const submission = useRef(0)
+  const folderOpening = useRef<number | null>(null)
+  const [queued, setQueued] = useState<{ root: string; text: string; submission: number } | null>(null)
   const [switchNotice, setSwitchNotice] = useState<Provider | null>(null)
   const previous = useRef<{ root: string | null; provider: Provider }>({ root: projectRoot, provider })
   const recordingFirstRun = useRef(false)
   const submitNew = (): void => {
     if (!newText.trim()) return
+    submission.current += 1
+    setQueued(null)
     setSubmitted(newText.trim())
     setFolderName(projectFolderName(newText))
     setFolderError(null)
   }
-  const openFirstFolder = async (dir: string): Promise<void> => {
-    if (!submitted) return
+  const openFirstFolder = async (dir: string, generation: number, projectSeq: number): Promise<void> => {
+    const live = (): boolean => submission.current === generation && useProject.getState().newProjectSeq === projectSeq
+    if (!submitted || !live()) return
     if (!settings?.provider_choice && useConnect.getState()[provider].state === 'connected') {
       await window.knuaf.setSettings({ helper_mode: provider === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider, at: new Date().toISOString() } })
+      if (!live()) return
       useConnect.getState().select(provider)
       await useProject.getState().loadSettings()
+      if (!live()) return
     }
-    setQueued({ root: dir, text: submitted })
+    if (!live() || useProject.getState().root) return
+    setQueued({ root: dir, text: submitted, submission: generation })
     await useProject.getState().open(dir)
   }
   const chooseFolder = async (automatic: boolean): Promise<void> => {
-    if (folderOpening.current) return
-    folderOpening.current = true
+    if (folderOpening.current !== null) return
+    const generation = submission.current
+    const projectSeq = useProject.getState().newProjectSeq
+    const live = (): boolean => submission.current === generation && useProject.getState().newProjectSeq === projectSeq
+    folderOpening.current = generation
     setFolderBusy(true)
     setFolderError(null)
     try {
@@ -373,24 +383,33 @@ export function Chat() {
         if (createdFolder.current?.name === name) dir = createdFolder.current.root
         else {
           const result = await window.knuaf.createProjectFolder(name)
+          if (!live()) return
           if ('error' in result) { setFolderError(PROJECT_FOLDER.createFailed); return }
           dir = result.result.root
           createdFolder.current = { name, root: dir }
         }
-      } else dir = await window.knuaf.pickFolder()
-      if (dir) await openFirstFolder(dir)
+      } else {
+        dir = await window.knuaf.pickFolder()
+        if (!live()) return
+      }
+      if (dir && live()) await openFirstFolder(dir, generation, projectSeq)
     } catch {
-      setFolderError(PROJECT_FOLDER.createFailed)
+      if (live()) setFolderError(PROJECT_FOLDER.createFailed)
     } finally {
-      folderOpening.current = false
-      setFolderBusy(false)
+      if (folderOpening.current === generation) {
+        folderOpening.current = null
+        setFolderBusy(false)
+      }
     }
   }
   useEffect(() => {
+    submission.current += 1
+    folderOpening.current = null
+    setFolderBusy(false)
     setNewText(''); setSubmitted(null); setQueued(null); setFolderError(null); createdFolder.current = null
   }, [newProjectSeq])
   useEffect(() => {
-    if (projectRoot && submitted && !queued) setQueued({ root: projectRoot, text: submitted })
+    if (projectRoot && submitted && !queued) setQueued({ root: projectRoot, text: submitted, submission: submission.current })
   }, [projectRoot, submitted, queued])
   useEffect(() => {
     if (previous.current.root === projectRoot && projectRoot && previous.current.provider !== provider) setSwitchNotice(provider)
@@ -406,7 +425,7 @@ export function Chat() {
       .finally(() => { recordingFirstRun.current = false })
   }, [projectRoot, settings, queued, submitted])
   useEffect(() => {
-    if (!queued || queued.root !== projectRoot || root !== projectRoot || !snapshot || snapshot.provider !== provider) return
+    if (!queued || queued.submission !== submission.current || queued.text !== submitted || queued.root !== projectRoot || root !== projectRoot || !snapshot || snapshot.provider !== provider) return
     const text = queued.text
     const target = queued.root
     setNewText('')
@@ -423,7 +442,7 @@ export function Chat() {
     } else {
       useChat.getState().appendDraft(text)
     }
-  }, [queued, projectRoot, root, snapshot, provider, status, settings, send])
+  }, [queued, submitted, projectRoot, root, snapshot, provider, status, settings, send])
 
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
   // codex 대화가 claude 화면에 남는 식의 혼합은 없어야 한다.
@@ -601,7 +620,7 @@ export function Chat() {
 
   if (!projectRoot) return <NoFolder text={newText} setText={setNewText} onSubmit={submitNew} submitted={submitted}
     name={folderName} setName={setFolderName} onPick={() => void chooseFolder(false)} onCreate={() => void chooseFolder(true)}
-    busy={folderBusy} createError={folderError} onBack={() => { setSubmitted(null); setFolderError(null) }} />
+    busy={folderBusy} createError={folderError} onBack={() => { submission.current += 1; setQueued(null); setSubmitted(null); setFolderError(null) }} />
 
   /**
    * 대화 기록과 이벤트 줄을 **시각 순으로** 섞는다 — 이벤트 줄은 저장된 글이 아니라 앱이
