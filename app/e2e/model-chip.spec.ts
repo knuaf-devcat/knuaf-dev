@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { ChatService } from '../src/main/chat/service'
 import { CodexConnection } from '../src/main/chat/codex'
 import { skillSource } from '../src/main/agent'
+import { useChat } from '../src/renderer/src/store/chat'
 import {
   CODEX_TIER_MODELS, codexRecommendations, effectiveModelChoice,
   type ChatModelInfo, type ModelChoice
@@ -73,25 +74,47 @@ test('고른 값은 이 계정 목록에 비춰 정규화된다 (없는 모델=�
 
 const noopEvents: AgentEvents = { message: () => {}, permission: () => {}, note: () => {}, session: () => {}, skill: () => {} }
 
-/** 가짜 app-server 를 띄우는 연결 하나 — 셔뱅 shim 은 fakeCodexEnv 가 만든다. */
+/** 가짜 app-server 하나를 띄울 수 있는 시험 환경 — 셔뱅 shim 은 fakeCodexEnv 가 만든다. */
+function codexSandbox(extra: Record<string, string>) {
+  const dir = mkdtempSync(join(tmpdir(), 'kd-model-bin-'))
+  const paths = {
+    log: join(dir, 'turns.jsonl'),
+    applied: join(dir, 'applied.jsonl'),
+    state: join(dir, 'state'),
+    threads: join(dir, 'threads.json')
+  }
+  writeFileSync(paths.log, '')
+  writeFileSync(paths.applied, '')
+  writeFileSync(paths.state, 'chatgpt\n')
+  const root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))
+  const connect = (choiceOf: () => ModelChoice | null) => new CodexConnection({
+    binary: join(dir, 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'),
+    env: {
+      ...process.env,
+      ...fakeCodexEnv(dir, {
+        FAKE_CODEX_STATE: paths.state, FAKE_CODEX_TURN_LOG: paths.log,
+        FAKE_CODEX_APPLIED_LOG: paths.applied, FAKE_CODEX_THREAD_STATE: paths.threads, ...extra
+      })
+    },
+    openExternal: async () => {}, modelChoice: choiceOf
+  })
+  return { paths, root, connect }
+}
+
+function readJsonLines(file: string): Record<string, unknown>[] {
+  const text = readFileSync(file, 'utf-8').trim()
+  return text ? text.split('\n').map((l) => JSON.parse(l) as Record<string, unknown>) : []
+}
+
 async function withCodex(
   extra: Record<string, string>,
-  body: (conn: CodexConnection, ctx: { log: string; root: string; setChoice: (c: ModelChoice | null) => void }) => Promise<void>
+  body: (conn: CodexConnection, ctx: { log: string; applied: string; root: string; setChoice: (c: ModelChoice | null) => void }) => Promise<void>
 ): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), 'kd-model-bin-'))
-  const log = join(dir, 'turns.jsonl')
-  const state = join(dir, 'state')
-  writeFileSync(log, '')
-  writeFileSync(state, 'chatgpt\n')
-  const root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))
-  const env = { ...process.env, ...fakeCodexEnv(dir, { FAKE_CODEX_STATE: state, FAKE_CODEX_TURN_LOG: log, ...extra }) }
+  const box = codexSandbox(extra)
   let choice: ModelChoice | null = null
-  const conn = new CodexConnection({
-    binary: join(dir, 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'), env,
-    openExternal: async () => {}, modelChoice: () => choice
-  })
+  const conn = box.connect(() => choice)
   try {
-    await body(conn, { log, root, setChoice: (c) => { choice = c } })
+    await body(conn, { log: box.paths.log, applied: box.paths.applied, root: box.root, setChoice: (c) => { choice = c } })
   } finally {
     await conn.stop()
   }
@@ -110,6 +133,65 @@ test('고른 모델·생각 깊이가 turn/start 에 실리고, 안 고르면 �
   })
 })
 
+test('같은 대화에서 선택 → 해제 → 다른 모델/기본 깊이가 서버에 실제로 적용된다 (MC1-01)', async () => {
+  await withCodex({ FAKE_CODEX_DEFAULT_MODEL: 'gpt-default', FAKE_CODEX_DEFAULT_EFFORT: 'medium' }, async (conn, { log, applied, setChoice }) => {
+    let session: string | undefined
+    const events: AgentEvents = { ...noopEvents, session: (id) => { session = id } }
+    await conn.run('처음', undefined, events)
+    setChoice({ model: 'gpt-sol', effort: 'high' })
+    await conn.run('Sol 로', session, events)
+    setChoice(null)
+    await conn.run('해제', session, events)
+    setChoice({ model: 'gpt-terra', effort: null })
+    await conn.run('Terra 기본 깊이', session, events)
+
+    // 서버 계약: 보낸 model·effort 는 같은 대화의 뒤 턴에도 남고, 생략은 "유지"다.
+    // 그래서 해제는 키를 빼는 것이 아니라 서버 기본값을 **명시적으로** 보내야 한다.
+    expect(readJsonLines(log)).toEqual([
+      {},
+      { model: 'gpt-sol', effort: 'high' },
+      { model: 'gpt-default', effort: 'medium' },
+      { model: 'gpt-terra', effort: 'low' }
+    ])
+    // 대역 서버가 실제로 들고 있는 값 — 마지막 두 줄이 기본값/Terra 로 돌아왔다는 증거.
+    expect(readJsonLines(applied)).toEqual([
+      { model: 'gpt-default', effort: 'medium' },
+      { model: 'gpt-sol', effort: 'high' },
+      { model: 'gpt-default', effort: 'medium' },
+      { model: 'gpt-terra', effort: 'low' }
+    ])
+  })
+})
+
+test('앱을 다시 켠 뒤 재개한 대화가 기본값과 다르면 선택 없음도 기본값으로 되돌린다 (MC1-01)', async () => {
+  const box = codexSandbox({ FAKE_CODEX_DEFAULT_MODEL: 'gpt-default', FAKE_CODEX_DEFAULT_EFFORT: 'medium' })
+  let session: string | undefined
+  const events: AgentEvents = { ...noopEvents, session: (id) => { session = id } }
+  // 1세션: Sol/high 로 한 턴. 대화 상태는 파일에 남는다.
+  let choice: ModelChoice | null = { model: 'gpt-sol', effort: 'high' }
+  const first = box.connect(() => choice)
+  try { await first.run('Sol 로', undefined, events) } finally { await first.stop() }
+  // 2세션: 앱이 다시 켜졌고 저장된 선택이 없다. 같은 대화를 재개한다.
+  choice = null
+  const second = box.connect(() => choice)
+  try { await second.run('이어서', session, events) } finally { await second.stop() }
+  const applied = readJsonLines(box.paths.applied)
+  expect(applied).toEqual([
+    { model: 'gpt-sol', effort: 'high' },
+    { model: 'gpt-default', effort: 'medium' }
+  ])
+})
+
+test('초기화가 끝나기 전에 상태·목록을 동시에 물어도 둘 다 성공한다 (MC1-02)', async () => {
+  await withCodex({ FAKE_CODEX_INIT_DELAY_MS: '50' }, async (conn) => {
+    // 대역 서버는 initialize 전 요청을 `Not initialized` 로 거절한다(문서의 초기화 계약).
+    const [status, models] = await Promise.allSettled([conn.status(), conn.models()])
+    expect(status.status).toBe('fulfilled')
+    expect(models.status).toBe('fulfilled')
+    if (models.status === 'fulfilled') expect(models.value).toHaveLength(4)
+  })
+})
+
 test('model/list 를 읽어 화면이 쓸 모양으로 옮기고, 숨긴 모델은 뺀다', async () => {
   const hidden = [
     { id: 'gpt-sol', model: 'gpt-sol', displayName: 'Sol', hidden: false, isDefault: true, defaultReasoningEffort: 'high', supportedReasoningEfforts: [{ reasoningEffort: 'high', description: '' }] },
@@ -125,7 +207,11 @@ test('model/list 를 읽어 화면이 쓸 모양으로 옮기고, 숨긴 모델�
 })
 
 /** ChatService 를 가짜 연결로 — 연결이 받은 options 를 모아 두고 선택 해석을 직접 본다. */
-function serviceWith(list: { current: ChatModelInfo[] }, stored: { current: ModelChoice | null }) {
+function serviceWith(
+  list: { current: ChatModelInfo[] },
+  stored: { current: ModelChoice | null },
+  over: { models?: () => Promise<ChatModelInfo[]>; store?: (choice: ModelChoice | null) => void } = {}
+) {
   const seen: AgentOptions[] = []
   const conn: AgentConnection = {
     status: async () => ({ installed: true, connected: true, version: '0.0.0-test', detail: '' }),
@@ -133,7 +219,7 @@ function serviceWith(list: { current: ChatModelInfo[] }, stored: { current: Mode
     run: async () => {},
     respond: () => {},
     stop: async () => {},
-    models: async () => list.current
+    models: over.models ?? (async () => list.current)
   }
   const svc = new ChatService({
     skillSource: source,
@@ -141,7 +227,8 @@ function serviceWith(list: { current: ChatModelInfo[] }, stored: { current: Mode
     emit: () => {},
     openExternal: async () => {},
     connectionFactory: (_provider, options) => { seen.push(options); return conn },
-    modelChoice: () => stored.current
+    modelChoice: () => stored.current,
+    storeModelChoice: (_provider, choice) => { stored.current = choice; over.store?.(choice) }
   })
   return { svc, seen }
 }
@@ -172,6 +259,54 @@ test('main 쪽: 목록으로 검증해 저장하고, 전송할 때 그 값이 �
   expect((await svc.models(root, 'codex')).selected).toBeNull()
   await svc.send(root, 'codex', '다음 질문', 'req-model-2')
   expect(seen[0].modelChoice?.()).toBeNull()
+})
+
+test('느린 선택 검증이 나중의 선택 해제를 되살리지 않는다 (MC1-03 main)', async () => {
+  const list = { current: FOUR }
+  const stored: { current: ModelChoice | null } = { current: null }
+  const writes: (ModelChoice | null)[] = []
+  let release!: (value: ChatModelInfo[]) => void
+  const pending = new Promise<ChatModelInfo[]>((resolve) => { release = resolve })
+  const { svc } = serviceWith(list, stored, {
+    models: () => pending,
+    store: (choice) => { writes.push(choice) }
+  })
+  const root = mkdtempSync(join(tmpdir(), 'kd-model-project-'))
+
+  // 1) Sol 선택 검증이 목록 응답을 기다린다. 2) 그 사이 학생이 해제한다.
+  const slow = svc.setModel(root, 'codex', { model: 'gpt-sol', effort: 'high' })
+  expect(await svc.setModel(root, 'codex', null)).toBeNull()
+  expect(stored.current).toBeNull()
+  // 3) 이제야 첫 목록이 도착한다 — 해제를 되살리면 안 된다.
+  release(FOUR)
+  expect(await slow).toBeNull()
+  expect(stored.current).toBeNull()
+  expect(writes).toEqual([null])
+})
+
+test('늦게 끝난 목록 응답이 새 선택을 되돌리지 않는다 (MC1-03 화면)', async () => {
+  let release!: (value: unknown) => void
+  const pendingModels = new Promise((resolve) => { release = resolve })
+  ;(globalThis as unknown as { window: unknown }).window = {
+    knuaf: {
+      chat: {
+        models: () => pendingModels,
+        setModel: async () => ({ result: { model: 'gpt-terra', effort: null } })
+      }
+    }
+  }
+  useChat.setState({
+    root: '/p/model-order', provider: 'codex', visit: 0, error: null,
+    models: null, modelsSupported: true, modelsError: null, modelChoice: null, modelSeq: 0
+  })
+  const loading = useChat.getState().loadModels()
+  expect(await useChat.getState().chooseModel({ model: 'gpt-terra', effort: null })).toBe(true)
+  expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
+  // 예전 목록 응답(selected=Sol)이 늦게 도착 — 목록은 반영해도 선택은 되돌리지 않는다.
+  release({ result: { provider: 'codex', supported: true, models: [], selected: { model: 'gpt-sol', effort: 'high' } } })
+  await loading
+  expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
+  expect(useChat.getState().models).toEqual([])
 })
 
 test('모델 목록 통로가 없는 공급자(이번 판의 Claude)는 supported:false 로 답한다', async () => {

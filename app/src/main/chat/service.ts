@@ -51,6 +51,12 @@ export class ChatService {
      * 이번 판은 대화 저장 형식을 그대로 둔다.
      */
     modelChoice?: (provider: Provider) => ModelChoice | null
+    /**
+     * 고른 값을 설정에 남기는 통로(ipc 가 settings.json 에 쓴다). 저장을 여기서 하는 이유는
+     * **선택의 선후**를 한 곳에서 지키기 위해서다 — 느린 검증이 나중에 끝나도 마지막 선택을
+     * 덮지 않는다(검토 MC1-03).
+     */
+    storeModelChoice?: (provider: Provider, choice: ModelChoice | null) => void
     /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
     fs?: SafeWriteFs
   }) {}
@@ -201,6 +207,8 @@ export class ChatService {
    * 아직 목록을 못 받았으면(`null`) 선택을 그대로 보낸다(학생이 방금 고른 값을 이유 없이 무시하지 않는다).
    */
   private modelLists = new Map<string, ChatModelInfo[]>()
+  /** 선택 호출의 선후 — 느린 검증이 나중 선택을 덮지 않게 한다(검토 MC1-03). */
+  private selectionSeq = new Map<Provider, number>()
   /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
   private effectiveChoice(root: string, provider: Provider): ModelChoice | null {
     const stored = this.opts.modelChoice?.(provider) ?? null
@@ -227,17 +235,27 @@ export class ChatService {
     }
   }
   /**
-   * 고른 모델·생각 깊이를 이 계정 목록으로 검증해 돌려준다. 저장은 호출자(ipc)가 설정에 한다.
-   * `null` 은 "안 골름" — 지금과 같은 기본값으로 되돌린다.
+   * 고른 모델·생각 깊이를 이 계정 목록으로 검증해 **설정에 남긴다**. `null` 은 "안 골름".
+   *
+   * 선택은 마지막 것이 이긴다: 호출마다 번호를 올리고, 목록을 기다리는 동안 더 새 선택이
+   * 들어왔으면 저장하지 않고 **지금 설정값**을 돌려준다. 해제(null)는 목록을 기다리지 않으므로
+   * 느린 선택 검증이 그 뒤에 끝나도 해제를 되살리지 못한다(검토 MC1-03).
    */
   async setModel(root: string, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
-    if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) return null
+    const seq = (this.selectionSeq.get(provider) ?? 0) + 1
+    this.selectionSeq.set(provider, seq)
+    if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) {
+      this.opts.storeModelChoice?.(provider, null)
+      return null
+    }
     const list = await this.models(root, provider)
+    if (this.selectionSeq.get(provider) !== seq) return this.opts.modelChoice?.(provider) ?? null
     if (!list.supported) throw new Error('이 도우미는 아직 모델 고르기를 지원하지 않아요.')
     if (list.error) throw new Error(list.error)
     const picked = effectiveModelChoice(choice, list.models)
     if (!picked) throw new Error('이 계정에서 쓸 수 없는 모델이에요. 목록을 다시 불러와 주세요.')
     if (choice.effort && !picked.effort) throw new Error('이 모델은 그 생각 깊이를 지원하지 않아요.')
+    this.opts.storeModelChoice?.(provider, picked)
     return picked
   }
 

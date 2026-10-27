@@ -118,6 +118,11 @@ interface ChatState {
   modelsSupported: boolean
   modelsError: string | null
   modelChoice: ModelChoice | null
+  /**
+   * 모델 목록·선택 요청의 선후. 늦게 끝난 옛 응답이 더 나중에 고른 값을 덮지 않게 한다
+   * (검토 MC1-03).
+   */
+  modelSeq: number
   /** 목록을 지금 계정에 다시 묻는다. 실패해도 저장된 선택은 유지된다. */
   loadModels: () => Promise<void>
   /** 고른 모델·생각 깊이를 설정에 남긴다. `null` 이면 "안 골름"(지금과 같은 기본값). */
@@ -143,6 +148,7 @@ export const useChat = create<ChatState>((set, get) => ({
   modelsSupported: false,
   modelsError: null,
   modelChoice: null,
+  modelSeq: 0,
   armStart: (root) => set({ startIntent: root }),
   disarmStart: () => set({ startIntent: null }),
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
@@ -174,7 +180,7 @@ export const useChat = create<ChatState>((set, get) => ({
     set({
       root, provider, error: null,
       // 다른 대화로 옮기면 새 방문이다 — 앞 방문의 전송·준비 대기가 쥐고 있던 잠금과 진행 표시를 푼다.
-      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false, models: null, modelsSupported: false, modelsError: null, modelChoice: null }),
+      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false, models: null, modelsSupported: false, modelsError: null, modelChoice: null, modelSeq: get().modelSeq + 1 }),
       ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
     })
     // 이 읽기를 **시작한 시점**의 화면. 늦게 도착한 응답이 그 뒤에 앱이 스스로 바꾼 값
@@ -322,11 +328,18 @@ export const useChat = create<ChatState>((set, get) => ({
   loadModels: async () => {
     const { root, provider, visit } = get()
     if (!root) return
+    const seq = get().modelSeq + 1
+    set({ modelSeq: seq })
     const r = await window.knuaf.chat.models(root, provider) as Reply<ChatModels>
     // 그 사이 폴더·공급자를 떠났으면 이 응답은 지금 화면의 것이 아니다.
     if (get().visit !== visit || get().provider !== provider) return
     if ('result' in r) {
-      set({ models: r.result.models, modelsSupported: r.result.supported, modelChoice: r.result.selected, modelsError: r.result.error ?? null })
+      // 목록은 그대로 반영하되, 그 사이 새 선택이 들어왔으면 그 응답의 selected 는 낡은 값이다.
+      const selectedStale = get().modelSeq !== seq
+      set({
+        models: r.result.models, modelsSupported: r.result.supported, modelsError: r.result.error ?? null,
+        ...(selectedStale ? {} : { modelChoice: r.result.selected })
+      })
     } else {
       // 목록을 못 받아도 지금 고른 값은 그대로 보여 준다 — 실패가 선택을 지우는 것처럼 보이면 안 된다.
       set({ modelsError: messageOf(r) })
@@ -335,11 +348,14 @@ export const useChat = create<ChatState>((set, get) => ({
   chooseModel: async (choice) => {
     const { root, provider } = get()
     if (!root) return false
+    const seq = get().modelSeq + 1
+    set({ modelSeq: seq })
     const r = await window.knuaf.chat.setModel(root, provider, choice) as Reply<ModelChoice | null>
     if (get().provider !== provider) return false
     if ('result' in r) {
-      // main 이 목록으로 검증해 돌려준 값(지원하지 않는 생각 깊이는 빠져 있다).
-      set({ modelChoice: r.result, modelsError: null, error: null })
+      // main 이 목록으로 검증해 돌려준 값(지원하지 않는 생각 깊이는 빠져 있다). 그 사이 더 새
+      // 요청이 시작됐으면 그 응답이 이긴다 — 옛 선택이 화면을 되돌리지 않는다.
+      if (get().modelSeq === seq) set({ modelChoice: r.result, modelsError: null, error: null })
       return true
     }
     set({ error: messageOf(r) })

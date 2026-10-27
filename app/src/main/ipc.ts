@@ -235,7 +235,12 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     },
     // 고른 모델은 설정에 남는다(대화 파일 형식은 그대로). 전송할 때마다 새로 읽으므로
     // 칩에서 바꾼 값이 다음 메시지부터 적용된다.
-    modelChoice: (provider) => loadSettings().chat_models?.[provider] ?? null
+    modelChoice: (provider) => loadSettings().chat_models?.[provider] ?? null,
+    // 고른 값은 설정에 남는다(대화 파일 형식은 그대로). 저장 위치를 서비스가 정하는 이유는
+    // 선택의 선후를 한 곳에서 지키기 위해서다(검토 MC1-03).
+    storeModelChoice: (provider, choice) => {
+      saveSettings({ chat_models: { ...(loadSettings().chat_models ?? {}), [provider]: choice } })
+    }
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
@@ -265,12 +270,8 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
    */
   ipcMain.handle('chat:models', async (_e, root: string, provider: Provider) => { try { return { result: await chat.models(root, provider) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:set-model', async (_e, root: string, provider: Provider, choice: ModelChoice | null) => {
-    try {
-      const picked = await chat.setModel(root, provider, choice)
-      const all = { ...(loadSettings().chat_models ?? {}), [provider]: picked }
-      saveSettings({ chat_models: all })
-      return { result: picked }
-    } catch (e) { return chatFail(e) }
+    // 저장·순서는 ChatService 가 맡는다(목록 검증과 저장 사이에 새 선택이 끼어드는 경합).
+    try { return { result: await chat.setModel(root, provider, choice) } } catch (e) { return chatFail(e) }
   })
 
   // 폴더 없이 쓰는 연결 — 첫 실행 화면(온보딩)이 폴더를 고르기 전에 쓴다. root 인자가 없다.
