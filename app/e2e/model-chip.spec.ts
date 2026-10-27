@@ -74,7 +74,7 @@ test('고른 값은 이 계정 목록에 비춰 정규화된다 (없는 모델=�
 
 const noopEvents: AgentEvents = { message: () => {}, permission: () => {}, note: () => {}, session: () => {}, skill: () => {} }
 
-/** 가짜 app-server 하나를 띄울 수 있는 시험 환경 — 셔뱅 shim 은 fakeCodexEnv 가 만든다. */
+/** 가짜 app-server 환경 — fakeCodexEnv 가 실제로 만든 플랫폼별 shim 경로를 직접 넘긴다. */
 function codexSandbox(extra: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), 'kd-model-bin-'))
   const paths = {
@@ -88,7 +88,7 @@ function codexSandbox(extra: Record<string, string>) {
   writeFileSync(paths.state, 'chatgpt\n')
   const root = mkdtempSync(join(tmpdir(), 'kd-model-root-'))
   const connect = (choiceOf: () => ModelChoice | null, chosenOf?: () => boolean) => new CodexConnection({
-    binary: join(dir, 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'),
+    binary: join(dir, process.platform === 'win32' ? 'codex.cmd' : 'codex'), root, skill: join(root, '.agents', 'skills', 'knuaf-dev'),
     env: {
       ...process.env,
       ...fakeCodexEnv(dir, {

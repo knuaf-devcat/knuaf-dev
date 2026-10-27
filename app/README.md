@@ -71,6 +71,8 @@ Claude는 모델 목록·추천 없이 기존 계정 기본값을 유지합니�
 화면에 반영하지 않습니다(MC1-03). 관련 회귀는 `e2e/model-chip.spec.ts`,
 실제 Electron 조작·같은 대화 전송·밝음/어두움·1440/1024 배치는 `e2e/model-picker-ui.spec.ts`에서 확인합니다.
 캡처가 필요하면 `KNUAF_CHIP_CAPTURE_DIR=<저장 폴더>`를 지정해 후자를 실행합니다.
+직접 가짜 Codex 연결을 만드는 시험도 `fakeCodexEnv()`가 만든 파일명을 넘겨야 합니다:
+Windows는 `codex.cmd`, Unix는 `codex`입니다. Windows에서 확장자를 빼면 `.cmd` 실행 분기를 타지 못합니다.
 
 ## 개발
 
