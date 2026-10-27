@@ -1365,6 +1365,12 @@ export const HELPER = {
   notInstalledBody: '논문을 쓰는 AI 도우미(Claude Code)를 먼저 설치해야 해요. 설치 후 이 버튼을 다시 누르면 앱이 규칙집을 넣고 도우미를 켜 줘요.',
   installGuide: '설치 안내 열기',
   chooseBody: '둘 다 설치돼 있어요. 어느 쪽을 열지 골라 주세요.',
-  launchedTitle: '터미널 창에서 AI 도우미가 열렸어요',
-  launchedBody: '처음이면 브라우저에 Claude 로그인 창이 떠요. 인터뷰 답변은 그 터미널 창에서 해요. 도우미가 저장할 때마다 이 앱을 새로고침하면 결과가 보여요.',
+  launchedTitle: '터미널에 AI 도우미 실행을 요청했어요',
+  /**
+   * 연 도우미에 맞춘 로그인 안내 — Codex 를 열었는데 Claude 로그인을 말하던 것(실기기 UI-D01).
+   * Codex 는 첫 실행 때 터미널 안에서 ChatGPT 로그인을 고르게 한다(앱의 "ChatGPT 연결됨"과 같은 계정).
+   */
+  launchedBody: (kind: 'claude' | 'codex'): string => `${kind === 'codex'
+    ? '처음이면 터미널 안내에 따라 ChatGPT 계정으로 로그인해요.'
+    : '처음이면 브라우저에 Claude 로그인 창이 떠요.'} 터미널에 오류가 보이면 그 내용을 확인해 주세요. 인터뷰 답변은 그 터미널 창에서 해요. 도우미가 저장할 때마다 이 앱을 새로고침하면 결과가 보여요.`,
 }

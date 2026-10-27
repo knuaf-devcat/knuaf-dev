@@ -107,7 +107,8 @@ def docx_build(ctx, params):
     argv = [str(_root(params))]
     if "in" in params:
         argv += ["--in", str(params["in"])]
-    argv += _flags(params, ("out", "font"))
+    # `no_toc` — 앱이 표지 정보 없이 본문만 묶을 때. 안내가 "겉표지·목차 없이"다(실기기 QA-03).
+    argv += _flags(params, ("out", "font", "no_toc"))
     return _run(ctx, params, "build_docx.py", argv, needs_deps=True)
 
 

@@ -235,7 +235,10 @@ def check_dropped_nodes(nodes, i_toc, i_body, rendered=()):
     return []
 
 
-def convert(md_text, font=FONT, base=".", table_reports=None):
+def convert(md_text, font=FONT, base=".", table_reports=None, toc=True):
+    """`toc=False` 는 앞머리 없는 원고(본문만)에서 목차 쪽을 붙이지 않는다 — 앱의 "겉표지·목차
+    없이 본문만" 안내와 출력이 어긋났다(실기기 QA-03). 학교 양식 원고(앞머리 있음)는 목차가
+    양식의 일부라 이 값과 무관하게 목차를 둔다."""
     doc = Document()
     setup_document(doc, font)
     nodes = parse(md_text)
@@ -321,7 +324,7 @@ def convert(md_text, font=FONT, base=".", table_reports=None):
 
     if not is_school_paper:
         # 표·그림만 있고 제목이 없는 문서에 빈 목차 페이지를 붙이지 않는다.
-        if any(n["kind"] == "heading" for n in nodes):
+        if toc and any(n["kind"] == "heading" for n in nodes):
             add_toc(doc, font)
             update = OxmlElement("w:updateFields")
             update.set(qn("w:val"), "true")
@@ -545,6 +548,8 @@ def main():
     ap.add_argument("--in", dest="inp", default="build/검토전_본문.md")
     ap.add_argument("--out", default="build/검토전_논문.docx")
     ap.add_argument("--font", default=FONT)
+    ap.add_argument("--no-toc", dest="toc", action="store_false",
+                    help="앞머리 없는 원고에 목차 쪽을 붙이지 않는다(학교 양식 원고는 무시)")
     a = ap.parse_args()
     if DOCX_IMPORT_ERROR is not None:
         print("의존성 미설치로 보류: python-docx (%s). "
@@ -568,7 +573,7 @@ def main():
         table_reports = []
         buf = io.BytesIO()
         convert(source_text, a.font, Path(a.base),
-                table_reports=table_reports).save(buf)
+                table_reports=table_reports, toc=a.toc).save(buf)
         docx_bytes = buf.getvalue()
         parsed_plan = school_frontmatter_plan(parse(source_text))
         infeasible = [r for r in table_reports
@@ -589,7 +594,7 @@ def main():
             "input_hash": digest(src.read_bytes()),
             "font": a.font,
             "font_available": "not_run",
-            "toc_update": "not_run",
+            "toc_update": "not_run" if (a.toc or parsed_plan) else "not_applicable",
             "render": "not_run",
             "hwp": "not_run",
             "school_frontmatter": (

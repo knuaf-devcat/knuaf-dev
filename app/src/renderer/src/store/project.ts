@@ -3,7 +3,7 @@ import { usePrep } from './prep'
 import type { ArtifactItem, MaterialsData, ProjectPeek, SectionRow, Settings, SidecarInfo, Status } from '../../../shared/types'
 import type { StageBuildTree } from '../../../shared/stage'
 import type { ProjectLoad } from '../rpc'
-import { CHAT, describeError, type DescribedError } from '../copy'
+import { CHAT, HELPER, describeError, type DescribedError } from '../copy'
 import { rpc } from '../rpc'
 import { chatProvider, resolveChatMode, useChat } from './chat'
 import { chosenProvider, useConnect } from './connect'
@@ -136,7 +136,7 @@ interface ProjectState {
   refreshDeps: () => Promise<void>
   prepareDeps: (root: string) => Promise<void>
   clearError: () => void
-  helper: { open: boolean; status: any | null; result: { title: string; body?: string } | null; error: DescribedError | null }
+  helper: { open: boolean; status: any | null; result: { title: string; body?: string; kind: 'claude' | 'codex' } | null; error: DescribedError | null }
   openHelper: () => Promise<void>
   launchHelper: (kind: 'claude' | 'codex') => Promise<void>
   closeHelper: () => void
@@ -394,7 +394,7 @@ export const useProject = create<ProjectState>((set, get) => ({
     if (!root) { set((s) => ({ helper: { ...s.helper, error: describeError({ code: 'not_found', message: '먼저 폴더를 열어 주세요' }) } })); return }
     const r = await window.knuaf.agentLaunch({ root, kind, revision: status?.revision ?? peek?.revision ?? null })
     if (r.error) { set((s) => ({ helper: { ...s.helper, error: describeError(r.error) } })); return }
-    set((s) => ({ helper: { ...s.helper, result: { title: '터미널 창에서 AI 도우미가 열렸어요', body: undefined } } }))
+    set((s) => ({ helper: { ...s.helper, result: { title: HELPER.launchedTitle, body: undefined, kind } } }))
   },
   closeHelper: () => set((s) => ({ helper: { ...s.helper, open: false } })),
   pushLog: (entry) => set((s) => ({ logs: [...s.logs.slice(-499), entry] })),

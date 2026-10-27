@@ -282,6 +282,9 @@ export function useMake(): Make {
     }
     try {
       let md = PAPER_MD
+      // 표지 정보 없이 검토본만 묶는 길 — 안내(docxBodyOnly)가 "겉표지·목차 없이 본문만"이므로
+      // 목차 쪽도 붙이지 않는다(실기기 QA-03: 안내와 달리 첫 쪽이 목차였다).
+      let bodyOnly = false
       if (!hasMdInput && st.hasPaperInput) {
         patch({ failedTool: 'tools:paper' })
         md = versioned(PAPER_MD, taken)
@@ -290,10 +293,11 @@ export function useMake(): Make {
       } else if (!hasMdInput) {
         if (!reviewMd) return
         md = reviewMd
+        bodyOnly = true
       }
       patch({ failedTool: 'tools:docx' })
       const out = versioned('build/검토전_논문.docx', taken)
-      const env = await runScript('docx.build', { root, in: md, out, font: '신명조' })
+      const env = await runScript('docx.build', { root, in: md, out, font: '신명조', ...(bodyOnly ? { no_toc: true } : {}) })
       if (!env?.ok) { fail(env, 'tools:docx'); return }
       // 성공도 같은 자리에 남긴다 — 결과 한 줄 + 폴더에서 보기(검토 확인 1회째 반례 ③).
       const path = env.path ?? out

@@ -15,6 +15,9 @@
 import { expect, test } from '@playwright/test'
 import { launch, navTo, openProject, synthProject } from './helpers'
 import { ARTIFACTS } from '../src/renderer/src/copy'
+import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
+import { python } from './helpers'
 
 /** 다시 돌아오면 안 되는 문구 — 한 일을 안 했다고 말하던 옛 캡션. */
 const BLAMED_HELPER = ['도우미가 아직 본문을 준비하지 않았어요', '도우미가 재무 값을 아직 준비하지 않았어요']
@@ -65,4 +68,33 @@ test('재무 엑셀이 잠긴 이유를 도우미 탓으로 말하지 않는다 
   } finally {
     await electronApp.close()
   }
+})
+
+test('QA-03: 본문만 안내에서 만든 DOCX에는 목차 페이지가 없다', async () => {
+  test.setTimeout(300_000)
+  const root = synthProject()
+  const { electronApp, page } = await launch()
+  try {
+    await openProject(page, root)
+    await navTo(page, '결과물')
+    await page.locator('.make-row').filter({ hasText: new RegExp('^' + ARTIFACTS.make.review) }).getByRole('button').click()
+    const artifacts = page.locator('[data-screen="artifacts"]')
+    await expect(artifacts).toContainText('검토본을 만들었어요', { timeout: 60_000 })
+    const docxRow = artifacts.locator('.make-row').filter({ hasText: ARTIFACTS.make.docx })
+    await expect(docxRow).toContainText('겉표지·목차 없이')
+    const prep = await page.evaluate((root) => window.knuaf.depsEnsure(root), root)
+    expect((prep as { result?: { ok?: boolean } }).result?.ok).toBe(true)
+    await docxRow.getByRole('button').click()
+    await expect(artifacts).toContainText('DOCX를 만들었어요', { timeout: 120_000 })
+    // 렌더러 → IPC → 사이드카 → 변환기를 거친 실제 출력. Word 실행/쪽 렌더 검증과는 구분한다.
+    const check = spawnSync(python, ['-c', [
+      'import json, sys, zipfile',
+      'with zipfile.ZipFile(sys.argv[1]) as z:',
+      '    xml = z.read("word/document.xml").decode("utf-8")',
+      '    settings = z.read("word/settings.xml").decode("utf-8")',
+      'print(json.dumps({"toc": "TOC " in xml or ">목차<" in xml, "body": "600평" in xml, "update": "w:updateFields" in settings}))'
+    ].join('\n'), join(root, 'build', '검토전_논문.docx')], { encoding: 'utf-8' })
+    expect(check.status, check.stdout + check.stderr).toBe(0)
+    expect(JSON.parse(check.stdout)).toEqual({ toc: false, body: true, update: false })
+  } finally { await electronApp.close() }
 })

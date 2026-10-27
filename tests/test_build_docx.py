@@ -239,3 +239,42 @@ def test_an_empty_source_is_not_a_docx(empty_folder):
     assert payload["status"] == "blocked"
     assert "본문" in payload["reason"]
     assert not (empty_folder / "build" / "out.docx").exists()
+
+
+# --- 앞머리 없는 본문만 (실기기 QA-03) ---------------------------------------
+
+def _document_xml(path):
+    with ZipFile(path) as z:
+        return z.read("word/document.xml").decode("utf-8")
+
+
+def test_no_toc_drops_the_toc_page_for_a_body_only_draft(empty_folder):
+    """앱은 표지 정보 없이 검토본만 묶을 때 "겉표지·목차 없이 본문만"이라고 안내한다.
+    실기기 QA-03 에서 생성 DOCX 첫 쪽은 목차였다 — `--no-toc` 는 목차 필드·제목·쪽 나눔을
+    모두 빼고, 플래그가 없으면 종전처럼 목차를 둔다(대조군)."""
+    md = "\n".join(BODY) + "\n"
+    with_toc = build(empty_folder, md, out="build/with.docx")
+    assert with_toc.returncode == 0, with_toc.stdout + with_toc.stderr
+    xml = _document_xml(empty_folder / "build" / "with.docx")
+    assert "TOC \\o" in xml and ">목차<" in xml  # 대조군: 플래그 없으면 목차가 있다
+
+    r = run_script("build_docx.py", empty_folder, "--in", "src.md", "--out", "build/body.docx", "--no-toc")
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = empty_folder / "build" / "body.docx"
+    xml = _document_xml(out)
+    assert "TOC \\o" not in xml, "목차 필드가 남았다"
+    assert ">목차<" not in xml, "목차 제목이 남았다"
+    assert "w:updateFields" not in (ZipFile(out).read("word/settings.xml").decode("utf-8")), \
+        "목차가 없는데 Word 가 필드 갱신을 묻는다"
+    assert "Ⅰ. 머리말" in xml and "감사 문단이다." in xml, "본문이 빠졌다"
+    manifest = json.loads(out.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+    assert manifest["toc_update"] == "not_applicable"
+
+
+def test_no_toc_keeps_the_required_toc_of_a_school_paper(empty_folder):
+    """학교 양식 원고(앞머리 있음)는 목차가 양식의 일부다 — `--no-toc` 로도 빠지지 않는다."""
+    for order, out, marker in (("official", "build/official.docx", ">목    차<"), ("legacy", "build/legacy.docx", "TOC \\o")):
+        (empty_folder / "src.md").write_text(school_md(order), encoding="utf-8")
+        r = run_script("build_docx.py", empty_folder, "--in", "src.md", "--out", out, "--no-toc")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert marker in _document_xml(empty_folder / out), order
