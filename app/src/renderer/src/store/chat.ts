@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isPreparing, waitPrepared } from './prep'
 import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, type ConnState } from './connect'
-import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
+import type { ChatModelInfo, ChatModels, ChatSnapshot, ConnectionStatus, ModelChoice, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
 export type ChatMode = 'codex-chat' | 'claude-chat'
@@ -110,6 +110,18 @@ interface ChatState {
   stop: () => Promise<void>
   /** Push target for window.knuaf.onChatSnapshot; ignores snapshots for other roots/providers. */
   onSnapshot: (snapshot: ChatSnapshot) => void
+  /**
+   * 이 계정이 쓸 수 있는 모델(`model/list`)과 지금 고른 값. 칩 화면이 이 상태만 그리면 된다.
+   * `models: null` 은 아직 안 불러옴, `modelsSupported: false` 는 그 공급자에 통로가 없음(Claude).
+   */
+  models: ChatModelInfo[] | null
+  modelsSupported: boolean
+  modelsError: string | null
+  modelChoice: ModelChoice | null
+  /** 목록을 지금 계정에 다시 묻는다. 실패해도 저장된 선택은 유지된다. */
+  loadModels: () => Promise<void>
+  /** 고른 모델·생각 깊이를 설정에 남긴다. `null` 이면 "안 골름"(지금과 같은 기본값). */
+  chooseModel: (choice: ModelChoice | null) => Promise<boolean>
 }
 
 export const useChat = create<ChatState>((set, get) => ({
@@ -127,6 +139,10 @@ export const useChat = create<ChatState>((set, get) => ({
   error: null,
   mode: null,
   startIntent: null,
+  models: null,
+  modelsSupported: false,
+  modelsError: null,
+  modelChoice: null,
   armStart: (root) => set({ startIntent: root }),
   disarmStart: () => set({ startIntent: null }),
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
@@ -158,7 +174,7 @@ export const useChat = create<ChatState>((set, get) => ({
     set({
       root, provider, error: null,
       // 다른 대화로 옮기면 새 방문이다 — 앞 방문의 전송·준비 대기가 쥐고 있던 잠금과 진행 표시를 푼다.
-      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false }),
+      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false, models: null, modelsSupported: false, modelsError: null, modelChoice: null }),
       ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
     })
     // 이 읽기를 **시작한 시점**의 화면. 늦게 도착한 응답이 그 뒤에 앱이 스스로 바꾼 값
@@ -195,6 +211,9 @@ export const useChat = create<ChatState>((set, get) => ({
       ...(draftMoved || get().draft !== '' ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
       error: messageOf(snap) ?? messageOf(st)
     })
+    // 모델 목록은 **자동으로 부르지 않는다** — 칩 화면이 열릴 때 `loadModels()` 를 부른다.
+    // 지금까지 모델을 고른 적 없는 학생에게 `model/list` 왕복을 얹지 않고, 이 호출을 모르는
+    // 화면 대역(시험의 가짜 window.knuaf)에서도 대화 로드가 그대로 돈다.
   },
   refreshStatus: async () => {
     const { root, provider } = get()
@@ -299,5 +318,31 @@ export const useChat = create<ChatState>((set, get) => ({
   },
   onSnapshot: (snapshot) => {
     if (snapshot.root === get().root && snapshot.provider === get().provider) set({ snapshot })
+  },
+  loadModels: async () => {
+    const { root, provider, visit } = get()
+    if (!root) return
+    const r = await window.knuaf.chat.models(root, provider) as Reply<ChatModels>
+    // 그 사이 폴더·공급자를 떠났으면 이 응답은 지금 화면의 것이 아니다.
+    if (get().visit !== visit || get().provider !== provider) return
+    if ('result' in r) {
+      set({ models: r.result.models, modelsSupported: r.result.supported, modelChoice: r.result.selected, modelsError: r.result.error ?? null })
+    } else {
+      // 목록을 못 받아도 지금 고른 값은 그대로 보여 준다 — 실패가 선택을 지우는 것처럼 보이면 안 된다.
+      set({ modelsError: messageOf(r) })
+    }
+  },
+  chooseModel: async (choice) => {
+    const { root, provider } = get()
+    if (!root) return false
+    const r = await window.knuaf.chat.setModel(root, provider, choice) as Reply<ModelChoice | null>
+    if (get().provider !== provider) return false
+    if ('result' in r) {
+      // main 이 목록으로 검증해 돌려준 값(지원하지 않는 생각 깊이는 빠져 있다).
+      set({ modelChoice: r.result, modelsError: null, error: null })
+      return true
+    }
+    set({ error: messageOf(r) })
+    return false
   }
 }))

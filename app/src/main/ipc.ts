@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, stat
 import { basename, extname, join, resolve, sep } from 'node:path'
 import type { Sidecar } from './sidecar'
 import type { ProjectPeek, WindowInfo } from '../shared/types'
-import type { Provider } from '../shared/chat'
+import type { ModelChoice, Provider } from '../shared/chat'
 import { APP_ROOT, basePython, bundledPython, venvPython, wheelhouseDir } from './python'
 import { cancelRuntimeInstall, cleanupRuntime, installRuntime, runtimeStatus } from './runtime'
 import { agentApi, skillSource, type AgentCtx, type AgentKind } from './agent'
@@ -232,7 +232,10 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     isTrusted: (root) => {
       const s = loadSettings()
       return s.permission_mode === 'trust' || (s.trusted_roots ?? []).includes(trustKey(root))
-    }
+    },
+    // 고른 모델은 설정에 남는다(대화 파일 형식은 그대로). 전송할 때마다 새로 읽으므로
+    // 칩에서 바꾼 값이 다음 메시지부터 적용된다.
+    modelChoice: (provider) => loadSettings().chat_models?.[provider] ?? null
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
@@ -256,6 +259,19 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   })
   ipcMain.handle('chat:respond', (_e, root: string, provider: Provider, id: string, allow: boolean) => { try { chat.respond(root, provider, id, allow); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:stop', async (_e, root: string, provider: Provider) => { try { await chat.stop(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
+  /**
+   * 모델 칩의 뒷단. 목록은 계정에 묻고(`model/list`), 고른 값은 **설정에** 남긴다 —
+   * `.knuaf-gui/chat-*.json` 저장 형식은 이번 판에서 건드리지 않는다.
+   */
+  ipcMain.handle('chat:models', async (_e, root: string, provider: Provider) => { try { return { result: await chat.models(root, provider) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:set-model', async (_e, root: string, provider: Provider, choice: ModelChoice | null) => {
+    try {
+      const picked = await chat.setModel(root, provider, choice)
+      const all = { ...(loadSettings().chat_models ?? {}), [provider]: picked }
+      saveSettings({ chat_models: all })
+      return { result: picked }
+    } catch (e) { return chatFail(e) }
+  })
 
   // 폴더 없이 쓰는 연결 — 첫 실행 화면(온보딩)이 폴더를 고르기 전에 쓴다. root 인자가 없다.
   // 대화·스킬 계약은 그대로다: 이 연결로는 아무것도 보낼 수 없다(service.ts 전역 연결 주석).

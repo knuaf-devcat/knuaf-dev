@@ -6,7 +6,8 @@ import { readRecoverable, tmpOf, writeFileAtomic, type SafeWriteFs } from '../sa
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
-import type { ChatSnapshot, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
+import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
+import { effectiveModelChoice } from '../../shared/chat'
 
 /** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
 function parseChat(text: string, provider: Provider): ChatSnapshot {
@@ -45,6 +46,11 @@ export class ChatService {
     bundledPython?: () => string | null
     /** 학생이 "이 폴더에서는 계속 허용"을 고른 폴더인가. */
     isTrusted?: (root: string) => boolean
+    /**
+     * 지금 설정에 남은 모델 선택(공급자별). 대화 파일이 아니라 설정 쪽이 정본이다 —
+     * 이번 판은 대화 저장 형식을 그대로 둔다.
+     */
+    modelChoice?: (provider: Provider) => ModelChoice | null
     /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
     fs?: SafeWriteFs
   }) {}
@@ -164,7 +170,12 @@ export class ChatService {
     const key = this.key(root, provider)
     let c = this.connections.get(key)
     if (!c) {
-      const options: AgentOptions = { binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)), openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false }
+      const options: AgentOptions = {
+        binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
+        openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false,
+        // 연결은 폴더·공급자마다 한 번만 만들어진다 — 선택은 전송할 때마다 다시 읽는다.
+        modelChoice: () => this.effectiveChoice(root, provider)
+      }
       if (this.opts.connectionFactory) {
         c = this.opts.connectionFactory(provider, options)
       } else {
@@ -182,6 +193,53 @@ export class ChatService {
     return this.connection(root, provider).status()
   }
   async login(root: string, provider: Provider) { await this.connection(root, provider).login() }
+
+  // ---------------------------------------------------------------- 모델 고르기 (ChatGPT 쪽)
+  /**
+   * 마지막으로 성공한 모델 목록. 전송할 때 고른 모델이 아직 이 계정에 있는지 판정하는 데 쓴다 —
+   * 요금제가 바뀌어 목록에서 사라진 모델을 계속 보내면 **모든 전송이 실패**한다.
+   * 아직 목록을 못 받았으면(`null`) 선택을 그대로 보낸다(학생이 방금 고른 값을 이유 없이 무시하지 않는다).
+   */
+  private modelLists = new Map<string, ChatModelInfo[]>()
+  /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
+  private effectiveChoice(root: string, provider: Provider): ModelChoice | null {
+    const stored = this.opts.modelChoice?.(provider) ?? null
+    return effectiveModelChoice(stored, this.modelLists.get(this.key(root, provider)) ?? null)
+  }
+  /**
+   * 이 계정이 쓸 수 있는 모델 목록. 통로가 없는 공급자(이번 판의 Claude)는 `supported:false` 로
+   * 답한다 — 화면은 추천도 칩도 띄우지 않고 지금처럼 기본값으로 둔다.
+   */
+  async models(root: string, provider: Provider): Promise<ChatModels> {
+    const connection = this.connection(root, provider)
+    if (!connection.models) return { provider, supported: false, models: [], selected: null }
+    try {
+      const models = await connection.models()
+      this.modelLists.set(this.key(root, provider), models)
+      return { provider, supported: true, models, selected: this.effectiveChoice(root, provider) }
+    } catch (e) {
+      // 목록을 못 받았다고 저장된 선택을 지우지 않는다 — 화면이 "안 골름"으로 보이면 고른 것이 사라진 줄 안다.
+      return {
+        provider, supported: true, models: [],
+        selected: this.opts.modelChoice?.(provider) ?? null,
+        error: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.'
+      }
+    }
+  }
+  /**
+   * 고른 모델·생각 깊이를 이 계정 목록으로 검증해 돌려준다. 저장은 호출자(ipc)가 설정에 한다.
+   * `null` 은 "안 골름" — 지금과 같은 기본값으로 되돌린다.
+   */
+  async setModel(root: string, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
+    if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) return null
+    const list = await this.models(root, provider)
+    if (!list.supported) throw new Error('이 도우미는 아직 모델 고르기를 지원하지 않아요.')
+    if (list.error) throw new Error(list.error)
+    const picked = effectiveModelChoice(choice, list.models)
+    if (!picked) throw new Error('이 계정에서 쓸 수 없는 모델이에요. 목록을 다시 불러와 주세요.')
+    if (choice.effort && !picked.effort) throw new Error('이 모델은 그 생각 깊이를 지원하지 않아요.')
+    return picked
+  }
 
   // ---------------------------------------------------------------- 전역 연결 (폴더 없이)
   //

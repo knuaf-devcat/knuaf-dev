@@ -13,8 +13,10 @@
  *   FAKE_CODEX_ASK_COMMAND  권한 요청의 command (기본 `cat /etc/hosts`, 빈 값이면 필드 생략)
  *   FAKE_CODEX_ASK_REASON   권한 요청의 reason (기본 쉬운 이유 한 줄, 빈 값이면 필드 생략)
  *   FAKE_CODEX_DELAY_MS     모든 요청 응답을 이만큼 늦춘다(기본 0) — 느린 기계 조건 재현용
+ *   FAKE_CODEX_MODELS       `model/list` 가 돌려줄 모델 배열(JSON). 없으면 Sol·Terra·Astra·Luna 기본값
+ *   FAKE_CODEX_TURN_LOG     `turn/start` 로 온 model·effort 를 한 줄씩 덧붙일 파일 — 시험이 읽는다
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 const MODE = process.env.FAKE_CODEX_MODE ?? 'logged-in'
 if (MODE === 'dead') process.exit(1)
@@ -30,6 +32,26 @@ const DELAY_MS = Math.max(0, Number(process.env.FAKE_CODEX_DELAY_MS ?? 0) || 0)
 /** 턴을 끝내지 않는다 — "작업 중" 화면을 안정적으로 본다. `after-delta` 면 답 첫 조각(전달 확인)을 보낸 뒤 붙잡는다. */
 const HOLD = process.env.FAKE_CODEX_HOLD === '1'
 const HOLD_AFTER_DELTA = process.env.FAKE_CODEX_HOLD === 'after-delta'
+/** `model/list` 응답 — 시험이 요금제별 목록을 흉내 낼 수 있게 환경변수로 바꾼다. */
+const TURN_LOG = process.env.FAKE_CODEX_TURN_LOG ?? ''
+const MODELS = (() => {
+  const raw = process.env.FAKE_CODEX_MODELS
+  if (raw) { try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] } }
+  const one = (id, name, efforts, isDefault = false) => ({
+    id, model: id, displayName: name, description: '',
+    hidden: false, supportsPersonality: false, upgrade: null, upgradeInfo: null, availabilityNux: null,
+    modelSpecialty: null, inputModalities: [], multiAgentVersion: null, additionalSpeedTiers: [], serviceTiers: [],
+    defaultServiceTier: null, availableAccessPrograms: null, isDefault,
+    supportedReasoningEfforts: efforts.map((e) => ({ reasoningEffort: e, description: '' })),
+    defaultReasoningEffort: efforts[0]
+  })
+  return [
+    one('gpt-sol', 'Sol', ['medium', 'high'], true),
+    one('gpt-terra', 'Terra', ['low', 'medium', 'high']),
+    one('gpt-luna', 'Luna', ['low', 'medium']),
+    one('gpt-astra', 'Astra', ['medium', 'high'])
+  ]
+})()
 
 const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const loggedIn = () => MODE === 'logged-in' || (MODE === 'logged-out' && !!STATE && existsSync(STATE))
@@ -64,7 +86,17 @@ function handle(message) {
     case 'thread/resume':
       threadId = params.threadId ?? 't-fake'
       return out({ id, result: { thread: { id: threadId, turns: [] } } })
+    case 'model/list':
+      // 쪽 나눔은 흉내 내지 않는다(앱은 nextCursor 가 없으면 멈춘다).
+      return out({ id, result: { data: MODELS, nextCursor: null } })
     case 'turn/start': {
+      // 앱이 실제로 보낸 값만 남긴다 — "안 골랐을 때는 키가 없다"를 시험이 구분할 수 있게.
+      if (TURN_LOG) {
+        const rec = {}
+        if ('model' in params) rec.model = params.model
+        if ('effort' in params) rec.effort = params.effort
+        appendFileSync(TURN_LOG, `${JSON.stringify(rec)}\n`)
+      }
       const turnId = 'u-fake'
       out({ id, result: { turn: { id: turnId } } })
       out({ method: 'turn/started', params: { threadId, turn: { id: turnId } } })

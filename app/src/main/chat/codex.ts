@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { JsonRpcProcess } from './transport'
 import { codexSkillConfigOverride } from '../agent'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
+import type { ChatModelInfo } from '../../shared/chat'
 
 /** 존재하면 realpath, 아니면 입력 그대로. 경로 비교는 반드시 이것을 거친다. */
 export function realOrSelf(p: string): string {
@@ -50,6 +51,17 @@ export class CodexConnection implements AgentConnection {
   private async connect(): Promise<JsonRpcProcess> {
     if (this.stopped) throw new Error('Codex 연결이 중단됐어요.')
     if (this.rpc && !this.rpc.closed) return this.rpc
+    /**
+     * 동시에 부른 쪽이 각자 프로세스를 띄우면 한쪽이 새어 나간다 — 화면이 상태를 확인하는
+     * 동안 모델 목록(`model/list`)을 묻는 일이 생겼다. 진행 중인 한 번을 함께 기다린다.
+     */
+    const inflight = this.connecting ?? (this.connecting = this.open().finally(() => { this.connecting = undefined }))
+    return inflight
+  }
+  private connecting?: Promise<JsonRpcProcess>
+  private async open(): Promise<JsonRpcProcess> {
+    if (this.stopped) throw new Error('Codex 연결이 중단됐어요.')
+    if (this.rpc && !this.rpc.closed) return this.rpc
     // 인자는 Codex CLI 쪽 사정이라 고정할 수 없다. 최신 CLI 의 `app-server` 에는
     // --listen 이 없어서(0.155 에서 확인) 그 인자로 띄우면 아무 말 없이 즉시 끝난다.
     // 구버전에는 필요했으므로 평문을 먼저 쓰고 실패하면 옛 인자로 한 번 더 시도한다.
@@ -92,7 +104,7 @@ export class CodexConnection implements AgentConnection {
       if (!this.serverArgs.includes('--listen')) {
         // 평문이 안 되면 옛 인자로 한 번 더. 다음 connect() 부터는 그 인자를 쓴다.
         this.serverArgs = [...this.serverArgs, '--listen', 'stdio://']
-        return this.connect()
+        return this.open()
       }
       // 원인을 지어내지 않는다. 전에는 버전이 낮다고 단정했는데, 실제로는 CLI 가 새로워
       // 인자가 바뀐 경우였고 사용자를 엉뚱한 업데이트로 보냈다.
@@ -111,6 +123,49 @@ export class CodexConnection implements AgentConnection {
     const connected = r.account?.type === 'chatgpt'
     // 정상(연결됨)일 때는 조용해야 한다 — detail은 미연결 설명에만 쓴다.
     return { installed: true, connected, version: this.serverVersion, probe: 'ok' as const, detail: connected ? '' : 'ChatGPT 로그인이 필요해요. API 계정으로 자동 전환하지 않아요.' }
+  }
+  /**
+   * 이 계정이 쓸 수 있는 모델(`model/list`). 요금제마다 목록이 다르므로 앱에 박아 두지 않고
+   * 계정에 묻는다 — 목록에 없는 모델은 추천에서도 칩에서도 빠진다.
+   *
+   * `hidden` 은 기본 고르기 목록에서 숨긴 모델이라 뺀다. `model`(턴에 넣는 값)이 비어 있는
+   * 응답은 건너뛴다. 쪽이 남아 있으면 이어 받는다(서버가 한 번에 다 안 줄 수 있다).
+   * 실계정 목록은 미확인이다 — 이번 판 시험은 가짜 서버로만 돈다.
+   */
+  async models(): Promise<ChatModelInfo[]> {
+    const rpc = await this.connect()
+    const out: ChatModelInfo[] = []
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    // 서버가 끝나지 않는 쪽을 계속 주는 경우에도 화면이 멈추지 않게 상한을 둔다.
+    for (let page = 0; page < 20; page++) {
+      const r = await rpc.request('model/list', cursor ? { limit: 100, cursor } : { limit: 100 })
+      const data: unknown[] = Array.isArray(r?.data) ? r.data : []
+      for (const raw of data) {
+        if (!raw || typeof raw !== 'object') continue
+        const m = raw as Record<string, unknown>
+        if (m.hidden === true) continue
+        const model = typeof m.model === 'string' && m.model ? m.model : typeof m.id === 'string' ? m.id : ''
+        if (!model || seen.has(model)) continue
+        seen.add(model)
+        const efforts = Array.isArray(m.supportedReasoningEfforts)
+          ? m.supportedReasoningEfforts
+            .map((e) => (e && typeof e === 'object' && 'reasoningEffort' in e ? e.reasoningEffort : undefined))
+            .filter((e): e is string => typeof e === 'string' && e !== '')
+          : []
+        out.push({
+          model,
+          name: typeof m.displayName === 'string' && m.displayName ? m.displayName : model,
+          description: typeof m.description === 'string' ? m.description : '',
+          efforts,
+          defaultEffort: typeof m.defaultReasoningEffort === 'string' ? m.defaultReasoningEffort : null,
+          isDefault: m.isDefault === true
+        })
+      }
+      cursor = typeof r?.nextCursor === 'string' && r.nextCursor ? r.nextCursor : null
+      if (!cursor) break
+    }
+    return out
   }
   async login() {
     const r = await (await this.connect()).request('account/login/start', { type: 'chatgpt' })
@@ -166,9 +221,21 @@ export class CodexConnection implements AgentConnection {
     this.messages.clear()
     // 첫 턴에는 작업 루트를 명시한다 — 모델이 하위 폴더(knuaf-work 등)를 추측하지 않게.
     const prompt = sessionId ? text : `${text}\n\n작업 폴더: ${this.options.root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.`
+    /**
+     * 학생이 고른 모델·생각 깊이. `turn/start` 의 model/effort 는 **이 턴과 그 뒤 턴에**
+     * 적용되므로(turnStartParams: "this turn and subsequent turns") 같은 대화의 맥락이
+     * 끊기지 않는다. 고르지 않았으면 키를 아예 넣지 않는다 — 지금까지와 똑같이 CLI·계정
+     * 기본값으로 돈다(학생이 아무것도 안 고른 경우의 동작 불변).
+     */
+    const choice = this.options.modelChoice?.() ?? null
     await new Promise<void>((resolve, reject) => {
       this.waiter = { resolve, reject }
-      rpc.request('turn/start', { threadId: this.thread, input: [{ type: 'text', text: prompt, text_elements: [] }, { type: 'skill', name: 'knuaf-dev', path: skillPath }] }).then(r => { this.turn = r.turn.id }).catch(e => { this.waiter = undefined; reject(e) })
+      rpc.request('turn/start', {
+        threadId: this.thread,
+        input: [{ type: 'text', text: prompt, text_elements: [] }, { type: 'skill', name: 'knuaf-dev', path: skillPath }],
+        ...(choice?.model ? { model: choice.model } : {}),
+        ...(choice?.effort ? { effort: choice.effort } : {})
+      }).then(r => { this.turn = r.turn.id }).catch(e => { this.waiter = undefined; reject(e) })
     })
   }
   respond(id: string, allow: boolean) {
