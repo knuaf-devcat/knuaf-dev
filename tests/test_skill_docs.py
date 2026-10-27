@@ -58,3 +58,24 @@ def test_no_host_specific_model_names():
         text = doc.read_text(encoding="utf-8")
         hits += ["%s: %s" % (doc.name, b) for b in banned if b in text]
     assert not hits, hits
+
+
+# The makers' names are an app-opening-screen marking, not skill text. The helper writes
+# its first reply from this skill, so a name left here is a name it reads out — it did.
+MAKER_MARK = ("김대욱", "이준재", "특용작물전공 24학번", "산업곤충전공 24학번")
+
+
+def test_skill_text_carries_no_maker_names():
+    hits = []
+    for doc in skill_docs():
+        text = doc.read_text(encoding="utf-8")
+        hits += ["%s: %s" % (doc.name, m) for m in MAKER_MARK if m in text]
+    assert not hits, hits
+
+
+def test_first_entry_still_names_the_tool_and_the_save_location():
+    """Dropping the names must not drop the rest of the first-entry notice — for a
+    terminal-only user this sentence is the only place the tool identifies itself."""
+    head = SKILL.read_text(encoding="utf-8").split("## 시작·재개")[0]
+    assert "KNUAF-Dev · 창업논문 작성 도우미" in head
+    assert "저장 위치" in head
