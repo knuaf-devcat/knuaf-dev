@@ -7,9 +7,7 @@ import { Materials } from './screens/Materials'
 import { Artifacts } from './screens/Artifacts'
 import { Checkup } from './screens/Checkup'
 import { SettingsScreen } from './screens/Settings'
-import { Onboarding } from './screens/Onboarding'
 import { Shell } from './components/Shell'
-import { Intro } from './components/Intro'
 import { TitleBar } from './components/TitleBar'
 import { Workspace } from './components/Workspace'
 import { PaperPane } from './components/PaperPane'
@@ -18,6 +16,7 @@ import { SheetOver } from './components/SheetOver'
 import { showsPaper, useLayout } from './components/useLayout'
 import { ARTIFACTS, CHECKUP, MATERIALS, SETTINGS } from './copy'
 import { useShallow } from 'zustand/react/shallow'
+import type { Provider } from '../../shared/chat'
 
 /** 메뉴 막대(`main/menu.ts`)가 보낼 수 있는 화면 이름 — 'chat' 은 "시트를 닫아라"는 뜻이다. */
 const SHEETS: Screen[] = ['materials', 'artifacts', 'checkup', 'settings']
@@ -37,17 +36,26 @@ export function App() {
   })))
   const layout = useLayout()
   const [dragging, setDragging] = React.useState(false)
-  /**
-   * 여는 화면. 켤 때마다 뜨고, 누르거나 아무 키나 누르면 건너뛴다(`show_intro: false` 로 끈다).
-   * 한 번 띄운 뒤로는 `shown` 이 막는다 — 설정이 나중에 바뀌어도 다시 뜨면 안 된다.
-   */
-  const [intro, setIntro] = React.useState(false)
-  const shown = React.useRef(false)
   useEffect(() => {
-    if (!settings || shown.current || settings.show_intro === false) return
-    shown.current = true
-    setIntro(true)
-  }, [settings])
+    const targets = new Set<Provider>()
+    let saving = false
+    return useConnect.subscribe((state, before) => {
+      for (const p of ['codex', 'claude'] as const) {
+        if (state.loggingIn[p]) targets.add(p)
+        if (state[p].state === 'connected' && before[p].state !== 'connected') {
+          const chat = useChat.getState()
+          if (chat.root && chat.provider === p) void chat.refreshStatus()
+          if (targets.has(p) && !saving && (!state.selected || state[state.selected].state !== 'connected')) {
+            saving = true
+            void window.knuaf.setSettings({ helper_mode: p === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider: p, at: new Date().toISOString() } })
+              .then(() => { useConnect.getState().select(p); return useProject.getState().loadSettings() })
+              .finally(() => { saving = false })
+          }
+          targets.delete(p)
+        } else if (!state.loggingIn[p] && before.loggingIn[p]) targets.delete(p)
+      }
+    })
+  }, [])
   useEffect(() => {
     void loadSettings()
     const h = location.hash.replace('#', '') as Screen
@@ -77,7 +85,6 @@ export function App() {
     const p = window.knuaf.pathForFile(f)
     if (await window.knuaf.isDir(p)) await open(p)
   }
-  const onboarding = !!settings && !root && !settings.onboarded_at
   // 학생이 고른 공급자는 설정에 남는다 — 세션 상태(store/connect)를 그 값과 맞춰 둔다.
   const choice = settings?.provider_choice?.provider ?? null
   useEffect(() => { useConnect.getState().select(choice) }, [choice])
@@ -89,7 +96,7 @@ export function App() {
   const looked = React.useRef(false)
   useEffect(() => {
     if (!settings || looked.current) return
-    if (!root && !settings.onboarded_at) return
+    // 연결 확인은 폴더와 무관하게 앱 시작 시 한 번 한다.
     looked.current = true
     void useConnect.getState().refreshAll()
   }, [settings, root])
@@ -101,8 +108,7 @@ export function App() {
 
   return (
     <div style={{ height: '100%' }} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop} data-dragging={dragging || undefined}>
-      {intro && <Intro onDone={() => setIntro(false)} />}
-      {!settings ? null : onboarding ? <Onboarding /> : (
+      {!settings ? null : (
         <Shell
           titleBar={<TitleBar />}
           sheets={<>

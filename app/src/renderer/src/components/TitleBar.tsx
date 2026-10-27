@@ -1,19 +1,16 @@
 import { useState } from 'react'
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
-import { AccountChooser, useAccountProvider } from './AccountChooser'
 import { StageMenu } from './StageMenu'
 import { useProject } from '../store/project'
-import { FOLDER, PROVIDER_NAME, TITLEBAR, relativeTime } from '../copy'
+import { FOLDER, TITLEBAR, relativeTime } from '../copy'
 import { showsToggle, useLayout } from './useLayout'
 import { useShallow } from 'zustand/react/shallow'
 
 /**
  * 제목줄 (DESIGN §1-3, 시안 ③④⑯).
  *
- * 왼쪽 서랍이 사라지면서 그 안에 있던 것들이 여기로 올라왔다: 논문 이름(논문 ▾),
- * AI 계정, 설정(⚙). 논문 차례·자료·만든 파일은 종이 머리로 갔다(PaperPane).
- * 가운데는 "지금" 하나 — 늘 보이는 진행 표시는 이 한 줄뿐이다(DESIGN §2).
+ * 논문 이름과 진행 단계, 설정을 보여 준다. AI 연결과 전환은 대화 입력칸의 모델 칩에서 한다.
  *
  * 좁은 창(⑯)과 "종이를 닫아 둔 넓은 창"은 같은 바꾸기를 쓴다: 한 칸 + [대화 | 내 논문].
  *
@@ -28,12 +25,10 @@ export function TitleBar() {
     paneView: s.paneView, setPaneView: s.setPaneView, openSheet: s.openSheet
   })))
   const layout = useLayout()
-  const { provider, stateOf } = useAccountProvider()
-  const [menu, setMenu] = useState<'paper' | 'account' | null>(null)
+  const [menu, setMenu] = useState<'paper' | null>(null)
 
   const base = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
   const recent = (settings?.recent ?? []).filter((r) => r.root !== root).slice(0, 6)
-  const state = stateOf(provider)
   /** 넓은데 닫아 둔 종이를 다시 여는 것도 학생의 선택이다 — 설정에 남긴다. */
   const showPaper = (): void => { setPaneView('paper'); if (paperClosed) setPaperClosed(false) }
 
@@ -81,19 +76,6 @@ export function TitleBar() {
       {/* 첫 대화는 한 칸 — 옆 칸이 왜 비어 있는지 한 줄로 말한다(시안 ③). */}
       {layout.kind === 'solo' && <span className="tbtn quiet">{TITLEBAR.paperLater}</span>}
 
-      <div className="pop-host">
-        <button className="tbtn acct" title={TITLEBAR.accountTitle} aria-expanded={menu === 'account'}
-          onClick={() => setMenu(menu === 'account' ? null : 'account')}>
-          <span className={`dot${state === 'connected' ? '' : ' off'}`} />
-          {state === 'connected' ? TITLEBAR.accountConnected(PROVIDER_NAME[provider]) : TITLEBAR.accountNone}
-        </button>
-        <Popover open={menu === 'account'} onClose={() => setMenu(null)} align="right" label={TITLEBAR.accountTitle} width={400}>
-          {/* 첫 실행 1단계와 **같은 부품**이다 — 상태 문구도 행동 단추도 같다(설계자 답 Q2).
-              입력칸의 모델 칩도 같은 것을 연다(발주 I-02) — 목록은 AccountChooser 한 곳에 있다.
-              "설정" 줄은 두지 않는다 — 바로 옆에 ⚙ 단추가 있어 같은 일을 두 번 두게 된다. */}
-          <AccountChooser onPicked={() => setMenu(null)} />
-        </Popover>
-      </div>
 
       <button className="tbtn icon" title={TITLEBAR.settingsTitle} onClick={() => openSheet('settings')}><Icon name="gear" size={17} /></button>
     </header>

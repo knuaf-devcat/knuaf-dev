@@ -255,55 +255,6 @@ test('파일 팝오버는 16개에서도 목록만 스크롤하고 아래 이동
   }
 })
 
-test('첫 실행 두 단계 모두 폭 540 한 열 + 한 테두리 선택 묶음 (N-R01)', async () => {
-  const dir = scratch()
-  const bin = join(dir, 'bin')
-  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
-  // ① 연결 단계(고른 적 없음, 둘 다 연결됨). 둘 다 연결돼야 ② 의 폴더 단계 자동 건너뛰기가 선다(W2 D2).
-  writeFakeClaude(bin)
-  const { electronApp, page } = await launch({ userData: mkdtempSync(join(tmpdir(), 'kd-ud-')), onboarded: false, env, waitFor: 'text=먼저, 쓰고 있는 AI를 연결해요' })
-  try {
-    const inner = await box(page, '.onb-inner')
-    expect(inner!.width).toBe(540)
-    const choices = page.locator('.choices')
-    await expect(choices).toHaveCount(1)
-    await expect(choices.locator(':scope > .item')).toHaveCount(2)
-    await expect(choices).toHaveCSS('border-top-style', 'solid')
-    await expect(page.locator('.choices > .item + .item')).toHaveCount(1)
-  } finally {
-    await electronApp.close()
-  }
-  // ② 폴더 단계(연결됨 + 고른 선택) — 같은 540 열·같은 묶음.
-  const second = await launch({ userData: recentUserData([synthProject()]), env, waitFor: 'text=논문을 담을 폴더를 골라요' })
-  try {
-    expect((await box(second.page, '.onb-inner'))!.width).toBe(540)
-    await expect(second.page.locator('.choices > .item')).toHaveCount(2)
-    await expect(second.page.locator('.choices > .item + .item')).toHaveCount(1)
-  } finally {
-    await second.electronApp.close()
-  }
-})
-
-test('최근 논문은 한 줄 목록 — 이름 + 시점, 기록 번호 칩 없음 (N-R02)', async () => {
-  const dir = scratch()
-  const bin = join(dir, 'bin')
-  const env = fakeCodexEnv(bin, { FAKE_CODEX_MODE: 'logged-in' })
-  writeFakeClaude(bin)   // 저장된 선택(codex)+둘 다 연결 → 폴더 단계로 건너뛴다(W2 D2)
-  const roots = [synthProject(), synthProject(), synthProject()]
-  const { electronApp, page } = await launch({ userData: recentUserData(roots), env, waitFor: 'text=논문을 담을 폴더를 골라요' })
-  try {
-    const list = page.locator('.projects')
-    await expect(list.locator('.project')).toHaveCount(3)
-    expect(await list.evaluate((el) => getComputedStyle(el).flexDirection)).toBe('column')
-    // 기록 번호 칩이 없다 — 카드가 아니라 한 줄이다.
-    await expect(page.locator('.project .badge')).toHaveCount(0)
-    const one = page.locator('.project').first()
-    await expect(one.locator('.m').first()).toBeVisible()
-    await expect(one.getByRole('button', { name: '목록에서 제거' })).toBeVisible()
-  } finally {
-    await electronApp.close()
-  }
-})
 
 test('입력칸 칩은 지금 AI + 생각 깊이(표시만)를 열고 깊이는 비활성 (I-02 ①)', async () => {
   const dir = scratch()
@@ -335,49 +286,3 @@ test('입력칸 칩은 지금 AI + 생각 깊이(표시만)를 열고 깊이는 
   }
 })
 
-test('설치 안내 상자는 점선 카드가 아니라 아이스 그레이 상자 (책임자 추가)', async () => {
-  // 도구가 없는 세계 — 대화 아래 칸에 설치 안내가 뜬다.
-  const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
-  const root = synthProject()
-  const { electronApp, page } = await launch({ env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '', HOME: home } })
-  try {
-    await openProject(page, root)
-    const note = page.locator('.chat-zone .zone-note')
-    await expect(note).toBeVisible({ timeout: 30_000 })
-    await expect(note).toContainText('도우미 프로그램이 아직 설치되지 않았어요')
-    // 스타일은 **재시도 단언**으로 읽는다 — 노드가 그 사이 새로 그려지면(아래 연결 상태가 한 번 더
-    // 읽히면) 한 번 잡은 요소는 문서에서 떨어져 `getComputedStyle` 이 빈 값을 준다(맥 CI 실패 2).
-    await expect(note, '점선 카드가 남아 있다').toHaveCSS('border-top-style', 'solid')
-    // 배경은 아이스 그레이(`--alert-bg`)와 같은 값이어야 한다 — 토큰을 프로브로 재서 견준다.
-    const alertBg = await page.evaluate(() => {
-      const probe = document.createElement('div')
-      probe.style.background = 'var(--alert-bg)'
-      document.body.appendChild(probe)
-      const v = getComputedStyle(probe).backgroundColor
-      probe.remove()
-      return v
-    })
-    await expect(note).toHaveCSS('background-color', alertBg)
-    // 버튼 동작은 그대로.
-    await expect(note.getByRole('button', { name: '설치 안내' })).toBeVisible()
-  } finally {
-    await electronApp.close()
-  }
-})
-
-// 첫 실행 폴더 단계에서 최근 카드가 실제로 열리는지(선택자 `.project` 보존) — 기존 시험이 이미
-// 덮는다(settings/onboarding). 여기서는 상태만 확인한다.
-test('연결이 끊긴 재실행은 1단계(AI 연결)부터 (N-R03 확인)', async () => {
-  const root = synthProject()
-  const userData = recentUserData([root])
-  const home = mkdtempSync(join(tmpdir(), 'kd-home-'))
-  const { electronApp, page } = await launch({ userData, env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '', HOME: home } })
-  try {
-    // 저장된 선택(codex)이 이 환경에서 확인되지 않으므로 폴더 단계로 넘어가지 못한다.
-    await expect(page.locator('text=연결 도구(Codex)를 먼저 설치해요')).toBeVisible({ timeout: 30_000 })
-    await expect(page.locator('text=논문을 담을 폴더를 골라요')).toHaveCount(0)
-    expect(existsSync(join(userData, 'settings.json'))).toBe(true)
-  } finally {
-    await electronApp.close()
-  }
-})

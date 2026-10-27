@@ -46,6 +46,27 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 
 /* ---- 작업 공간 ---- */
 .stage { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.project-sidebar { flex: 0 0 230px; display: flex; flex-direction: column; gap: 4px; padding: 18px 12px; overflow: auto; background: var(--bg-2); border-right: var(--hairline) solid var(--line); }
+.project-sidebar-label { padding: 20px 10px 6px; color: var(--muted); font-size: 12px; }
+.project-nav { text-align: left; border: 0; background: transparent; border-radius: 8px; padding: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-nav:hover, .project-nav.selected { background: var(--hover); }
+.project-nav.selected { font-weight: 700; }
+.project-entry { display: flex; align-items: center; min-width: 0; }
+.project-entry .project-nav { flex: 1; min-width: 0; }
+.project-remove { border: 0; background: transparent; color: var(--muted); padding: 6px; }
+.project-drawer-toggle, .project-drawer-backdrop { display: none; }
+.new-chat { flex: 1; width: min(760px, 100%); margin: 0 auto; padding: 12vh 24px 24px; }
+.new-chat h1 { font-family: var(--serif); text-align: center; }
+.new-chat > p { text-align: center; color: var(--muted); }
+.new-chat .chat-composer { margin-top: 24px; }
+/* WIDE_MIN(1140) + 프로젝트 목록(230) 미만에서는 목록부터 접는다. */
+@media (max-width: 1369px) {
+  .project-sidebar { display: none; position: absolute; z-index: 12; top: var(--titlebar-h); bottom: 0; left: 0; width: 230px; }
+  .project-sidebar.open { display: flex; }
+  .app .titlebar, [data-platform="win32"] .titlebar, [data-platform="linux"] .titlebar { padding-left: calc(var(--titlebar-inset) + 48px); }
+  .project-drawer-toggle { display: block; position: absolute; z-index: 7; top: 8px; left: var(--titlebar-inset); }
+  .project-drawer-backdrop { display: block; position: fixed; inset: var(--titlebar-h) 0 0; z-index: 11; border: 0; background: rgb(0 0 0 / 25%); }
+}
 /* auto 행은 오른쪽 종이의 내용 높이까지 자라 왼쪽 입력칸을 창 밖으로 밀었다(QA-05).
    한 행을 작업 공간 높이로 제한하고, 각 칸의 본문 스크롤에 넘친 내용을 맡긴다. */
 .workspace { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }

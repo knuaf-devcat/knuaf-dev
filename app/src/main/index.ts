@@ -70,7 +70,7 @@ function createWindow(): void {
   const reduceTransparency = isMac && systemPreferences.accessibilityDisplayShouldReduceTransparency
   const colors = chromeColors()
   const iconPng = join(APP_ROOT, 'build', 'icon.png')
-  // 기본 창 크기(시안 안쪽 1280×800) — 화면 작업 영역보다 크면 그 안에 맞춰 줄인다(발주 QA).
+  // 기본 창은 세 칸을 담되 화면 작업 영역보다 크면 그 안에 맞춰 줄인다.
   const { width, height } = defaultWindowSize(screen.getPrimaryDisplay().workAreaSize)
   win = new BrowserWindow({
     width,

@@ -940,7 +940,7 @@ export const CHAT = {
    * 빈 대화(자동 시작이 안 된 경우) — AI 는 첫 실행·계정 팝오버에서 고른다. 여기서 다시 고르게
    * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
    */
-  emptyChangeAi: '다른 AI로 바꾸려면 오른쪽 위 계정에서 바꿀 수 있어요',
+  emptyChangeAi: '다른 AI로 바꾸려면 입력칸의 모델 칩을 열어 주세요',
   // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',

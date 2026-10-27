@@ -29,15 +29,15 @@ test('reopen a project from the recent-folder card (second visit)', async () => 
   await first.electronApp.close()
 
   const second = await launch({ userData, env })
-  // 재실행 첫 화면은 시안 ② 논문 폴더 화면(온보딩 2단계와 같은 부품)이다.
-  await expect(second.page.locator('text=논문을 담을 폴더를 골라요')).toBeVisible()
-  await second.page.locator('.project').first().click()
+  await expect(second.page.getByText('어떤 논문을 쓰고 있어요?')).toBeVisible()
+  await second.page.locator('.project-sidebar button[title]').first().click()
   await second.page.waitForSelector('.chat-pane', { timeout: 30_000 })
   // 논문 이름은 이제 제목줄 왼쪽(논문 ▾)에 있다 — 폴더 이름만 보이고 경로는 노출되지 않는다.
   const paper = second.page.locator('.titlebar .tbtn.title')
   await expect(paper).toContainText(basename(root))
   await expect(paper).not.toContainText(dirname(root))
   // 차례는 종이 머리의 장 이름 ▾ 가 연다(사이드바 차례는 설계대로 사라졌다).
+  if (!(await second.page.locator('.paper-head').isVisible())) await second.page.getByRole('tab', { name: '내 논문' }).click()
   await second.page.locator('.paper-head .chap').click()
   await expect(second.page.locator('.paper-head .popover')).toContainText('차례')
   await second.electronApp.close()
@@ -143,12 +143,10 @@ test('an existing folder can be removed from the recent list', async () => {
   await first.electronApp.close()
 
   const second = await launch({ userData, env })
-  const card = second.page.locator('.project', { hasText: basename(root) })
+  const card = second.page.locator('.project-entry', { hasText: basename(root) })
   await expect(card).toBeVisible()
-  const rm = card.locator('button', { hasText: '목록에서 제거' })
-  await expect(rm).toBeVisible()
-  await rm.click()
-  await expect(second.page.locator('.project')).toHaveCount(0)
+  await card.getByRole('button', { name: /목록에서 제거/ }).click()
+  await expect(second.page.locator('.project-entry')).toHaveCount(0)
   await second.electronApp.close()
   // 설정에도 반영된다 — 폴더 자체는 지우지 않았다.
   expect(JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf-8')).recent).toEqual([])

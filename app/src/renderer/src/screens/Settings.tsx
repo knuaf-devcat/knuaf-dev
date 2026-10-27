@@ -9,7 +9,7 @@ import { Feedback } from '../components/Feedback'
 import { RuntimeSetup } from '../components/RuntimeFix'
 import { OutputsTools } from './Outputs'
 import { TroubleshootSections } from './Troubleshoot'
-import { HELPER, PRIVACY_NOTE, SETTINGS, describeError, type DescribedError } from '../copy'
+import { CREDIT, HELPER, PRIVACY_NOTE, SETTINGS, describeError, type DescribedError } from '../copy'
 import { useShallow } from 'zustand/react/shallow'
 import { APP_NAME } from '../../../shared/name'
 
@@ -170,6 +170,7 @@ export function SettingsScreen() {
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
         <div className="caption">{APP_NAME} · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
+        <p className="caption">{CREDIT.line2}<br />{CREDIT.gui}</p>
         {info && <div className="row app-build-info" style={{ marginTop: 'var(--sp-2)' }}>
           <code title={`${info.buildDate} ${info.buildCommit}`}>{SETTINGS.buildInfo(info.buildDate, info.buildCommit)}</code>
           <button className="quiet" onClick={() => void copyBuildInfo()} aria-label={SETTINGS.copyBuildInfo}>{buildCopy === 'copied' ? SETTINGS.buildInfoCopied : SETTINGS.copyBuildInfo}</button>
