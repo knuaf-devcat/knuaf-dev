@@ -1,0 +1,123 @@
+name: installer-e2e
+# **설치본**이 맥에서 실제로 깔리고 켜지고 기본 흐름이 도는지 자동으로 확인한다(A안 CI 단계).
+#
+# build-installers.yml 과 다른 점: 그 워크플로는 dmg 가 **만들어지는지**만 본다. 여기서는 그
+# dmg 를 마운트해 `/Applications` 로 복사하고(학생이 하는 그대로), 깔린 `.app` 을 Playwright 로
+# 띄워 시험한다. 개발 빌드(`out/main/index.js`)를 띄우는 기존 `ci.yml` 의 `app` job 과도 다르다 —
+# 거기서는 저장소의 python·스킬 경로를 주입하므로 "번들만으로 도는가"를 볼 수 없다.
+#
+# 이 워크플로가 **다루지 않는 것**(형님 맥 몫):
+#   진짜 ChatGPT/Claude 로그인 · 진짜 AI 답변 · Word/Excel 자동화 · 한글 입력 · Gatekeeper 경고.
+#   러너가 직접 만든 dmg 에는 격리 표시(com.apple.quarantine)가 붙지 않으므로 Gatekeeper 는
+#   여기서 재현되지 않는다. 아래 단계가 그 사실을 로그에 남긴다.
+#
+# 비밀값: **하나도 받지 않는다.** 서명 자동 탐색을 끄고(`CSC_IDENTITY_AUTO_DISCOVERY=false`),
+# 공증도 끈다(`--config.mac.notarize=false`). 권한은 `contents: read` 뿐이다.
+on:
+  # `workflow_dispatch` 는 이 파일이 기본 브랜치에 있어야 돈다(build-installers.yml 과 같은 이유).
+  # 그래서 설치본에 영향을 주는 파일이 바뀐 `feat/**`·`ci/**` push 에서도 돈다.
+  push:
+    branches: ["feat/**", "ci/**"]
+    paths:
+      - "app/**"
+      - "skills/knuaf-dev/**"
+      - "docs/학생용-사용안내.*"
+      - ".github/workflows/installer-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm prepare:resources
+      # dist:mac 과 같은 빌드지만 공증을 끈다(build-installers.yml 과 같은 명령).
+      - run: pnpm exec electron-builder --mac --publish never --config.mac.notarize=false
+
+      # 학생이 하는 그대로: dmg 를 열고, 앱을 /Applications 로 복사하고, dmg 를 닫는다.
+      # `ditto` 는 번들의 자원 포크·확장 속성을 보존한다(`cp -R` 은 아니다).
+      - name: dmg 마운트 → /Applications 로 설치
+        id: install
+        working-directory: app/dist
+        run: |
+          set -euo pipefail
+          dmg=$(ls *.dmg | head -1)
+          echo "dmg: $dmg"
+          shasum -a 256 "$dmg"
+          mountpoint=$(hdiutil attach "$dmg" -nobrowse -noautoopen -readonly | tail -1 | awk -F'\t' '{print $NF}')
+          echo "mount: $mountpoint"
+          trap 'hdiutil detach "$mountpoint" -quiet || true' EXIT
+          # dmg 안의 .app 은 하나뿐이다. 이름은 한글·공백·가운뎃점이 들어 있다(executableName).
+          app=$(find "$mountpoint" -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$app" ]; then echo "dmg 안에 .app 이 없다"; ls -la "$mountpoint"; exit 1; fi
+          echo "app: $app"
+          target="/Applications/$(basename "$app")"
+          if [ -e "$target" ]; then echo "이미 있다(러너가 깨끗하지 않다): $target"; exit 1; fi
+          ditto "$app" "$target"
+          echo "installed: $target"
+          echo "KNUAF_INSTALLED_APP=$target" >> "$GITHUB_ENV"
+
+      # 복사본이 dmg 안의 봉인 그대로인지 — 한글 파일명이 dmg 볼륨(HFS+)에서 NFD 로 바뀌어
+      # 봉인이 깨진 적이 있다(electron-builder.yml 의 extraResources 주석). 그 회귀를 여기서 잡는다.
+      - name: 설치본 무결성(codesign 봉인)
+        run: |
+          set -euo pipefail
+          echo "경로: $KNUAF_INSTALLED_APP"
+          codesign --verify --deep --strict --verbose=2 "$KNUAF_INSTALLED_APP"
+          # 격리 표시 유무를 남긴다 — 없으면 Gatekeeper 경고는 이 자리에서 재현되지 않는다(형님 맥 몫).
+          echo "quarantine:"; xattr -l "$KNUAF_INSTALLED_APP" || true
+          plutil -extract CFBundleExecutable raw -o - "$KNUAF_INSTALLED_APP/Contents/Info.plist"
+          plutil -extract CFBundleShortVersionString raw -o - "$KNUAF_INSTALLED_APP/Contents/Info.plist"
+          du -sh "$KNUAF_INSTALLED_APP"
+
+      # 설치본 전용 스펙만 돈다(`playwright.installed.config.ts` → `e2e-installed/`).
+      # KNUAF_INSTALLED_APP 은 위 단계가 GITHUB_ENV 로 넘긴다.
+      - name: 설치본 e2e
+        run: pnpm exec playwright test --config playwright.installed.config.ts --output test-results/installed-artifacts
+        env:
+          KNUAF_SHOT_DIR: test-results/installed-shots
+
+      - name: 설치본 e2e 흔적
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-e2e-artifacts
+          path: |
+            app/test-results/installed-artifacts
+            app/test-results/installed-shots
+          if-no-files-found: warn
+          retention-days: 7
+
+      # dmg·zip 도 같이 남긴다 — 실패했을 때 사람이 직접 열어 볼 수 있어야 한다.
+      - name: 설치본
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-e2e-dmg
+          path: |
+            app/dist/*.dmg
+            app/dist/*.zip
+          if-no-files-found: warn
+          retention-days: 7
