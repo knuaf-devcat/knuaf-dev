@@ -37,7 +37,10 @@ test('reopen a project from the recent-folder card (second visit)', async () => 
   await expect(paper).toContainText(basename(root))
   await expect(paper).not.toContainText(dirname(root))
   // 차례는 종이 머리의 장 이름 ▾ 가 연다(사이드바 차례는 설계대로 사라졌다).
-  if (!(await second.page.locator('.paper-head').isVisible())) await second.page.getByRole('tab', { name: '내 논문' }).click()
+  const paperHead = second.page.locator('.paper-head')
+  const paperTab = second.page.getByRole('tab', { name: '내 논문' })
+  await expect(paperHead.or(paperTab)).toBeVisible()
+  if (await paperTab.isVisible()) await paperTab.click()
   await second.page.locator('.paper-head .chap').click()
   await expect(second.page.locator('.paper-head .popover')).toContainText('차례')
   await second.electronApp.close()
