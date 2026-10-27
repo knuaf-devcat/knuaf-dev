@@ -407,9 +407,7 @@ export function Chat() {
         .then(() => { useConnect.getState().select(provider); return useProject.getState().loadSettings() })
     }
     if (status?.connected) {
-      void send(text).then((ok) => {
-        if (!ok && useChat.getState().root === target) useChat.getState().appendDraft(text)
-      })
+      void send(text, { preserveDraftOnFailure: true })
     } else {
       useChat.getState().appendDraft(text)
     }
@@ -680,7 +678,10 @@ export function Chat() {
         )}
 
         {zone.kind === 'question' && (
-          <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
+          <>
+            <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
+            <div className="crow question-model"><ComposerModelChip /></div>
+          </>
         )}
 
         {(zone.kind === 'running' || zone.kind === 'composer' || zone.kind === 'disconnected') && (
