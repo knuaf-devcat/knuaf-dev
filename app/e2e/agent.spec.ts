@@ -519,6 +519,9 @@ test.describe('buildLaunchScript', () => {
       .split('\r\n').find((l) => l.includes('codex.cmd'))!
     const exeArg = exeLine.split(' -c ')[1]
     const shimArg = shimLine.split(' -c ')[1]
+    // cmd가 실행물을 찾는 것과, 네이티브 CRT가 argv[0]을 온전히 읽는 것은 별개다.
+    // CI 실패는 설정값 손상이 아니라 Files\\동봉, codex\\codex.exe가 추가 인자로 온 것이었다.
+    expect(exeLine.split(' -c ')[0]).toBe('"C:\\Program Files\\knuaf\\resources\\codex\\codex.exe"')
     expect(exeArg.startsWith('^"skills.config=')).toBe(true)
     expect(exeArg).not.toContain('^^')
     expect(shimArg.startsWith('^^^"skills.config=')).toBe(true)
@@ -572,7 +575,7 @@ test.describe('buildLaunchScript', () => {
       child.stderr.setEncoding('utf-8').on('data', (s) => { stdout += s })
       child.on('error', reject).on('close', (code) => resolve({ code, stdout }))
     })
-    const recorded = (): { argv: string[]; cwd: string } => JSON.parse(readFileSync(argvFile, 'utf-8'))
+    const recorded = (): { argv: string[]; cwd: string; argv0?: string; commandLine?: string } => JSON.parse(readFileSync(argvFile, 'utf-8'))
     expect((await run(codex)).code, 'codex 배치가 실패했다(한글 경로로 cd 하지 못했을 수 있다)').toBe(0)
     expect(recorded().argv, 'codex argv 가 다르다').toEqual(['-c', config])
     expect(realpathSync.native(recorded().cwd), '한글·공백 작업 폴더로 이동하지 않았다').toBe(realpathSync.native(root))
@@ -595,17 +598,27 @@ test.describe('buildLaunchScript', () => {
     const site = join(base, 'site')
     mkdirSync(site, { recursive: true })
     writeFileSync(join(site, 'sitecustomize.py'), [
-      'import json, os, sys',
+      'import ctypes, json, os, sys',
+      'ctypes.windll.kernel32.GetCommandLineW.restype = ctypes.c_wchar_p',
       "with open(os.environ['ARGV_OUT'], 'w', encoding='utf-8') as f:",
-      "    json.dump({'argv': sys.orig_argv[1:], 'cwd': os.getcwd()}, f)",
+      "    json.dump({'argv': sys.orig_argv[1:], 'argv0': sys.orig_argv[0], 'cwd': os.getcwd(), 'commandLine': ctypes.windll.kernel32.GetCommandLineW()}, f)",
       "os._exit(int(os.environ.get('FAKE_AGENT_EXIT', '0')))",
       ''
     ].join('\n'), 'utf-8')
     const exeScript = buildLaunchScript({ root, agent: 'codex', agentPath: exe, venvBin: null, bundledBin: null, firstPrompt: '', home }, 'win32')
     writeFileSync(argvFile, '{}', 'utf-8')
     expect((await run(exeScript, { PYTHONHOME: dirname(py!), PYTHONPATH: site })).code, 'codex.exe 배치가 실패했다').toBe(0)
-    expect(recorded().argv, 'codex.exe 가 받은 설정값이 다르다(^ 가 남았을 수 있다)').toEqual(['-c', config])
+    // 정확 일치 조건을 유지한다. 경로 조각을 버리거나 인자 끝부분만 비교하지 않는다.
+    expect(recorded().argv, `codex.exe 인자가 다르다: ${recorded().commandLine}`).toEqual(['-c', config])
+    expect(realpathSync.native(recorded().argv0!), '공백 경로 전체가 argv[0]이어야 한다').toBe(realpathSync.native(exe))
     expect(realpathSync.native(recorded().cwd), '한글·공백 작업 폴더로 이동하지 않았다').toBe(realpathSync.native(root))
+
+    // 전역 스킬 사본이 없어 -c를 생략하는 기본 실행도 경로 조각이 인자로 끼지 않아야 한다.
+    const noConfig = buildLaunchScript({ root, agent: 'codex', agentPath: exe, venvBin: null, bundledBin: null, firstPrompt: '', home: join(base, 'no-skills') }, 'win32')
+    const noConfigResult = await run(noConfig, { PYTHONHOME: dirname(py!), PYTHONPATH: site })
+    expect(noConfigResult.code, noConfigResult.stdout).toBe(0)
+    expect(recorded().argv, recorded().commandLine).toEqual([])
+    expect(realpathSync.native(recorded().argv0!)).toBe(realpathSync.native(exe))
 
     // 실패 시 원래 종료 코드와 안내가 남는다. shim은 직접 실행하면 부모로 돌아오지 않는다.
     writeFileSync(agentPath, '@echo off\r\nexit /b 7\r\n', 'utf-8')

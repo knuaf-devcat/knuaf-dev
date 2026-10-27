@@ -423,10 +423,12 @@ function batQuote(s: string): string {
 const BAT_META = /([()\][!^"`<>&|;, *?])/g
 
 /**
- * 배치의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
+ * 배치 shim의 **실행 파일 경로**. 명령 이름은 shim 의 `%*` 로 다시 해석되지 않으므로 **한 층**만
  * 막는다(`win.ts` 의 `escapeCommand` 와 같은 규칙 — `%` 는 배치 확장이라 `%%`).
  * 두 층으로 막으면 첫 cmd 해석 뒤에도 `^` 가 남아 실행 파일 이름을 찾지 못한다
  * (W1C-R1-01 확인. cross-spawn `parse.js` 도 명령에는 `escape.command` 만 쓴다).
+ * 네이티브 실행물에는 쓰지 않는다. 공백을 ^로만 막으면 cmd가 실행물을 찾더라도 CRT가
+ * 따옴표 없는 argv[0]을 공백에서 잘라 경로 뒷부분을 추가 인자로 만든다(Windows CI QA-04).
  */
 function batCommand(s: string): string {
   return batLiteral(s).replace(BAT_META, '^$1')
@@ -511,9 +513,11 @@ function buildLaunchScriptWin(o: LaunchScriptOptions): string {
   const dirs = [o.venvBin, o.bundledBin].filter((d): d is string => !!d).map(batLiteral)
   const skillOff = o.agent === 'codex' ? codexSkillConfigOverride(o.home) : null
   const dbl = isBatchShim(o.agentPath)
+  // .exe의 명령 이름은 argv[0]으로도 읽힌다. cmd escape 대신 경로 전체를 인용해야 한다.
+  const command = dbl ? batCommand(o.agentPath) : batQuote(o.agentPath)
   const execLine = o.agent === 'claude'
-    ? `${batCommand(o.agentPath)} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion', dbl)} ${batArg(oneLine(o.firstPrompt), dbl)}`
-    : `${batCommand(o.agentPath)}${skillOff ? ` -c ${batArg(skillOff, dbl)}` : ''}`
+    ? `${command} --setting-sources project,local ${batArg('--disallowedTools=AskUserQuestion', dbl)} ${batArg(oneLine(o.firstPrompt), dbl)}`
+    : `${command}${skillOff ? ` -c ${batArg(skillOff, dbl)}` : ''}`
 
   return [
     '@echo off',
