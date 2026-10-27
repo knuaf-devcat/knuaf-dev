@@ -125,12 +125,14 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
   app.on('before-quit', (e) => {
     chat?.flushDrafts()   // 아직 안 쓴 학생 입력을 먼저 남긴다 — 동기다
-    void sidecar.stop()
-    // Let in-flight agent connections finish their shutdown before the process exits.
-    if (chat && !quitting) {
+    // Wait for owned sidecar processes as well as agent connections before exiting.
+    if (!quitting) {
       quitting = true
       e.preventDefault()
-      void chat.close().finally(() => app.quit())
+      void Promise.allSettled([sidecar.stop(), chat?.close() ?? Promise.resolve()]).then((results) => {
+        for (const result of results) if (result.status === 'rejected') console.error('Shutdown failed:', result.reason)
+        app.quit()
+      })
     }
   })
 }

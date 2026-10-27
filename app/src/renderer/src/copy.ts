@@ -103,7 +103,27 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
   },
   sidecar_exited: {
     title: 'Python 실행기가 도중에 종료됐어요.',
-    action: '"설정 > Python 실행기"에서 실행기를 다시 시작한 뒤, 하던 작업을 다시 실행해 주세요.',
+    action: '"설정 > Python 실행기"에서 상태를 확인해 주세요. 종료 정리 안내가 보이면 그 안내를 먼저 따라 주세요.',
+    kind: 'error'
+  },
+  sidecar_start_timeout: {
+    title: 'Python 실행기 시작 응답을 기다리는 시간이 지났어요.',
+    action: '"설정 > Python 실행기"에서 상태를 확인해 주세요. 종료 정리 안내가 보이면 먼저 따라 주시고, 실행기가 종료됐으면 "적용·재시작"을 눌러 주세요.',
+    kind: 'error'
+  },
+  sidecar_start_cancelled: {
+    title: 'Python 실행기 시작을 중단했어요.',
+    action: '종료 요청에 따라 시작을 멈췄어요. 다시 사용하려면 "설정 > Python 실행기"에서 상태를 확인해 주세요.',
+    kind: 'status'
+  },
+  sidecar_stop_failed: {
+    title: 'Python 실행기를 안전하게 종료하지 못했어요.',
+    action: '이전 실행기가 남아 있을 수 있어 새 실행기를 시작하지 않았어요. 앱을 완전히 종료하고 다른 작업을 저장한 뒤 컴퓨터를 다시 시작해 주세요. 앱만 다시 켜서는 남은 실행기가 정리되지 않을 수 있어요.',
+    kind: 'error'
+  },
+  sidecar_stop_timeout: {
+    title: 'Python 실행기 종료를 확인하는 시간이 지났어요.',
+    action: '이전 실행기가 남아 있을 수 있어 새 실행기를 시작하지 않았어요. 앱을 완전히 종료하고 다른 작업을 저장한 뒤 컴퓨터를 다시 시작해 주세요. 앱만 다시 켜서는 남은 실행기가 정리되지 않을 수 있어요.',
     kind: 'error'
   },
   spawn_failed: {
@@ -192,6 +212,12 @@ function readCoded(e: unknown): { code: string | null; message: string } {
 export function describeError(e: unknown): DescribedError {
   const { code, message } = readCoded(e)
   const copy = errorCopy(code ?? 'default')
+  if ((code === 'sidecar_stop_failed' || code === 'sidecar_stop_timeout') && e && typeof e === 'object' && 'data' in e) {
+    const data = e.data
+    if (data && typeof data === 'object' && 'recovery' in data && data.recovery === 'retry_stop') {
+      return { ...copy, code, action: '새 실행기는 시작하지 않았어요. "설정 > Python 실행기 > 고급"에서 "적용·재시작"을 눌러 종료를 다시 시도해 주세요.', raw: `(${code}) ${message}` }
+    }
+  }
   return { ...copy, code, raw: code ? `(${code}) ${message}` : message }
 }
 

@@ -8,7 +8,7 @@ import { Feedback } from '../components/Feedback'
 import { RuntimeSetup } from '../components/RuntimeFix'
 import { OutputsTools } from './Outputs'
 import { TroubleshootSections } from './Troubleshoot'
-import { HELPER, PRIVACY_NOTE, SETTINGS, type DescribedError } from '../copy'
+import { HELPER, PRIVACY_NOTE, SETTINGS, describeError, type DescribedError } from '../copy'
 import { useShallow } from 'zustand/react/shallow'
 import { APP_NAME } from '../../../shared/name'
 
@@ -16,6 +16,8 @@ export function SettingsScreen() {
   const { root, settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper, open, loading, settingsFocus, clearSettingsFocus } = useProject(useShallow((s) => ({ root: s.root, settings: s.settings, loadSettings: s.loadSettings, sidecar: s.sidecar, refreshSidecar: s.refreshSidecar, logs: s.logs, clearLogs: s.clearLogs, openHelper: s.openHelper, open: s.open, loading: s.loading, settingsFocus: s.settingsFocus, clearSettingsFocus: s.clearSettingsFocus })))
   const setMode = useChat((s) => s.setMode)
   const [override, setOverride] = useState('')
+  const [restarting, setRestarting] = useState(false)
+  const [restartErr, setRestartErr] = useState<DescribedError | null>(null)
   const [folderPath, setFolderPath] = useState('')
   // GUI-04: 폴더 열기 실패는 이 화면에서 한 번만 알린다 — 전역 error 에 두면
   // 내 논문/점검 화면에도 같은 오류가 떠서 실패한 자리가 어디인지 흐려진다.
@@ -32,7 +34,19 @@ export function SettingsScreen() {
     if (el) { el.open = true; el.scrollIntoView({ block: 'start' }) }
     clearSettingsFocus()
   }, [settingsFocus])
-  const save = async () => { await window.knuaf.setSettings({ python_override: override || null }); await loadSettings(); await window.knuaf.sidecarRestart(); await refreshSidecar() }
+  const save = async () => {
+    setRestarting(true); setRestartErr(null)
+    try {
+      await window.knuaf.setSettings({ python_override: override || null })
+      await loadSettings()
+      const r = await window.knuaf.sidecarRestart()
+      if (r.error) setRestartErr(describeError(r.error))
+    } catch (error) {
+      setRestartErr(describeError(error))
+    } finally {
+      try { await refreshSidecar() } finally { setRestarting(false) }
+    }
+  }
   const mode: ChatMode = resolveChatMode(null, settings)
   /**
    * 여기서 고른 것이 **선택의 기록**이다. `helper_mode` 는 화면 기본값일 뿐이라
@@ -134,7 +148,8 @@ export function SettingsScreen() {
         <RuntimeSetup />
         <Disclosure label="고급">
           <div className="caption">기본 실행기 <code>{(sidecar as any)?.basePython ?? '—'}</code> · 오프라인 휠 <code>{(sidecar as any)?.wheelhouse ?? '없음'}</code></div>
-          <div className="row" style={{ marginTop: 'var(--sp-2)' }}><input aria-label="Python 경로" style={{ minWidth: 360 }} value={override} onChange={(e) => setOverride(e.target.value)} placeholder="/usr/local/bin/python3.12 (비우면 자동)" /><button onClick={save}>적용·재시작</button></div>
+          <div className="row" style={{ marginTop: 'var(--sp-2)' }}><input aria-label="Python 경로" style={{ minWidth: 360 }} value={override} onChange={(e) => setOverride(e.target.value)} placeholder="/usr/local/bin/python3.12 (비우면 자동)" /><button onClick={save} disabled={restarting}>적용·재시작</button></div>
+          {restartErr && <Feedback kind={restartErr.kind} title={restartErr.title} body={restartErr.action} details={<code>{restartErr.raw}</code>} />}
           <div style={{ marginTop: 'var(--sp-3)' }}>
             <div className="row"><span className="caption">실행기 로그</span><button className="quiet" onClick={clearLogs}>지우기</button></div>
             <div className="log">{logs.length === 0 ? <span className="muted">없음</span> : logs.map((l, i) => <div key={i} className={l.stream}>{l.line}</div>)}</div>
