@@ -40,6 +40,11 @@ function stateWord(status: string): string {
   return PAPER.stateDone
 }
 
+/** 표시만 구분한다 — drafting 데이터 상태와 그 밖의 매핑은 그대로 둔다. */
+function visibleStateWord(status: string): string {
+  return status === 'drafting' ? '초안' : stateWord(status)
+}
+
 /**
  * 질문 원문에 적힌 장(`Ⅲ장`)에 해당하는 절. 로마 숫자를 제목 앞머리에서 먼저 찾고,
  * 없으면 등록 순서로 본다 — **등록되지 않은 장은 짐작하지 않는다**(R4 원칙).
@@ -260,7 +265,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         <div className="pop-host">
           <button className="chap" aria-expanded={toc} onClick={() => setToc(!toc)}>
             <span className="n">{writing ? writing.title : PAPER.empty}</span>
-            {writing && <span className="w">{stateWord(writing.status)}</span>}
+            {writing && <span className="w">{visibleStateWord(writing.status)}</span>}
             <Icon name="chevronDown" size={14} />
           </button>
           <Popover open={toc} onClose={() => setToc(false)} label={PAPER.tocTitle} width={300}>
@@ -268,13 +273,14 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
             {(sections ?? []).map((s) => (
               <PopRow key={s.id} icon={<span className="rn">{s.order}</span>} current={writing?.id === s.id}
                 onClick={() => { setToc(false); desk.current?.querySelector(`#sec-${CSS.escape(s.id)}`)?.scrollIntoView({ block: 'start' }) }}
-                meta={stateWord(s.status)}>
+                meta={visibleStateWord(s.status)}>
                 {s.title}
               </PopRow>
             ))}
           </Popover>
         </div>
         <span className="sp" />
+        {snapshot?.state === 'running' && <span className="paper-live" role="status"><span className="dot" aria-hidden="true" />도우미가 작업 중</span>}
         {/* 고친 부분 보기 — 바뀐 절이 있을 때만 보인다(발주 §③ N-I04). 켜면 지운/새 문장이 색으로 갈린다. */}
         {changed && (
           <button className={`lnk review-toggle${showDiff ? ' on' : ''}`} aria-pressed={showDiff} title={REVIEW.diffToggleHint} onClick={toggleDiff}>
@@ -303,7 +309,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         <div className="paper-fb">
           {make.making !== null
             ? <MakeRunningLine make={make} fb={make.feedback} compact />
-            : make.feedback && <MakeFeedbackLine fb={make.feedback} compact />}
+            : make.feedback && <MakeFeedbackLine fb={make.feedback} compact submission={make.feedbackKind === 'submission_candidate'} gate={pStatus?.gate} />}
         </div>
       )}
 
@@ -318,7 +324,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
               const mark = new Set(fresh[s.id] ?? [])
               return (
                 <div key={s.id} id={`sec-${s.id}`} className={blocks.length === 0 ? 'paper-empty' : undefined}>
-                  <h2>{s.title}{s.status === 'drafting' && <span className="tag">{PAPER.writingTag}</span>}</h2>
+                  <h2>{s.title}{s.status === 'drafting' && <span className="tag">초안</span>}</h2>
                   {/* "고친 부분 보기"가 켜져 있고 이 절이 실제로 바뀌었으면 비교를, 아니면 지금 본문을 그린다. */}
                   {showDiff && doc && base && hasChange(base.draft, doc.draft)
                     ? <ReviewDiffBlocks before={base.draft} after={doc.draft} />

@@ -1,19 +1,48 @@
 import { Icon } from './Icon'
 import { PopHead, Popover, PopRow, PopSep } from './Popover'
 import { useProject } from '../store/project'
-import { ARTIFACTS, FILES_POPOVER, PAPER, fileStatusText } from '../copy'
+import { ARTIFACTS, FILES_POPOVER, PAPER, checkLabel, fileStatusText } from '../copy'
 import { joinPath } from '../paths'
 import type { Make, MakeFeedback, MakeKind } from './useMake'
 import { useStage } from './useStage'
 import { useShallow } from 'zustand/react/shallow'
+import { Disclosure } from './Disclosure'
+import type { CheckRow } from '../../../shared/types'
 
 /** 만들기 피드백 한 조각 — 팝오버 안 그 줄 아래와 종이 머리 아래가 **같은 것**을 그린다. */
-export function MakeFeedbackLine({ fb, compact }: { fb: MakeFeedback; compact?: boolean }) {
+function groupedMissingChecks(gate?: CheckRow[]): { id: string; label: string; count: number }[] {
+  const groups = new Map<string, { id: string; label: string; count: number }>()
+  for (const check of gate ?? []) {
+    if (check.status === 'pass' || check.severity !== 'error') continue
+    const group = groups.get(check.check_id)
+    if (group) group.count += 1
+    else groups.set(check.check_id, { id: check.check_id, label: checkLabel(check.check_id), count: 1 })
+  }
+  return [...groups.values()]
+}
+
+export function MakeFeedbackLine({ fb, compact, submission, gate }: { fb: MakeFeedback; compact?: boolean; submission?: boolean; gate?: CheckRow[] }) {
+  const checks = submission && fb.kind === 'warning' && fb.details ? groupedMissingChecks(gate) : []
+  const submitBlocked = checks.length > 0
   return (
     <div className={`make-fb ${fb.kind}${compact ? ' compact' : ''}`} role={fb.kind === 'error' ? 'alert' : 'status'}>
       <div className="t">{fb.kind === 'warning' && <span className="dot attn" aria-hidden="true" />}{fb.title}</div>
-      {fb.body && <div className="b">{fb.body}</div>}
-      {fb.details}
+      {submitBlocked ? (
+        <>
+          <div className="b"><strong>먼저 할 일:</strong> {checks[0].label}</div>
+          <div className="caption submission-count">그 밖에 조건 {checks.length - 1}개 더</div>
+          <Disclosure label="자세한 진단 보기">
+            <div className="submission-details">
+              <ul>{checks.map((check) => <li key={check.id}><code>{check.id}{check.count > 1 ? ` ×${check.count}` : ''}</code> · {check.label}</li>)}</ul>
+              {fb.body && <div className="b">{fb.body}</div>}
+              {fb.details && <div className="submission-raw">{fb.details}</div>}
+            </div>
+          </Disclosure>
+        </>
+      ) : <>
+        {fb.body && <div className="b">{fb.body}</div>}
+        {fb.details}
+      </>}
       {fb.actions && <div className="row">{fb.actions}</div>}
     </div>
   )
@@ -46,7 +75,7 @@ export function MakeRunningLine({ make, fb, compact }: { make: Make; fb?: MakeFe
  * 이어진다. 열림 상태는 종이 칸(`PaperPane`)이 소유한다 — 그래야 중복으로 그리지 않는다.
  */
 export function FilesPopover({ make, open, onOpenChange }: { make: Make; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { root, artifacts, projectLoad, openSheet } = useProject(useShallow((s) => ({ root: s.root, artifacts: s.artifacts, projectLoad: s.projectLoad, openSheet: s.openSheet })))
+  const { root, artifacts, projectLoad, status, openSheet } = useProject(useShallow((s) => ({ root: s.root, artifacts: s.artifacts, projectLoad: s.projectLoad, status: s.status, openSheet: s.openSheet })))
   const { derived } = useStage()
   const files = artifacts ?? []
   /** 파일마다 한 줄 — 판정은 copy.ts 의 `fileStatusText` 한 곳에 있다(점검 시트도 같은 것을 쓴다). */
@@ -71,7 +100,7 @@ export function FilesPopover({ make, open, onOpenChange }: { make: Make; open: b
             </div>
             {/* 그 줄에서 시작한 실행의 고지·진행·결과·실패 — 시도 전에도 고지가 먼저 뜬다. */}
             {make.making === r.kind && <MakeRunningLine make={make} fb={feedbackFor(r.kind)} compact />}
-            {make.making !== r.kind && feedbackFor(r.kind) && <MakeFeedbackLine fb={feedbackFor(r.kind)!} compact />}
+            {make.making !== r.kind && feedbackFor(r.kind) && <MakeFeedbackLine fb={feedbackFor(r.kind)!} compact submission={r.kind === 'submission_candidate'} gate={status?.gate} />}
           </div>
         ))}
         <PopSep />

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ChatSnapshot, Provider } from '../shared/chat'
-import type { OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
+import type { AppInfo, OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
 
 type EventHandler = (event: string, data: unknown) => void
 const handlers = new Map<string, EventHandler>()
@@ -96,7 +96,7 @@ const api = {
     return () => ipcRenderer.removeListener('chat:snapshot', listener)
   },
   openGuide: (): Promise<boolean> => ipcRenderer.invoke('guide:open'),
-  appInfo: (): Promise<{ version: string; packaged: boolean; logs: string; userData: string; electron: string; node: string }> => ipcRenderer.invoke('app:info'),
+  appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
   onSidecarLog: (fn: (entry: { stream: string; line: string }) => void) => {
     const listener = (_e: unknown, entry: { stream: string; line: string }) => fn(entry)
     ipcRenderer.on('sidecar:log', listener)
