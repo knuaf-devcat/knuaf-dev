@@ -73,7 +73,7 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           fail=0
           for f in app/package.json .claude-plugin/plugin.json .codex-plugin/plugin.json; do
-            got=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$f")
+            got=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1], encoding='utf-8'))['version'])" "$f")
             [ "$got" = "$tag" ] || { echo "::error file=$f::버전 불일치 — 태그 $tag / 파일 $got"; fail=1; }
           done
           exit $fail
@@ -186,7 +186,7 @@ jobs:
           $tag = $env:GITHUB_REF_NAME -replace '^v', ''
           $fail = 0
           foreach ($f in @('app/package.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json')) {
-            $got = python -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" $f
+            $got = python -c "import json,sys;print(json.load(open(sys.argv[1], encoding='utf-8'))['version'])" $f
             if ($got -ne $tag) { Write-Host "::error file=$f::버전 불일치 — 태그 $tag / 파일 $got"; $fail = 1 }
           }
           exit $fail
