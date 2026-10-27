@@ -15,6 +15,14 @@
 - `src/main/` — 인터프리터 선택(`KNUAF_PYTHON` > `<프로젝트>/.venv` > 번들 python > PATH), 사이드카 브리지, IPC, 설정.
   `file:read`는 작업 폴더 안 `.pdf`/`.md`/`.txt`만(50MB 이하) 바이트로 돌려주고, `file:save-as`는 폴더 안 파일을
   사용자가 고른 위치로 복사합니다 — 둘 다 경로가 폴더 밖으로 나가면 거절합니다.
+  사이드카의 폴더 설정·재시작은 직렬화하고, 이전 프로세스와 stdio의 종료를 확인하기 전에는 새 실행기를 띄우지 않습니다.
+  시작 응답(`ready`와 `methods.list` 합계)은 10초 제한이며, 실패하면 소유 프로세스를 종료·정리합니다.
+  종료 요청은 진행 중인 시작과 이미 큐에 있던 시작을 취소하고 즉시 종료 절차에 들어갑니다. 동시 종료 요청은 같은 정리에 합류합니다.
+  정상 종료 3초 뒤 강제종료를 시도하며 종료 절차 전체 6초 안에 확인되지 않으면 실패로 격리합니다. Windows 강제종료는
+  `taskkill /PID <소유 PID> /T /F` 성공과 sidecar close를 모두 요구합니다(launcher/base 전파는 Windows 실기기 확인 필요).
+  종료 오류의 `data.recovery=retry_stop`이면 설정의 **적용·재시작**으로 같은 실행기 종료를 재시도합니다.
+  `external_cleanup`이면 새 spawn 없이 외부 정리 안내를 표시합니다. 앱만 다시 켜도 잔류 프로세스가 없어짐을 보장하지 않으며,
+  다른 작업을 저장한 뒤 컴퓨터 재시작을 안내합니다. 앱 종료도 사이드카 종료 결과를 기다립니다.
 - `src/main/chat/` — Codex App Server(`codex app-server`)·Claude Agent SDK와의 구조화 채팅. 스냅샷은
   `<프로젝트>/.knuaf-gui/chat-<provider>.json`에 남고, 실행 중 종료는 `interrupted`/`uncertain`으로 복구됩니다.
   도우미 실행 중에는 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
@@ -51,6 +59,8 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 ```
 
 사이드카 프로토콜 테스트는 저장소 루트의 `tests/test_sidecar.py`에 있습니다.
+브리지 수명주기·격리 회귀는 `e2e/sidecar-lifecycle.spec.ts`, 실제 Electron 재시작·오류 표시·PID 정리는
+`e2e/sidecar-app.spec.ts`에서 확인합니다: `pnpm -C app build && pnpm -C app exec playwright test sidecar-lifecycle.spec.ts sidecar-app.spec.ts`.
 
 개발·테스트 전용 환경 변수:
 
