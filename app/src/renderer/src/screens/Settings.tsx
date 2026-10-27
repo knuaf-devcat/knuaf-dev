@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/project'
+import type { AppInfo } from '../../../shared/types'
 import { useChat, chatProvider, resolveChatMode, type ChatMode } from '../store/chat'
 import { Badge } from '../components/Badge'
 import { Disclosure } from '../components/Disclosure'
@@ -23,7 +24,8 @@ export function SettingsScreen() {
   // 내 논문/점검 화면에도 같은 오류가 떠서 실패한 자리가 어디인지 흐려진다.
   const [openErr, setOpenErr] = useState<DescribedError | null>(null)
   const tryOpen = async (p: string) => { setOpenErr(null); setOpenErr(await open(p, { local: true })) }
-  const [info, setInfo] = useState<{ version: string; packaged: boolean; logs: string; electron: string } | null>(null)
+  const [info, setInfo] = useState<AppInfo | null>(null)
+  const [buildCopy, setBuildCopy] = useState<'idle' | 'copied' | 'failed'>('idle')
   const body = useRef<HTMLDivElement>(null)
   useEffect(() => { void window.knuaf.appInfo().then(setInfo) }, [])
   useEffect(() => { setOverride(settings?.python_override ?? ''); void refreshSidecar() }, [settings])
@@ -46,6 +48,14 @@ export function SettingsScreen() {
     } finally {
       try { await refreshSidecar() } finally { setRestarting(false) }
     }
+  }
+  const copyBuildInfo = async () => {
+    if (!info) return
+    try {
+      await navigator.clipboard.writeText(`${info.buildDate} ${info.buildCommit}`)
+      setBuildCopy('copied')
+      window.setTimeout(() => setBuildCopy('idle'), 1500)
+    } catch { setBuildCopy('failed') }
   }
   const mode: ChatMode = resolveChatMode(null, settings)
   /**
@@ -160,7 +170,12 @@ export function SettingsScreen() {
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
         <div className="caption">{APP_NAME} · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
-        <div className="row" style={{ marginTop: 'var(--sp-2)' }}>{info && <button onClick={() => window.knuaf.openPath(info.logs)}>로그 폴더 열기</button>}</div>
+        {info && <div className="row app-build-info" style={{ marginTop: 'var(--sp-2)' }}>
+          <code title={`${info.buildDate} ${info.buildCommit}`}>{SETTINGS.buildInfo(info.buildDate, info.buildCommit)}</code>
+          <button className="quiet" onClick={() => void copyBuildInfo()} aria-label={SETTINGS.copyBuildInfo}>{buildCopy === 'copied' ? SETTINGS.buildInfoCopied : SETTINGS.copyBuildInfo}</button>
+          <button onClick={() => window.knuaf.openPath(info.logs)}>로그 폴더 열기</button>
+          {buildCopy === 'failed' && <span role="alert" className="caption">{SETTINGS.buildInfoCopyFailed}</span>}
+        </div>}
         <p className="caption" style={{ marginTop: 'var(--sp-3)' }}>{PRIVACY_NOTE}</p>
       </section>
 

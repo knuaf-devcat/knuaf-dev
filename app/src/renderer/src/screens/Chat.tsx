@@ -20,10 +20,92 @@ import { zoneOf } from '../../../shared/zone'
 import type { ChatMessage, Provider } from '../../../shared/chat'
 import { useShallow } from 'zustand/react/shallow'
 
-/** [이름](경로) 한 쌍. 줄바꿈을 넘지 않는다 — 산문 한가운데의 링크만 집는다. */
-const LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g
 /** 프로젝트 안 상대경로처럼 생긴 것만. 주소(http:)·절대경로·.. 는 제외한다. */
 const INSIDE_PATH = /^(?![/\\]|[a-zA-Z][a-zA-Z0-9+.-]*:)(?!.*(?:^|[/\\])\.\.(?:[/\\]|$)).+$/
+
+interface ParsedLink { start: number; end: number; label: string; target: string }
+
+/** 대괄호 링크 하나를 읽는다. `<...>` 경로의 공백·괄호와 보통 괄호 안 경로를 받아들인다. */
+function parseLinkAt(text: string, start: number): ParsedLink | null {
+  const labelEnd = text.indexOf(']', start + 1)
+  if (labelEnd < 0 || text.slice(start, labelEnd).includes('\n') || text[labelEnd + 1] !== '(') return null
+  let i = labelEnd + 2
+  let target = ''
+  if (text[i] === '<') {
+    const targetStart = ++i
+    while (i < text.length && text[i] !== '>' && text[i] !== '\n') i++
+    if (text[i] !== '>') return null
+    target = text.slice(targetStart, i++)
+    while (i < text.length && /\s/.test(text[i]) && text[i] !== '\n') i++
+    if (text[i] !== ')') return null
+  } else {
+    const targetStart = i
+    // Windows plain targets end at the first `)`. An opening `(` or trailing
+    // separator makes that boundary ambiguous: preserve the source, or use `<...>`.
+    // Text after an unambiguous closing delimiter belongs to the surrounding prose.
+    const windowsAbsolute = /^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text.slice(i))
+    let depth = 0
+    let escaped = false
+    while (i < text.length && text[i] !== '\n') {
+      const ch = text[i]
+      if (escaped) { escaped = false; i++; continue }
+      if (windowsAbsolute && (ch === '(' || (ch === ')' && text[i - 1] === '\\'))) return null
+      if (ch === '\\' && !windowsAbsolute) { escaped = true; i++; continue }
+      if (ch === '(') { depth++; i++; continue }
+      if (ch === ')') {
+        if (depth === 0) break
+        depth--; i++; continue
+      }
+      i++
+    }
+    if (text[i] !== ')') return null
+    target = text.slice(targetStart, i)
+  }
+  return { start, end: i + 1, label: text.slice(start + 1, labelEnd), target }
+}
+
+function markdownLinks(text: string): ParsedLink[] {
+  const links: ParsedLink[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    const start = text.indexOf('[', cursor)
+    if (start < 0) break
+    const link = parseLinkAt(text, start)
+    if (link) { links.push(link); cursor = link.end }
+    else cursor = start + 1
+  }
+  return links
+}
+
+function isAbsolutePath(path: string): boolean {
+  return /^(?:[a-zA-Z]:[\\/]|[/\\]{2}|[/\\])/.test(path)
+}
+
+/** 프로젝트 안 절대경로만 상대경로로 바꾼다. 밖으로 빠지는 `..` 경로는 그대로 둔다. */
+function relativeProjectPath(target: string, root: string | null): string | null {
+  let decoded = target
+  try { decoded = decodeURIComponent(target) } catch { /* 원문 경로를 그대로 비교한다 */ }
+  if (!isAbsolutePath(decoded)) return INSIDE_PATH.test(decoded) ? decoded : null
+  if (!root) return null
+  const rootPath = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const targetPath = decoded.replace(/\\/g, '/')
+  const insensitive = window.knuaf.platform === 'win32'
+  const compare = (value: string): string => insensitive ? value.toLocaleLowerCase('en-US') : value
+  const rootKey = compare(rootPath)
+  const targetKey = compare(targetPath)
+  if (targetKey === rootKey) return '.'
+  if (!targetKey.startsWith(`${rootKey}/`)) return null
+  const relative = targetPath.slice(rootPath.length + 1)
+  const parts: string[] = []
+  for (const segment of relative.split('/')) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') {
+      if (parts.length === 0) return null
+      parts.pop()
+    } else parts.push(segment)
+  }
+  return parts.join('/') || null
+}
 
 /**
  * 도우미 답변의 파일 링크를 누를 수 있게 만든다 — 마크다운 원문이 그대로 보이고
@@ -33,15 +115,16 @@ const INSIDE_PATH = /^(?![/\\]|[a-zA-Z][a-zA-Z0-9+.-]*:)(?!.*(?:^|[/\\])\.\.(?:[
  * 시트로 갈 뿐이고, 파일에 닿는 일은 앱이 스스로 목록에서 확인한 경로로만 한다.
  * 안쪽 상대경로가 아닌 링크는 원문 그대로 둔다 — 감추지 않는다.
  */
-function withLinks(text: string, onGo: () => void): ReactNode {
+function withLinks(text: string, root: string | null, onGo: () => void): ReactNode {
   const out: ReactNode[] = []
   let last = 0
-  for (const m of text.matchAll(LINK)) {
-    const [whole, label, target] = m
-    if (!INSIDE_PATH.test(target)) continue
-    out.push(text.slice(last, m.index))
-    out.push(<button key={m.index} className="lk" onClick={onGo}>{label}</button>)
-    last = (m.index ?? 0) + whole.length
+  for (const link of markdownLinks(text)) {
+    const relative = relativeProjectPath(link.target, root)
+    if (relative === null) continue
+    out.push(text.slice(last, link.start))
+    const label = isAbsolutePath(link.label) ? (relative.split('/').at(-1) || relative) : (link.label || relative.split('/').at(-1) || relative)
+    out.push(<button key={link.start} className="lk" title={isAbsolutePath(link.target) ? link.target : undefined} onClick={onGo}>{label}</button>)
+    last = link.end
   }
   if (!out.length) return text
   out.push(text.slice(last))
@@ -78,6 +161,7 @@ function Delivery({ m, sending, onResend }: { m: ChatMessage; sending: boolean; 
 function Message({ m, onResend, onGoArtifacts, fold, sending = false }: { m: ChatMessage; onResend?: () => void; onGoArtifacts?: () => void; fold?: FoldOptions; sending?: boolean }) {
   const [open, setOpen] = useState(false)
   const [unfolded, setUnfolded] = useState(false)
+  const projectRoot = useProject((s) => s.root)
   if (m.role === 'system') return <div className="chat-msg system"><span className="caption">{m.text}</span></div>
   const folding = !!fold && !unfolded
   const lines = m.text.split('\n')
@@ -87,7 +171,7 @@ function Message({ m, onResend, onGoArtifacts, fold, sending = false }: { m: Cha
   // 도우미는 **테두리·상자·발화자/시간 머리 없는 본문**, 학생만 오른쪽 말풍선(시안 D/E/G, N-I01).
   return (<>
     <div className={`chat-msg ${m.role}`}>
-      <div className="prose">{m.role === 'assistant' ? withBold(shown, (part) => onGoArtifacts ? withLinks(part, onGoArtifacts) : part) : shown}</div>
+      <div className="prose">{m.role === 'assistant' ? withBold(shown, (part) => onGoArtifacts ? withLinks(part, projectRoot, onGoArtifacts) : part) : shown}</div>
       {folding && fold && (
         <div className="q-fold">
           <span className="caption">{CHAT.foldHint(fold.count)}</span>

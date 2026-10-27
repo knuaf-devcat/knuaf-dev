@@ -36,7 +36,7 @@ const FRESH_MS = 8_000
 /** 장 상태 말 — 숫자로 세지 않는다(DESIGN §2). */
 function stateWord(status: string): string {
   if (status === 'empty') return PAPER.stateEmpty
-  if (status === 'drafting') return PAPER.stateWriting
+  if (status === 'drafting') return PAPER.stateDraft
   return PAPER.stateDone
 }
 
@@ -275,6 +275,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
           </Popover>
         </div>
         <span className="sp" />
+        {snapshot?.state === 'running' && <span className="paper-live" role="status"><span className="dot" aria-hidden="true" />{PAPER.assistantRunning}</span>}
         {/* 고친 부분 보기 — 바뀐 절이 있을 때만 보인다(발주 §③ N-I04). 켜면 지운/새 문장이 색으로 갈린다. */}
         {changed && (
           <button className={`lnk review-toggle${showDiff ? ' on' : ''}`} aria-pressed={showDiff} title={REVIEW.diffToggleHint} onClick={toggleDiff}>
@@ -303,7 +304,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
         <div className="paper-fb">
           {make.making !== null
             ? <MakeRunningLine make={make} fb={make.feedback} compact />
-            : make.feedback && <MakeFeedbackLine fb={make.feedback} compact />}
+            : make.feedback && <MakeFeedbackLine fb={make.feedback} compact submission={make.feedbackKind === 'submission_candidate'} gate={pStatus?.gate} />}
         </div>
       )}
 
@@ -318,7 +319,7 @@ export function PaperPane({ overlay }: { overlay?: ReactNode }) {
               const mark = new Set(fresh[s.id] ?? [])
               return (
                 <div key={s.id} id={`sec-${s.id}`} className={blocks.length === 0 ? 'paper-empty' : undefined}>
-                  <h2>{s.title}{s.status === 'drafting' && <span className="tag">{PAPER.writingTag}</span>}</h2>
+                  <h2>{s.title}{s.status === 'drafting' && <span className="tag">{PAPER.stateDraft}</span>}</h2>
                   {/* "고친 부분 보기"가 켜져 있고 이 절이 실제로 바뀌었으면 비교를, 아니면 지금 본문을 그린다. */}
                   {showDiff && doc && base && hasChange(base.draft, doc.draft)
                     ? <ReviewDiffBlocks before={base.draft} after={doc.draft} />

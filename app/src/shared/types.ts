@@ -47,6 +47,10 @@ export interface Envelope {
   stdout: string; stderr: string; argv: string[]; python: string; duration_ms: number; venv_python?: string | null
 }
 export interface SidecarInfo { python: string; kind: 'env' | 'venv' | 'managed' | 'bundled' | 'path'; scriptsDir: string; running: boolean }
+export interface AppInfo {
+  version: string; packaged: boolean; logs: string; userData: string; electron: string; node: string
+  buildDate: string; buildCommit: string
+}
 /**
  * `project:open` 의 응답. 시작 단계(사이드카 configure)에서 실패하면 **실패한 그 선택**의
  * python·kind 를 `sidecar` 로, `startupFailed: true` 를 같이 돌려준다(PY-D1-03).
