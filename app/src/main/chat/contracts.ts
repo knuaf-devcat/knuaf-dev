@@ -1,5 +1,5 @@
 import { delimiter } from 'node:path'
-import type { ConnectionStatus, PermissionRequest } from '../../shared/chat'
+import type { ChatModelInfo, ConnectionStatus, ModelChoice, PermissionRequest } from '../../shared/chat'
 export interface AgentEvents {
   message: (id: string, text: string) => void
   permission: (request: PermissionRequest) => void
@@ -20,6 +20,17 @@ export interface AgentConnection {
   reopenLogin?(): Promise<void>
   /** `replayHistory`: resume 시 과거 턴 재생은 스냅샷에 assistant 기록이 하나도 없을 때만. */
   run(text: string, sessionId: string | undefined, events: AgentEvents, replayHistory?: boolean): Promise<void>
+  /**
+   * 이 계정이 쓸 수 있는 모델 목록. 그 통로가 아직 없는 공급자는 구현하지 않는다 —
+   * ChatService 가 `supported:false` 로 답하고 화면은 추천을 띄우지 않는다(이번 판의 Claude).
+   */
+  models?(): Promise<ChatModelInfo[]>
+  /**
+   * 전송을 받아들이기 **전에** 필요한 확인(이번 판: 재개한 대화의 기본값 복귀 판정).
+   * 여기서 던지면 보낸 글은 대화에 남지 않고 초안도 그대로다 — 조용히 예전 모델로 보내는
+   * 대신 학생이 알 수 있는 오류로 막는다(검토 MC1-01).
+   */
+  prepare?(sessionId: string | undefined): Promise<void>
   respond(id: string, allow: boolean): void
   stop(): Promise<void>
 }
@@ -28,6 +39,17 @@ export interface AgentOptions {
   openExternal: (url: string) => Promise<void>
   /** 학생이 이 폴더를 신뢰하기로 했는가 — 판정 불가한 명령을 묻지 않고 통과시킨다. */
   trusted?: () => boolean
+  /**
+   * 지금 학생이 고른 모델·생각 깊이(없으면 null). **전송할 때마다** 읽는다 — 앱이 켜진 채로
+   * 칩에서 바꾼 값이 다음 메시지부터 적용되어야 하고, 연결은 폴더·공급자마다 한 번만 만들어진다.
+   */
+  modelChoice?: () => ModelChoice | null
+  /**
+   * 이 공급자로 모델을 **고른 적이 있는가**. 없으면 되돌릴 덮어쓰기도 없으므로 기본값 조회
+   * (ephemeral 대화)와 재개 확인을 하지 않고, 요청은 지금까지처럼 model·effort 없이 나간다.
+   * 값이 없으면 `true` 로 읽는다(이 옵션을 모르는 호출자의 기존 동작 보존).
+   */
+  modelChosen?: () => boolean
   /** `auth status` 확인 제한 시간. 시험 이음매 — 기본 12초. */
   statusTimeoutMs?: number
 }

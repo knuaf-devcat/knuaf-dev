@@ -1,4 +1,5 @@
 // Shared between main, preload and renderer.
+import type { ModelChoice } from './chat'
 export type RpcEvent = { event: string; data: unknown }
 export type RpcError = { code: string; message: string; data?: unknown }
 export type RpcResult<T = unknown> = { result?: T; error?: RpcError }
@@ -116,6 +117,12 @@ export interface Settings {
    * 키는 앱이 폴더를 열 때 받은 경로 그대로다(렌더러에는 realpath 가 없다).
    */
   ui_prefs?: Record<string, { paperClosed?: boolean }>
+  /**
+   * 학생이 고른 대화 모델(공급자별). **대화 파일에 넣지 않는다** — 저장 형식
+   * (`.knuaf-gui/chat-*.json`)은 그대로이고, 이 값은 계정 취향이라 설정에 남는다.
+   * 없으면(null/키 없음) 지금까지처럼 모델·effort 를 보내지 않는다.
+   */
+  chat_models?: Partial<Record<'codex' | 'claude', ModelChoice | null>> | null
 }
 /** Window chrome hints for the renderer (macOS vibrancy/inset title bar vs. overlay controls elsewhere). */
 export interface WindowInfo { platform: string; vibrancy: boolean; titleBarInset: boolean; overlay: boolean }

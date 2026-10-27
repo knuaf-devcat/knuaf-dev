@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { ChatSnapshot, Provider } from '../shared/chat'
+import type { ChatModels, ChatSnapshot, ModelChoice, Provider } from '../shared/chat'
 import type { AppInfo, OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
 
 type EventHandler = (event: string, data: unknown) => void
@@ -83,7 +83,13 @@ const api = {
     login: (root: string, provider: Provider) => ipcRenderer.invoke('chat:login', root, provider),
     send: (root: string, provider: Provider, text: string, requestId: string) => ipcRenderer.invoke('chat:send', root, provider, text, requestId),
     respond: (root: string, provider: Provider, id: string, allow: boolean) => ipcRenderer.invoke('chat:respond', root, provider, id, allow),
-    stop: (root: string, provider: Provider) => ipcRenderer.invoke('chat:stop', root, provider)
+    stop: (root: string, provider: Provider) => ipcRenderer.invoke('chat:stop', root, provider),
+    /**
+     * 모델 칩의 뒷단 — 이 계정이 쓸 수 있는 모델과 지금 고른 값. 고른 값은 설정에 남고,
+     * 다음 메시지의 `turn/start` 부터 같은 대화에 적용된다(같은 회사 모델끼리라 맥락이 안 끊긴다).
+     */
+    models: (root: string | null, provider: Provider): Promise<RpcResult<ChatModels>> => ipcRenderer.invoke('chat:models', root, provider),
+    setModel: (root: string | null, provider: Provider, choice: ModelChoice | null): Promise<RpcResult<ModelChoice | null>> => ipcRenderer.invoke('chat:set-model', root, provider, choice)
   },
   /**
    * 폴더 없이 쓰는 연결 상태·로그인 — 첫 실행 화면(온보딩). 대화(root 있는 chat.*)와 달리
