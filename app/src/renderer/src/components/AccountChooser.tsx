@@ -1,6 +1,6 @@
 import { ConnectRow } from './ConnectRow'
 import { useProject } from '../store/project'
-import { chosenProvider, displayState, useConnect } from '../store/connect'
+import { chosenProvider, displayState, useConnect, type ConnState } from '../store/connect'
 import { chatProvider, resolveChatMode } from '../store/chat'
 import { PROVIDER_NAME, TITLEBAR } from '../copy'
 import type { Provider } from '../../../shared/chat'
@@ -10,11 +10,11 @@ import { useShallow } from 'zustand/react/shallow'
  * 지금 대화하는 공급자 하나 — 제목줄 계정 자리와 입력칸의 모델 칩이 같은 것을 본다.
  * 우선순위: 학생이 고른 것 → 옛 설정(`helper_mode`). 판정은 `chosenProvider` 한 곳에 있다.
  */
-export function useAccountProvider(): { provider: Provider; stateOf: (p: Provider) => ReturnType<typeof displayState> } {
-  const { selected, codex, claude } = useConnect(useShallow((s) => ({ selected: s.selected, codex: s.codex, claude: s.claude })))
+export function useAccountProvider(): { provider: Provider; stateOf: (p: Provider) => ConnState } {
+  const { selected, codex, claude, loggingIn } = useConnect(useShallow((s) => ({ selected: s.selected, codex: s.codex, claude: s.claude, loggingIn: s.loggingIn })))
   const settings = useProject((s) => s.settings)
   const provider: Provider = chosenProvider(selected, settings) ?? chatProvider(resolveChatMode(null, settings))
-  const stateOf = (p: Provider): ReturnType<typeof displayState> => displayState(p === 'codex' ? codex : claude, false)
+  const stateOf = (p: Provider): ConnState => displayState(p === 'codex' ? codex : claude, loggingIn[p])
   return { provider, stateOf }
 }
 
@@ -38,6 +38,7 @@ export function AccountChooser({ onPicked }: { onPicked?: () => void }) {
   }
   return (
     <div className="list">
+      <p className="caption">AI 회사를 바꾸면 이전 대화 맥락이 이어지지 않을 수 있어요.</p>
       {(['codex', 'claude'] as Provider[]).map((p) => (
         <ConnectRow key={p} provider={p} current={p === provider}
           extra={stateOf(p) === 'connected' && p !== provider

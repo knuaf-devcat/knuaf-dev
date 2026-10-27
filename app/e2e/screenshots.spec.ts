@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
+import { DEFAULT_WINDOW } from '../src/shared/window'
+import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 
 // 화면 캡처가 쓰는 자리. CI(맥·윈도우)에서는 `KNUAF_SHOT_DIR` 를 주어 아티팩트로 올릴 곳에
 // 쓰고, 로컬 기본값은 지금처럼 `docs/images`(학생 안내서 사진 갱신)다 — 로컬 동작 불변.
@@ -88,8 +90,8 @@ for (const scheme of ['light', 'dark'] as const) {
     // Pre-stage the docx input so '논문 파일(워드) 만들기' skips paper.generate and goes straight to docx.build.
     mkdirSync(join(root, 'build'), { recursive: true })
     writeFileSync(join(root, 'build', '검토전_본문.md'), '# Ⅰ. 머리말\n\n농장A의 재배 면적은 600평이다.\n', 'utf-8')
-    const { electronApp, page } = await launch({ colorScheme: scheme })
-    await page.setViewportSize({ width: 1180, height: 800 })
+    const { electronApp, page } = await launch({ colorScheme: scheme, env: fakeCodexEnv(join(scratch(), 'bin'), { FAKE_CODEX_MODE: 'logged-in' }) })
+    await page.setViewportSize(DEFAULT_WINDOW)
     // documentation shots use the solid sidebar (vibrancy is not captured by the web layer)
     await page.evaluate(() => { document.documentElement.dataset.vibrancy = 'off' })
     // 사진은 **정지한 화면**을 담는다 — 움직임은 캡처 동안만 끄고 최종 상태로 찍는다(아래 FREEZE).

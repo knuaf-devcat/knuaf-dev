@@ -25,6 +25,7 @@
   다른 작업을 저장한 뒤 컴퓨터 재시작을 안내합니다. 앱 종료도 사이드카 종료 결과를 기다립니다.
 - `src/main/chat/` — Codex App Server(`codex app-server`)·Claude Agent SDK와의 구조화 채팅. 스냅샷은
   `<프로젝트>/.knuaf-gui/chat-<provider>.json`에 남고, 실행 중 종료는 `interrupted`/`uncertain`으로 복구됩니다.
+  앱 종료가 시작되면 연결 상태를 다시 조회하거나 새 도우미 연결을 만들지 않고 기존 연결을 정리합니다.
   도우미 실행 중에는 사이드카 쓰기 호출이 `agent_busy`로 거절됩니다(반대로 앱이 쓰기 중이면 채팅 전송이 거절됩니다).
   `~/.codex/skills`·`~/.agents/skills`에 남은 전역 `knuaf-dev` 사본은 codex `-c skills.config=…` 오버라이드로
   그 세션에서만 끕니다(사용자 config.toml은 건드리지 않음) — 낡은 사본이 프로젝트 사본과 이름 충돌하지 않게.
@@ -32,9 +33,11 @@
   새 폴더가 이미 설정을 갖고 있으면 건드리지 않고 옛 폴더도 삭제하지 않습니다. 이름을 또 바꾸면
   `LEGACY_USERDATA_NAMES`에 옛 폴더 이름을 추가하세요.
 - `src/preload/` — `window.knuaf` (contextIsolation, sandbox).
-- `src/renderer/` — React 화면. 메뉴 5개: **내 논문**(도우미 채팅 — `helper_mode`로 기억) /
+- `src/renderer/` — React 화면. 앱을 켜면 대화 입력칸이 바로 열리고, 모델 칩에서 AI 연결과 전환을 관리합니다.
+  왼쪽 프로젝트 목록은 최근 폴더를 보여 주며 좁은 창에서는 서랍으로 열립니다. 첫 메시지를 보내면
+  논문 폴더를 고른 뒤 해당 폴더의 대화로 전달합니다. AI 회사를 바꾸면 서로 대화 맥락을 공유하지 않습니다.
   **자료** / **결과물**(목록·미리보기·파일 만들기) / **점검**(할 일·고칠 곳·네 가지 확인) /
-  **설정**(폴더·도우미 연결·문제 해결·고급 도구·실행기). 사이드바 하단은 논문 차례(읽기 전용).
+  **설정**(폴더·도우미 연결·문제 해결·고급 도구·실행기)은 작업 공간 위에 엽니다.
   `helper_mode`는 `codex-chat`/`claude-chat` 둘(claude-chat은 Agent SDK 경로로 아직 실험 중);
   구 `codex_terminal`과 제거된 인앱 터미널 값(`codex-term`/`claude-term`)은 로드 때 채팅으로
   마이그레이션됩니다(`src/main/settings.ts`). 채팅이 막힐 때의 비상구는 설정의
@@ -59,6 +62,10 @@ pnpm build && KNUAF_PYTHON=$(which python3.13) pnpm test:e2e   # Playwright-elec
 ```
 
 사이드카 프로토콜 테스트는 저장소 루트의 `tests/test_sidecar.py`에 있습니다.
+
+알려진 A안 한계(독립검토 A1): 사용자 문구의 `copy.ts` 중앙관리 AST 검사는 대체 없이 제거되어
+일부 새 화면 문구가 인라인입니다(A1-04). 첫 화면에는 시안의 세 가지 시작 제안 칩이 없습니다(A1-05).
+
 브리지 수명주기·격리 회귀는 `e2e/sidecar-lifecycle.spec.ts`, 실제 Electron 재시작·오류 표시·PID 정리는
 `e2e/sidecar-app.spec.ts`에서 확인합니다: `pnpm -C app build && pnpm -C app exec playwright test sidecar-lifecycle.spec.ts sidecar-app.spec.ts`.
 

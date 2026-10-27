@@ -5,7 +5,6 @@ import { chosenProvider, useConnect } from '../store/connect'
 import { useReview, buildQuotedMessage } from '../store/review'
 import { usePrep, waitKind } from '../store/prep'
 import { withBold } from '../inline'
-import { FirstRun } from '../components/FirstRun'
 import { ReviewQuoteChip } from '../components/ReviewQuote'
 import { PopHead, Popover, PopSep } from '../components/Popover'
 import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
@@ -200,17 +199,23 @@ function EventLine({ title, onGo }: { title: string; onGo: () => void }) {
   )
 }
 
-/**
- * 폴더 없음 — 재실행 첫 화면이다(발주 QA 재실행 결정). 첫 실행과 **같은 두 단계 부품**
- * (`FirstRun`)을 제목줄이 있는 대화 칸 안에 얹는다. 연결이 확인돼 있으면 길잡이가
- * "AI 연결 ✓ → 논문 폴더 → 시작"으로 서고 폴더 단계부터, 끊겨 있으면 1단계(AI 연결)부터다.
- * 최근 논문을 자동으로 열지 않는다 — 학생이 고른다. 폴더를 고른 순간의 시작 의사는 남기지
- * 않는다(첫 실행과 달리, 여기서는 이미 지난 학생의 이어 쓰기를 앱이 대신 시작하지 않는다).
- */
-function NoFolder() {
+function NoFolder({ text, setText, onSubmit }: { text: string; setText: (text: string) => void; onSubmit: () => void }) {
+  const error = useProject((s) => s.error)
+  const failure = useProject((s) => s.openFailure)
+  const retryFailed = useProject((s) => s.retryFailed)
+  const retryOpen = useProject((s) => s.retryOpen)
+  const clearError = useProject((s) => s.clearError)
   return (
-    <div className="onb">
-      <div className="onb-inner"><FirstRun /></div>
+    <div className="new-chat">
+      <h1>어떤 논문을 쓰고 있어요?</h1>
+      <p>주제 한 줄이면 돼요. 도우미가 질문하면서 논문을 같이 채워 갈게요.</p>
+      {error && <ZoneLine tone={toneOf(error.kind)} title={error.title} sub={error.action} raw={error.raw} onClose={clearError} />}
+      {failure && <>{retryFailed && <ZoneLine tone="attn" title={RUNTIME.retryFailedTitle} sub={RUNTIME.retryFailedBody} />}<RuntimeFix failure={failure} onRetry={async () => retryOpen(failure.root)} /></>}
+      <div className="chat-composer">
+        <textarea rows={2} aria-label={CHAT.placeholder} value={text} placeholder="예: 카페 창업 계획으로 창업 논문을 쓰려고 해요"
+          onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit() } }} />
+        <div className="crow"><ComposerModelChip placement="down" /><span className="sp" /><button className="send" aria-label={CHAT.send} disabled={!text.trim()} onClick={onSubmit}><Icon name="up" size={17} /></button></div>
+      </div>
     </div>
   )
 }
@@ -221,15 +226,17 @@ function NoFolder() {
  * 아래는 생각 깊이 한 줄을 **흐린 비활성**으로 — 값은 지어내지 않고 "곧 고를 수 있어요"만 말한다.
  * 실제 모델·추론 값을 넘기는 코드는 건드리지 않는다(안 주면 CLI 기본값이 쓰이는 지금 동작 그대로).
  */
-function ComposerModelChip() {
+function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'down' }) {
   const [open, setOpen] = useState(false)
-  const { provider } = useAccountProvider()
+  const { provider, stateOf } = useAccountProvider()
+  const state = stateOf(provider)
+  const connection = state === 'connected' ? '연결됨' : state === 'need-login' ? '로그인 필요' : state === 'logging-in' ? '로그인 중' : state === 'no-tool' ? '설치 필요' : state === 'failed' || state === 'unknown' ? '확인 실패' : '확인 중'
   return (
     <div className="pop-host">
       <button type="button" className="model" title={CHAT.modelChipTitle} aria-expanded={open} onClick={() => setOpen(!open)}>
-        {PROVIDER_NAME[provider]} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
+        {PROVIDER_NAME[provider]} · {connection} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} align="left" placement="up" width={400} label={CHAT.modelChipTitle}>
+      <Popover open={open} onClose={() => setOpen(false)} align="left" placement={placement} width={400} label={CHAT.modelChipTitle}>
         <AccountChooser onPicked={() => setOpen(false)} />
         <PopSep />
         <PopHead>{CHAT.depthTitle}</PopHead>
@@ -283,7 +290,7 @@ export function Chat() {
   const setPaperClosed = useProject((s) => s.setPaperClosed)
   const setPaneView = useProject((s) => s.setPaneView)
   const revision = useProject((s) => s.status?.revision ?? s.peek?.revision ?? null)
-  const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, refreshStatus, login, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, refreshStatus: s.refreshStatus, login: s.login, send: s.send, respond: s.respond, stop: s.stop })))
+  const { root, snapshot, status, statusFailed, connState, draft, busy, error, mode, setDraft, insertPath, clearError, load, send, respond, stop } = useChat(useShallow((s) => ({ root: s.root, snapshot: s.snapshot, status: s.status, statusFailed: s.statusFailed, connState: s.connState, draft: s.draft, busy: s.busy, error: s.error, mode: s.mode, setDraft: s.setDraft, insertPath: s.insertPath, clearError: s.clearError, load: s.load, send: s.send, respond: s.respond, stop: s.stop })))
   /** 이 폴더의 준비(.venv) 중인가 — 그동안 보낸 글은 끝날 때까지 기다린다(store/prep.ts). */
   /** 이 폴더에서 기다리는 것 — 폴더 준비('prep')·저장·검사('write'). 그동안 보내기는 잠긴다. */
   const waiting = usePrep((s) => waitKind(s, projectRoot))
@@ -305,7 +312,50 @@ export function Chat() {
   /** 바닥에 붙어 있는가 — 학생이 굴린 결과로만 바뀐다. 글이 늘어나는 것은 scroll 을 부르지 않으므로 늘기 전 값이 남는다. */
   const stick = useRef(true)
   const [dragging, setDragging] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [newText, setNewText] = useState('')
+  const [queued, setQueued] = useState<{ root: string; text: string } | null>(null)
+  const [switchNotice, setSwitchNotice] = useState<Provider | null>(null)
+  const previous = useRef<{ root: string | null; provider: Provider }>({ root: projectRoot, provider })
+  const recordingFirstRun = useRef(false)
+  const submitNew = async (): Promise<void> => {
+    if (!newText.trim()) return
+    const dir = await window.knuaf.pickFolder()
+    if (!dir) return
+    if (!settings?.provider_choice && useConnect.getState()[provider].state === 'connected') {
+      await window.knuaf.setSettings({ helper_mode: provider === 'claude' ? 'claude-chat' : 'codex-chat', provider_choice: { provider, at: new Date().toISOString() } })
+      useConnect.getState().select(provider)
+      await useProject.getState().loadSettings()
+    }
+    setQueued({ root: dir, text: newText })
+    await useProject.getState().open(dir)
+  }
+  useEffect(() => {
+    if (previous.current.root === projectRoot && projectRoot && previous.current.provider !== provider) setSwitchNotice(provider)
+    else if (previous.current.root !== projectRoot) setSwitchNotice(null)
+    previous.current = { root: projectRoot, provider }
+  }, [projectRoot, provider])
+  useEffect(() => {
+    if (!projectRoot || !settings || settings.onboarded_at || recordingFirstRun.current) return
+    recordingFirstRun.current = true
+    if (!queued || queued.root !== projectRoot) useChat.getState().armStart(projectRoot)
+    void window.knuaf.setSettings({ onboarded_at: new Date().toISOString() })
+      .then(() => useProject.getState().loadSettings())
+      .finally(() => { recordingFirstRun.current = false })
+  }, [projectRoot, settings, queued])
+  useEffect(() => {
+    if (!queued || queued.root !== projectRoot || root !== projectRoot || !snapshot || snapshot.provider !== provider) return
+    const text = queued.text
+    const target = queued.root
+    setNewText('')
+    setQueued(null)
+    if (status?.connected) {
+      void send(text).then((ok) => {
+        if (!ok && useChat.getState().root === target) useChat.getState().appendDraft(text)
+      })
+    } else {
+      useChat.getState().appendDraft(text)
+    }
+  }, [queued, projectRoot, root, snapshot, provider, status, send])
 
   // 스냅샷의 provider가 화면 provider와 다르면(설정·시작 버튼으로 모드 전환) 다시 불러온다 —
   // codex 대화가 claude 화면에 남는 식의 혼합은 없어야 한다.
@@ -413,11 +463,6 @@ export function Chat() {
     if (snapshot.messages.length === 0) void send(hasRevision ? CHAT.firstTurnNext : CHAT.firstTurn)
   }, [startIntent, projectRoot, snapshot, status, provider, hasRevision, send, disarmStart])
 
-  const copyDraft = (): void => {
-    void navigator.clipboard?.writeText(draft)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
   const chatErr = error ? describeChatError(error) : null
   const snapErr = snapshot?.error && snapshot.state !== 'interrupted' && snapshot.state !== 'stopped' ? describeChatError(snapshot.error) : null
   /**
@@ -486,7 +531,7 @@ export function Chat() {
     if (paperClosed) setPaperClosed(false)
   }
 
-  if (!projectRoot) return <NoFolder />
+  if (!projectRoot) return <NoFolder text={newText} setText={setNewText} onSubmit={() => void submitNew()} />
 
   /**
    * 대화 기록과 이벤트 줄을 **시각 순으로** 섞는다 — 이벤트 줄은 저장된 글이 아니라 앱이
@@ -522,6 +567,7 @@ export function Chat() {
       )}
 
       <div className="chat-thread" ref={threadRef} onScroll={onThreadScroll}>
+        {switchNotice && <div className="chat-event" role="status">{PROVIDER_NAME[switchNotice]}는 {PROVIDER_NAME[switchNotice === 'claude' ? 'codex' : 'claude']}와 나눈 대화를 볼 수 없어요. 논문 파일과 진행 상황은 그대로 이어져요. 방금 한 답이 아직 논문에 안 들어갔다면 다시 말해 주세요.</div>}
         {thread.map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
       </div>
 
@@ -577,8 +623,9 @@ export function Chat() {
           <QuestionCard card={zone.card} draft={draft} onDraft={setDraft} onSend={send} />
         )}
 
-        {(zone.kind === 'running' || zone.kind === 'composer') && (
+        {(zone.kind === 'running' || zone.kind === 'composer' || zone.kind === 'disconnected') && (
           <>
+            {zone.kind === 'disconnected' && <ZoneLine tone="info" title={connState === 'checking' ? CHAT.checking : chatConnTitle} sub={connState === 'checking' ? undefined : chatConnBody} />}
             {/* 작업 중 한 줄 — 입력칸 위. 입력칸은 쓸 수 있게 두고 보내기만 막는다. 마지막 학생 메시지가 아직
                 보내는 중이면 그 말풍선 아래 글자가 진행 표시라 이 줄은 그리지 않는다(작업 중엔 늘 1개). */}
             {zone.kind === 'running' && !lastPending && (
@@ -616,7 +663,7 @@ export function Chat() {
                   e.preventDefault()
                   // 보내기 단추와 같은 조건이다. 작업 중·전송 중에는 키보드로도 보내지 않는다 —
                   // 단추만 막으면 Enter 로 들어와 main 의 소유권 잠금에 걸린다(검토 P1-R1-03).
-                  if (zone.kind === 'running' || busy || !!waiting || !canSend) return
+                  if (zone.kind === 'running' || zone.kind === 'disconnected' || busy || !!waiting || !canSend) return
                   void sendBody()
                 }} />
               <div className="crow">
@@ -627,45 +674,13 @@ export function Chat() {
                 {/* 오른쪽 아래 34×34 원형 위 화살표(먹색 채움) — 작업 중이면 같은 자리 멈추기. */}
                 {zone.kind === 'running'
                   ? <button type="button" className="send" title={CHAT.stop} aria-label={CHAT.stop} onClick={() => void stop()}><Icon name="stop" size={20} /></button>
-                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={busy || !!waiting || !canSend}><Icon name="up" size={17} /></button>}
+                  : <button type="button" className="send" title={CHAT.send} aria-label={CHAT.send} onClick={() => void sendBody()} disabled={zone.kind === 'disconnected' || busy || !!waiting || !canSend}><Icon name="up" size={17} /></button>}
               </div>
             </div>
             <p className="disc">{CHAT.disclaimer}</p>
           </>
         )}
 
-        {zone.kind === 'disconnected' && (connState === 'checking' && status === null ? (
-          <p className="caption">{CHAT.checking}</p>
-        ) : (
-          // 미연결·확인 실패·도구 없음: 입력창 자리에 CTA + draft가 있으면 복사 카드. 입력칸이
-          // 사라져도 "답변에 첨부"/"고쳐달라기"가 쓴 draft가 조용히 삼켜지지 않아야 한다.
-          <>
-            <div className="zone-note">
-              <div className="t">{chatConnTitle}</div>
-              <div>{chatConnBody}</div>
-              {connState !== 'no-tool' && status?.detail && <div className="caption">{status.detail}</div>}
-              <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-                {connState === 'no-tool'
-                  ? <button className="primary" onClick={() => void window.knuaf.openGuide()}>{CHAT.installGuide}</button>
-                  : connState === 'need-login'
-                    ? <button className="primary" onClick={() => void login()} disabled={busy}>{CHAT.loginFor(provider)}</button>
-                    : <button className="primary" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
-                {/* 확인 실패에는 위의 주 단추가 이미 "다시 확인"이라 여기 또 두지 않는다. */}
-                {connState !== 'failed' && connState !== 'unknown' && <button className="quiet" onClick={() => void refreshStatus()} disabled={busy}>{CHAT.recheck}</button>}
-              </div>
-            </div>
-            {draft.trim() ? (
-              <div className="card">
-                <div className="card-head"><h2>{CHAT.draftCopyTitle}</h2></div>
-                <div className="prose">{draft}</div>
-                <div className="row" style={{ marginTop: 'var(--sp-3)' }}>
-                  <button onClick={copyDraft}>{copied ? CHAT.draftCopied : CHAT.draftCopy}</button>
-                  <span className="caption">{CHAT.draftCopyHintWait}</span>
-                </div>
-              </div>
-            ) : null}
-          </>
-        ))}
       </div>
     </div>
   )

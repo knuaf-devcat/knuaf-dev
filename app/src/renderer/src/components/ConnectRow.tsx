@@ -1,6 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Badge } from './Badge'
 import { displayState, useConnect, type ConnState } from '../store/connect'
 import { CHAT, ONBOARD, PROVIDER_NAME, connectStateLine } from '../copy'
 import type { Provider } from '../../../shared/chat'
@@ -15,17 +14,12 @@ import type { Provider } from '../../../shared/chat'
  *
  * 상태 갱신·로그인 폴링은 `store/connect` 그대로다 — 여기서 새 규칙을 만들지 않는다.
  */
-export function ConnectRow({ provider, badges, extra, current, suffix, onLogin }: {
+export function ConnectRow({ provider, extra, current }: {
   provider: Provider
-  /** 첫 실행 1단계의 "권장"·"아직 실험 중" 같은 표시. */
-  badges?: ReactNode
   /** 연결됐을 때만 보이는 이 화면 몫의 주 행동. */
   extra?: { label: string; run: () => void }
   /** 지금 이 공급자로 대화하고 있는가 — 계정 팝오버가 표시한다. */
   current?: boolean
-  suffix?: string
-  /** 로그인을 시작하기 직전 — 첫 실행 화면이 "로그인이 곧 선택"을 기록하는 데 쓴다. */
-  onLogin?: (p: Provider) => void
 }) {
   const { codex, claude, loggingIn, login, cancel, reopen, refresh } = useConnect(useShallow((s) => ({
     codex: s.codex, claude: s.claude, loggingIn: s.loggingIn, login: s.login, cancel: s.cancel, reopen: s.reopen, refresh: s.refresh
@@ -36,20 +30,18 @@ export function ConnectRow({ provider, badges, extra, current, suffix, onLogin }
   const bad = state === 'failed' || state === 'unknown'
 
   const recheck = async (): Promise<void> => { setBusy(true); await refresh(provider); setBusy(false) }
-  const startLogin = async (): Promise<void> => { onLogin?.(provider); await login(provider) }
 
   return (
     <div className={`item${current ? ' cur' : ''}`} data-provider={provider}>
       <div className="head">
         <div>
           <span className="name">{PROVIDER_NAME[provider]}</span>
-          {badges}
-          <div className="reason caption">{connectStateLine(provider, state)}{suffix ?? ''}</div>
+          <div className="reason caption">{connectStateLine(provider, state)}</div>
         </div>
         <div className="row">
           {state === 'no-tool' && <button onClick={() => void window.knuaf.openGuide()}>{ONBOARD.installGuide}</button>}
           {/* 소프트 코발트 = 주 행동(DESIGN §7). 로그인과 "○○로 바꾸기"가 그 자리다. */}
-          {state === 'need-login' && <button className="primary" onClick={() => void startLogin()}>{ONBOARD.loginAs(PROVIDER_NAME[provider])}</button>}
+          {state === 'need-login' && <button className="primary" onClick={() => void login(provider)}>{ONBOARD.loginAs(PROVIDER_NAME[provider])}</button>}
           {state === 'logging-in' && <>
             <button onClick={() => void reopen(provider)}>{ONBOARD.reopenBrowser}</button>
             <button className="quiet" onClick={() => void cancel(provider)}>{ONBOARD.cancel}</button>
@@ -67,8 +59,3 @@ export function ConnectRow({ provider, badges, extra, current, suffix, onLogin }
   )
 }
 
-/** 첫 실행 1단계가 붙이는 표시 — 계정 팝오버에는 붙지 않는다. */
-export function ConnectBadges({ provider }: { provider: Provider }) {
-  if (provider === 'codex') return <span style={{ marginLeft: 'var(--sp-2)' }}><Badge tone="accent" label={ONBOARD.recommended} /></span>
-  return <span className="caption" style={{ marginLeft: 'var(--sp-2)' }}>{ONBOARD.claudeExperimental}</span>
-}
