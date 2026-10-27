@@ -12,9 +12,10 @@ import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { bundle, bundledProject, launchInstalled, seededUserData } from './launch-installed'
 import { openProject, paperReady } from '../e2e/helpers'
+import { APP_NAME } from '../src/shared/name'
 
 /** 첫 실행 화면의 1단계 문구 — `copy.ts` 의 `ONBOARD.connectTitle` 과 같다. */
 const FIRST_RUN = 'text=먼저, 쓰고 있는 AI를 연결해요'
@@ -101,7 +102,7 @@ test('동봉 python·스킬로 폴더를 열면 사이드카가 붙고 종이가
     // (`page.title()` 이 아니라 창 제목을 본다: 문서 제목은 `index.html` 의 정적 값이라
     //  main 이 세우는 창 제목과 다른 출처다.)
     const title = await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())
-    expect(title).toContain('knuaf-installed-project-')
+    expect(title).toBe(`${basename(root)} — ${APP_NAME}`)
   } finally {
     await electronApp.close()
   }
