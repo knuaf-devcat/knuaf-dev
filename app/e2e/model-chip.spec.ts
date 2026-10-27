@@ -400,6 +400,30 @@ test('선택 보류 중에 시작한 목록 읽기가 그 선택의 성공을 �
   expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
 })
 
+for (const order of ['list-first', 'choice-first'] as const) {
+  test(`선택 중 시작한 낡은 목록은 완료 순서와 무관하게 최종 선택을 보존한다 (MC1-03 ${order})`, async () => {
+    const selection = Promise.withResolvers<unknown>()
+    const listing = Promise.withResolvers<unknown>()
+    ;(globalThis as unknown as { window: unknown }).window = {
+      knuaf: { chat: { models: () => listing.promise, setModel: () => selection.promise } }
+    }
+    useChat.setState({
+      root: null, provider: 'codex', modelProvider: 'codex', modelSaving: false,
+      models: null, modelChoice: { model: 'gpt-sol', effort: 'high' }, modelReadSeq: 0, modelChoiceSeq: 0
+    })
+    const choosing = useChat.getState().chooseModel({ model: 'gpt-terra', effort: null })
+    const loading = useChat.getState().loadModels()
+    // 목록이 서버에서 생성될 때는 아직 선택 저장 전이다. 전달만 지연한다.
+    const oldList = { result: { provider: 'codex', supported: true, models: [], selected: { model: 'gpt-sol', effort: 'high' } } }
+    if (order === 'list-first') { listing.resolve(oldList); await loading }
+    selection.resolve({ result: { model: 'gpt-terra', effort: null } })
+    expect(await choosing).toBe(true)
+    if (order === 'choice-first') { listing.resolve(oldList); await loading }
+    expect(useChat.getState().modelChoice).toEqual({ model: 'gpt-terra', effort: null })
+    expect(useChat.getState().modelSaving).toBe(false)
+  })
+}
+
 test('전송 전 확인이 실패하면 보낸 말이 대화에 남지 않는다 (MC1-01)', async () => {
   const conn: AgentConnection = {
     status: async () => ({ installed: true, connected: true, version: '0.0.0-test', detail: '' }),

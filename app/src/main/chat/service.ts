@@ -192,7 +192,7 @@ export class ChatService {
         binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
         openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false,
         // 연결은 폴더·공급자마다 한 번만 만들어진다 — 선택은 전송할 때마다 다시 읽는다.
-        modelChoice: () => this.effectiveChoice(root, provider),
+        modelChoice: () => this.effectiveChoice(provider),
         modelChosen: () => this.opts.modelChosen?.(provider) ?? false
       }
       if (this.opts.connectionFactory) {
@@ -220,25 +220,26 @@ export class ChatService {
    * 요금제가 바뀌어 목록에서 사라진 모델을 계속 보내면 **모든 전송이 실패**한다.
    * 아직 목록을 못 받았으면(`null`) 선택을 그대로 보낸다(학생이 방금 고른 값을 이유 없이 무시하지 않는다).
    */
-  private modelLists = new Map<string, ChatModelInfo[]>()
+  private modelLists = new Map<Provider, ChatModelInfo[]>()
   /** 선택 호출의 선후 — 느린 검증이 나중 선택을 덮지 않게 한다(검토 MC1-03). */
   private selectionSeq = new Map<Provider, number>()
   /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
-  private effectiveChoice(root: string, provider: Provider): ModelChoice | null {
+  private effectiveChoice(provider: Provider): ModelChoice | null {
     const stored = this.opts.modelChoice?.(provider) ?? null
-    return effectiveModelChoice(stored, this.modelLists.get(this.key(root, provider)) ?? null)
+    return effectiveModelChoice(stored, this.modelLists.get(provider) ?? null)
   }
   /**
    * 이 계정이 쓸 수 있는 모델 목록. 통로가 없는 공급자(이번 판의 Claude)는 `supported:false` 로
    * 답한다 — 화면은 추천도 칩도 띄우지 않고 지금처럼 기본값으로 둔다.
    */
-  async models(root: string, provider: Provider): Promise<ChatModels> {
-    const connection = this.connection(root, provider)
+  async models(root: string | null, provider: Provider): Promise<ChatModels> {
+    // 폴더를 정하기 전에도 계정 목록은 고를 수 있다. 전역 연결로는 턴을 보내지 않는다.
+    const connection = root ? this.connection(root, provider) : this.globalConnection(provider)
     if (!connection.models) return { provider, supported: false, models: [], selected: null }
     try {
       const models = await connection.models()
-      this.modelLists.set(this.key(root, provider), models)
-      return { provider, supported: true, models, selected: this.effectiveChoice(root, provider) }
+      this.modelLists.set(provider, models)
+      return { provider, supported: true, models, selected: effectiveModelChoice(this.opts.modelChoice?.(provider), models) }
     } catch (e) {
       // 목록을 못 받았다고 저장된 선택을 지우지 않는다 — 화면이 "안 골름"으로 보이면 고른 것이 사라진 줄 안다.
       return {
@@ -255,7 +256,7 @@ export class ChatService {
    * 들어왔으면 저장하지 않고 **지금 설정값**을 돌려준다. 해제(null)는 목록을 기다리지 않으므로
    * 느린 선택 검증이 그 뒤에 끝나도 해제를 되살리지 못한다(검토 MC1-03).
    */
-  async setModel(root: string, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
+  async setModel(root: string | null, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
     const seq = (this.selectionSeq.get(provider) ?? 0) + 1
     this.selectionSeq.set(provider, seq)
     if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) {

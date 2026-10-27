@@ -23,6 +23,7 @@
  *                           initialize 응답을 늦추고, 그 전에 온 요청을 `Not initialized` 로 거절한다
  *   FAKE_CODEX_EPHEMERAL_FAIL_TIMES
  *                           기본값 조회용 `thread/start(ephemeral:true)` 를 그 횟수만큼 오류로 거절한다
+ *   FAKE_CODEX_MODELS_FAIL_TIMES  모델 목록 조회를 처음 N회 오류로 거절한다(복구 UI 시험).
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -50,6 +51,7 @@ const DEFAULT_EFFORT = process.env.FAKE_CODEX_DEFAULT_EFFORT ?? 'medium'
 const INIT_DELAY_MS = Math.max(0, Number(process.env.FAKE_CODEX_INIT_DELAY_MS ?? 0) || 0)
 /** 기본값 조회(ephemeral thread)만 실패시키는 횟수 — 실패 뒤 재조회 경로를 시험한다. */
 let ephemeralFailures = Math.max(0, Number(process.env.FAKE_CODEX_EPHEMERAL_FAIL_TIMES ?? 0) || 0)
+let modelListFailures = Math.max(0, Number(process.env.FAKE_CODEX_MODELS_FAIL_TIMES ?? 0) || 0)
 const MODELS = (() => {
   const raw = process.env.FAKE_CODEX_MODELS
   if (raw) { try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] } }
@@ -151,6 +153,10 @@ function handle(message) {
       return out({ id, result: threadResult(threadId) })
     }
     case 'model/list':
+      if (modelListFailures > 0) {
+        modelListFailures -= 1
+        return out({ id, error: { code: -32603, message: '모델 목록 임시 오류' } })
+      }
       // 쪽 나눔은 흉내 내지 않는다(앱은 nextCursor 가 없으면 멈춘다).
       return out({ id, result: { data: MODELS, nextCursor: null } })
     case 'turn/start': {

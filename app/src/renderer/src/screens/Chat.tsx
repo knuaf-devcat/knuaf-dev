@@ -6,8 +6,7 @@ import { useReview, buildQuotedMessage } from '../store/review'
 import { usePrep, waitKind } from '../store/prep'
 import { withBold } from '../inline'
 import { ReviewQuoteChip } from '../components/ReviewQuote'
-import { PopHead, Popover, PopSep } from '../components/Popover'
-import { AccountChooser, useAccountProvider } from '../components/AccountChooser'
+import { ComposerModelChip } from '../components/ComposerModelChip'
 import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
 import { Icon } from '../components/Icon'
@@ -241,34 +240,6 @@ function NoFolder({ text, setText, onSubmit, submitted, name, setName, onPick, o
   )
 }
 
-/**
- * 입력칸 `+` 오른쪽의 칩 — 지금 연결된 AI 이름 + `생각 깊이 기본`(발주 I-02 ①, **표시만**).
- * 누르면 작은 팝오버가 열린다: 위는 AI 바꾸기(제목줄 계정 팝오버와 같은 `AccountChooser`),
- * 아래는 생각 깊이 한 줄을 **흐린 비활성**으로 — 값은 지어내지 않고 "곧 고를 수 있어요"만 말한다.
- * 실제 모델·추론 값을 넘기는 코드는 건드리지 않는다(안 주면 CLI 기본값이 쓰이는 지금 동작 그대로).
- */
-function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'down' }) {
-  const [open, setOpen] = useState(false)
-  const { provider, stateOf } = useAccountProvider()
-  const state = stateOf(provider)
-  const connection = state === 'connected' ? '연결됨' : state === 'need-login' ? '로그인 필요' : state === 'logging-in' ? '로그인 중' : state === 'no-tool' ? '설치 필요' : state === 'failed' || state === 'unknown' ? '확인 실패' : '확인 중'
-  return (
-    <div className="pop-host">
-      <button type="button" className="model" title={CHAT.modelChipTitle} aria-expanded={open} onClick={() => setOpen(!open)}>
-        {PROVIDER_NAME[provider]} · {connection} · {CHAT.depthChip}<Icon name="chevronDown" size={12} />
-      </button>
-      <Popover open={open} onClose={() => setOpen(false)} align="left" placement={placement} width={400} label={CHAT.modelChipTitle}>
-        <AccountChooser onPicked={() => setOpen(false)} />
-        <PopSep />
-        <PopHead>{CHAT.depthTitle}</PopHead>
-        <div className="pop-row off" aria-disabled="true">
-          <span className="c"><b>{CHAT.depthDefault}</b><small>{CHAT.depthFollows(PROVIDER_NAME[provider])}</small></span>
-          <span className="m">{CHAT.depthSoon}</span>
-        </div>
-      </Popover>
-    </div>
-  )
-}
 
 /**
  * 입력칸 위 한 줄 알림(형님 확정 2026-10-19 알림창 B안) — 대화 화면의 기다림·경고·오류는 모두 여기 한 자리다.

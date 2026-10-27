@@ -88,8 +88,8 @@ const api = {
      * 모델 칩의 뒷단 — 이 계정이 쓸 수 있는 모델과 지금 고른 값. 고른 값은 설정에 남고,
      * 다음 메시지의 `turn/start` 부터 같은 대화에 적용된다(같은 회사 모델끼리라 맥락이 안 끊긴다).
      */
-    models: (root: string, provider: Provider): Promise<RpcResult<ChatModels>> => ipcRenderer.invoke('chat:models', root, provider),
-    setModel: (root: string, provider: Provider, choice: ModelChoice | null): Promise<RpcResult<ModelChoice | null>> => ipcRenderer.invoke('chat:set-model', root, provider, choice)
+    models: (root: string | null, provider: Provider): Promise<RpcResult<ChatModels>> => ipcRenderer.invoke('chat:models', root, provider),
+    setModel: (root: string | null, provider: Provider, choice: ModelChoice | null): Promise<RpcResult<ModelChoice | null>> => ipcRenderer.invoke('chat:set-model', root, provider, choice)
   },
   /**
    * 폴더 없이 쓰는 연결 상태·로그인 — 첫 실행 화면(온보딩). 대화(root 있는 chat.*)와 달리

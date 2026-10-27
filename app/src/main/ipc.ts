@@ -276,8 +276,8 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
    * 모델 칩의 뒷단. 목록은 계정에 묻고(`model/list`), 고른 값은 **설정에** 남긴다 —
    * `.knuaf-gui/chat-*.json` 저장 형식은 이번 판에서 건드리지 않는다.
    */
-  ipcMain.handle('chat:models', async (_e, root: string, provider: Provider) => { try { return { result: await chat.models(root, provider) } } catch (e) { return chatFail(e) } })
-  ipcMain.handle('chat:set-model', async (_e, root: string, provider: Provider, choice: ModelChoice | null) => {
+  ipcMain.handle('chat:models', async (_e, root: string | null, provider: Provider) => { try { return { result: await chat.models(root, provider) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:set-model', async (_e, root: string | null, provider: Provider, choice: ModelChoice | null) => {
     // 저장·순서는 ChatService 가 맡는다(목록 검증과 저장 사이에 새 선택이 끼어드는 경합).
     try { return { result: await chat.setModel(root, provider, choice) } } catch (e) { return chatFail(e) }
   })

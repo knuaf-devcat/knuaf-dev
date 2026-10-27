@@ -2,63 +2,56 @@
  * GUI 감사 GUI-01·GUI-06: 전송하지 않은 입력이 프로젝트를 넘어가고, 재실행하면 사라진다.
  * 감사자가 손으로 본 것을 그대로 각본으로 옮긴 재현이다.
  */
-import { expect, test, type Page } from '@playwright/test'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, navTo, openProject, synthProject } from './helpers'
+import { fakeCodexEnv, scratch, userDataWith } from './fixtures/fake-codex'
 
 const BOX = 'textarea[aria-label="답변을 입력하세요"]'
 
-/**
- * 입력칸은 도우미가 **연결됐을 때만** 뜬다(Chat.tsx: `status.connected`). 미연결 화면은
- * 대신 설치·로그인 CTA 와 초안 복사 카드를 보여 준다 — 설계대로다.
- *
- * 그래서 이 두 시험은 claude·codex 가 깔려 있고 로그인까지 된 기계에서만 의미가 있다.
- * CI 러너에는 계정이 없어 입력칸이 영원히 안 뜨고, 30초 기다리다 죽었다. 환경이 아니라
- * 시험의 전제 문제이므로 전제가 없으면 건너뛴다 — 초록으로 위장하지 않고 이유를 남긴다.
- */
-async function requireConnectedHelper(page: Page): Promise<void> {
-  await page.locator(BOX).waitFor({ timeout: 5000 }).catch(() => null)
-  test.skip(await page.locator(BOX).count() === 0,
-    '도우미가 연결되지 않은 환경이라 입력칸이 없다 (Chat.tsx 의 status.connected)')
-}
 
 test('전송하지 않은 초안이 다른 프로젝트로 넘어가지 않는다 (GUI-01)', async () => {
   const a = synthProject()
   const b = synthProject()
-  const { electronApp, page } = await launch()
+  const dir = scratch()
+  const userData = userDataWith(dir, { helper_mode: 'codex-chat', provider_choice: { provider: 'codex', at: '' } })
+  const { electronApp, page } = await launch({ userData, env: fakeCodexEnv(join(dir, 'bin')) })
   await openProject(page, a)
   await navTo(page, '내 논문')
-  await requireConnectedHelper(page)
+  await expect(page.getByTitle('이 논문의 도우미')).toContainText('연결됨')
   await page.fill(BOX, 'A 프로젝트에 쓰다 만 답변')
 
   await openProject(page, b)
   await navTo(page, '내 논문')
-  expect(await page.inputValue(BOX), 'B 프로젝트에 A 의 초안이 보인다').toBe('')
+  await expect(page.locator(BOX), 'B 프로젝트에 A 의 초안이 보인다').toHaveValue('')
 
   await openProject(page, a)
   await navTo(page, '내 논문')
-  expect(await page.inputValue(BOX), 'A 로 돌아오면 내 초안이 돌아와야 한다')
-    .toBe('A 프로젝트에 쓰다 만 답변')
+  await expect(page.locator(BOX), 'A 로 돌아오면 내 초안이 돌아와야 한다').toHaveValue('A 프로젝트에 쓰다 만 답변')
   await electronApp.close()
 })
 
 test('앱을 껐다 켜도 초안이 남는다 (GUI-06)', async () => {
   const root = synthProject()
-  const userData = mkdtempSync(join(tmpdir(), 'kd-draft-'))
+  const dir = scratch()
+  const userData = userDataWith(dir, { helper_mode: 'codex-chat', provider_choice: { provider: 'codex', at: '' } })
+  const env = fakeCodexEnv(join(dir, 'bin'))
 
-  let app1 = await launch({ userData })
+  const app1 = await launch({ userData, env })
   await openProject(app1.page, root)
   await navTo(app1.page, '내 논문')
-  await requireConnectedHelper(app1.page)
+  await expect(app1.page.getByTitle('이 논문의 도우미')).toContainText('연결됨')
   await app1.page.fill(BOX, '쓰다 만 답변')
   // 잠들 필요 없다 — 종료 직전에 메인이 동기로 쓴다.
   await app1.electronApp.close()
+  expect(readFileSync(join(root, '.knuaf-gui', 'draft.txt'), 'utf8')).toBe('쓰다 만 답변')
 
-  const app2 = await launch({ userData })
+  const app2 = await launch({ userData, env })
   await openProject(app2.page, root)
   await navTo(app2.page, '내 논문')
-  expect(await app2.page.inputValue(BOX), '재실행 후 초안이 사라졌다').toBe('쓰다 만 답변')
-  await app2.electronApp.close()
+  try {
+    // A안부터 입력칸이 연결 확인보다 먼저 뜬다. 저장 초안의 비동기 복원을 기다린다.
+    await expect(app2.page.locator(BOX), '재실행 후 초안이 사라졌다').toHaveValue('쓰다 만 답변')
+  } finally { await app2.electronApp.close() }
 })

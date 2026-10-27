@@ -180,8 +180,9 @@ test('칩 팝오버는 위로 열려 Claude 행·깊이 줄이 화면 안에 있
       await chip.click()
       const pop = page.locator('.chat-composer .popover')
       await expect(pop).toBeVisible()
-      // 팝오버·Claude 행·깊이 줄이 모두 화면 안(y ≥ 0, 바닥 ≤ 창 높이)에 있다.
-      for (const sel of ['.chat-composer .popover', '[data-provider="claude"]', '.chat-composer .pop-row.off']) {
+      // 목록이 길어져도 팝오버는 창 안에 남고 각 조작에 스크롤로 도달할 수 있다.
+      for (const sel of ['.chat-composer .popover', '[data-provider="claude"]', '.chat-composer .model-depth']) {
+        await page.locator(sel).first().scrollIntoViewIfNeeded()
         const b = await box(page, sel)
         expect(b, `${sel} 이 없다`).not.toBeNull()
         expect(b!.y, `${w}×${h}: ${sel} 이 화면 위로 나갔다`).toBeGreaterThanOrEqual(0)
@@ -189,6 +190,7 @@ test('칩 팝오버는 위로 열려 Claude 행·깊이 줄이 화면 안에 있
       }
       // Claude 변경 버튼도 화면 안.
       const btn = page.locator('[data-provider="claude"]').getByRole('button')
+      await btn.scrollIntoViewIfNeeded()
       await expect(btn).toBeVisible()
       const bb = await btn.boundingBox()
       expect(bb!.y + bb!.height).toBeLessThanOrEqual(h + 0.5)
@@ -256,33 +258,4 @@ test('파일 팝오버는 16개에서도 목록만 스크롤하고 아래 이동
 })
 
 
-test('입력칸 칩은 지금 AI + 생각 깊이(표시만)를 열고 깊이는 비활성 (I-02 ①)', async () => {
-  const dir = scratch()
-  const env = fakeCodexEnv(join(dir, 'bin'), { FAKE_CODEX_MODE: 'logged-in' })
-  const root = synthProject()
-  const { electronApp, page } = await launch({ env })
-  try {
-    await openProject(page, root)
-    const chip = page.locator('.chat-composer .crow .model')
-    await expect(chip).toBeVisible({ timeout: 30_000 })
-    await expect(chip).toContainText('ChatGPT')
-    await expect(chip).toContainText(CHAT.depthChip)
-    await expect(chip).toHaveAttribute('title', CHAT.modelChipTitle)
-
-    await chip.click()
-    const pop = page.locator('.chat-composer .popover')
-    await expect(pop).toBeVisible()
-    // 위: AI 바꾸기(제목줄 계정 팝오버와 같은 부품).
-    await expect(pop.locator('[data-provider]')).toHaveCount(2)
-    // 아래: 생각 깊이 — 흐린 비활성 줄, 값은 지어내지 않는다.
-    const depth = pop.locator('.pop-row.off')
-    await expect(depth).toContainText(CHAT.depthDefault)
-    await expect(depth).toContainText(CHAT.depthSoon)
-    await expect(depth).toHaveAttribute('aria-disabled', 'true')
-    // 모델 이름을 지어내지 않는다.
-    await expect(pop).not.toContainText(/GPT-\d|Sol|깊게/)
-  } finally {
-    await electronApp.close()
-  }
-})
 

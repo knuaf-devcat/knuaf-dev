@@ -118,6 +118,10 @@ interface ChatState {
   modelsSupported: boolean
   modelsError: string | null
   modelChoice: ModelChoice | null
+  modelProvider: Provider
+  modelLoading: boolean
+  modelSaving: boolean
+  modelSaveError: string | null
   /**
    * 모델 요청의 선후. **읽기(목록)와 쓰기(선택)를 따로 센다** — 목록 읽기가 진행 중인 선택의
    * 성공을 취소하면 저장값과 화면이 어긋난다(검토 MC1-03).
@@ -125,9 +129,9 @@ interface ChatState {
   modelReadSeq: number
   modelChoiceSeq: number
   /** 목록을 지금 계정에 다시 묻는다. 실패해도 저장된 선택은 유지된다. */
-  loadModels: () => Promise<void>
-  /** 고른 모델·생각 깊이를 설정에 남긴다. `null` 이면 "안 골름"(지금과 같은 기본값). */
-  chooseModel: (choice: ModelChoice | null) => Promise<boolean>
+  loadModels: (provider?: Provider) => Promise<void>
+  /** 고른 모델·생각 깊이를 설정에 남긴다. `null` 이면 "안 고름"(계정 기본). */
+  chooseModel: (choice: ModelChoice | null, provider?: Provider) => Promise<boolean>
 }
 
 export const useChat = create<ChatState>((set, get) => ({
@@ -149,6 +153,10 @@ export const useChat = create<ChatState>((set, get) => ({
   modelsSupported: false,
   modelsError: null,
   modelChoice: null,
+  modelProvider: 'codex',
+  modelLoading: false,
+  modelSaving: false,
+  modelSaveError: null,
   modelReadSeq: 0,
   modelChoiceSeq: 0,
   armStart: (root) => set({ startIntent: root }),
@@ -182,7 +190,7 @@ export const useChat = create<ChatState>((set, get) => ({
     set({
       root, provider, error: null,
       // 다른 대화로 옮기면 새 방문이다 — 앞 방문의 전송·준비 대기가 쥐고 있던 잠금과 진행 표시를 푼다.
-      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false, models: null, modelsSupported: false, modelsError: null, modelChoice: null, modelReadSeq: get().modelReadSeq + 1, modelChoiceSeq: get().modelChoiceSeq + 1 }),
+      ...(samePair ? {} : { snapshot: null, status: null, statusFailed: false, connState: 'checking', visit: get().visit + 1, busy: false, waitingPrep: false }),
       ...(switching ? { draft: '', draftSeq: get().draftSeq + 1 } : {})
     })
     // 이 읽기를 **시작한 시점**의 화면. 늦게 도착한 응답이 그 뒤에 앱이 스스로 바꾼 값
@@ -327,45 +335,53 @@ export const useChat = create<ChatState>((set, get) => ({
   onSnapshot: (snapshot) => {
     if (snapshot.root === get().root && snapshot.provider === get().provider) set({ snapshot })
   },
-  loadModels: async () => {
-    const { root, provider, visit } = get()
-    if (!root) return
+  loadModels: async (provider = get().provider) => {
     const readSeq = get().modelReadSeq + 1
-    // 이 읽기를 시작한 시점의 선택 세대 — 읽는 동안 새 선택이 **시작**됐으면 이 응답의 selected 는 낡았다.
     const choiceAtStart = get().modelChoiceSeq
-    set({ modelReadSeq: readSeq })
-    const r = await window.knuaf.chat.models(root, provider) as Reply<ChatModels>
-    // 그 사이 폴더·공급자를 떠났으면 이 응답은 지금 화면의 것이 아니다.
-    if (get().visit !== visit || get().provider !== provider) return
-    if ('result' in r) {
-      // 목록은 최신 읽기만 반영하고, selected 는 그 뒤에 선택이 시작되지 않았을 때만 반영한다.
-      // (선택이 **끝난** 뒤 도착한 낡은 selected 는 그 선택의 성공을 되돌리면 안 된다.)
-      const readStale = get().modelReadSeq !== readSeq
-      const selectedStale = readStale || get().modelChoiceSeq !== choiceAtStart
-      set({
-        ...(readStale ? {} : { models: r.result.models, modelsSupported: r.result.supported, modelsError: r.result.error ?? null }),
-        ...(selectedStale ? {} : { modelChoice: r.result.selected })
-      })
-    } else {
-      // 목록을 못 받아도 지금 고른 값은 그대로 보여 준다 — 실패가 선택을 지우는 것처럼 보이면 안 된다.
-      set({ modelsError: messageOf(r) })
+    // 선택 시작 번호뿐 아니라 읽기 시작 때 선택이 진행 중이었는지도 기억한다.
+    // 그 선택이 성공한 뒤 도착하는 selected는 저장 전 값일 수 있다(MC1-03).
+    const choicePendingAtStart = get().modelProvider === provider && get().modelSaving
+    const changedProvider = get().modelProvider !== provider
+    set({
+      modelReadSeq: readSeq, modelProvider: provider, modelLoading: true, modelsError: null,
+      ...(changedProvider ? { models: null, modelChoice: null, modelSaveError: null, modelSaving: false } : {})
+    })
+    try {
+      // 모델 선택은 공급자별 설정이다. 논문 폴더를 고르기 전에도 같은 계정 목록을 쓴다.
+      const r = await window.knuaf.chat.models(null, provider) as Reply<ChatModels>
+      if (get().modelProvider !== provider || get().modelReadSeq !== readSeq) return
+      if ('result' in r) {
+        const selectedStale = choicePendingAtStart || get().modelSaving || get().modelChoiceSeq !== choiceAtStart
+        set({
+          models: r.result.models, modelsSupported: r.result.supported,
+          modelsError: r.result.error ?? null,
+          ...(selectedStale ? {} : { modelChoice: r.result.selected })
+        })
+      } else set({ modelsError: messageOf(r) })
+    } catch (e) {
+      if (get().modelProvider === provider && get().modelReadSeq === readSeq) set({ modelsError: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.' })
+    } finally {
+      if (get().modelProvider === provider && get().modelReadSeq === readSeq) set({ modelLoading: false })
     }
   },
-  chooseModel: async (choice) => {
-    const { root, provider } = get()
-    if (!root) return false
+  chooseModel: async (choice, provider = get().provider) => {
     const seq = get().modelChoiceSeq + 1
-    set({ modelChoiceSeq: seq })
-    const r = await window.knuaf.chat.setModel(root, provider, choice) as Reply<ModelChoice | null>
-    if (get().provider !== provider) return false
-    if ('result' in r) {
-      // main 이 목록으로 검증해 돌려준 값(지원하지 않는 생각 깊이는 빠져 있다). 그 사이 더 새
-      // **선택**이 시작됐으면 그 응답이 이긴다 — 옛 선택이 화면을 되돌리지 않는다. 목록 읽기는
-      // 이 번호를 올리지 않으므로, 보류 중이던 이 성공을 취소하지 못한다.
-      if (get().modelChoiceSeq === seq) set({ modelChoice: r.result, modelsError: null, error: null })
-      return true
+    set({ modelChoiceSeq: seq, modelProvider: provider, modelSaving: true, modelSaveError: null })
+    const current = (): boolean => get().modelProvider === provider && get().modelChoiceSeq === seq
+    try {
+      const r = await window.knuaf.chat.setModel(null, provider, choice) as Reply<ModelChoice | null>
+      if (!current()) return false
+      if ('result' in r) {
+        set({ modelChoice: r.result, modelSaveError: null })
+        return true
+      }
+      set({ modelSaveError: messageOf(r) })
+      return false
+    } catch (e) {
+      if (current()) set({ modelSaveError: e instanceof Error ? e.message : '모델 선택을 저장하지 못했어요.' })
+      return false
+    } finally {
+      if (current()) set({ modelSaving: false })
     }
-    set({ error: messageOf(r) })
-    return false
   }
 }))

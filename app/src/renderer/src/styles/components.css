@@ -506,9 +506,35 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 /* 보내기 원형(먹색 채움) — 작업 중이면 같은 자리 멈추기(같은 34×34). */
 .crow .send { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 0; background: var(--send-bg); color: var(--send-ink); padding: 0; }
 .crow .send:disabled { opacity: .28; }
-/* I-02 ① 표시만 — `+` 오른쪽 칩(예: `ChatGPT · 생각 깊이 기본 ▾`). 누르면 AI 바꾸기 + 깊이(비활성). */
+/* 모델 칩은 회사 전환과 같은 회사 모델·생각 깊이 선택을 연다. */
 .crow .model { border: 0; background: none; font-size: 13px; color: var(--muted); padding: 6px 8px; border-radius: 8px; display: inline-flex; gap: 4px; align-items: center; }
 .crow .model:hover { background: var(--hover); color: var(--ink-2); }
+.composer-model-host { min-width: 0; }
+.composer-model-host > .model { min-width: 0; max-width: 100%; }
+.composer-model-host > .model span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-host > .model svg { flex: none; }
+.composer-model-host .popover { width: min(400px, calc(100vw - 48px)); max-height: var(--model-pop-height, calc(100vh - 160px)); margin-left: var(--model-pop-shift, 0px); }
+.model-picker { overscroll-behavior: contain; }
+.model-picker .list { gap: 3px; }
+.model-picker .list > p { margin: 0 10px 4px; font-size: 12px; }
+.model-picker .item { border: 0; padding: 8px 10px; border-radius: 9px; }
+.model-picker .item.cur { background: var(--sel-bg); }
+.model-picker .item .name { font-size: 14px; font-weight: 600; }
+.model-picker .item .reason { font-size: 12px; margin-top: 2px; }
+.model-picker .item .head { gap: 8px; align-items: center; }
+.model-picker .item button { font-size: 12px; padding: 5px 8px; }
+.model-picker-heading { display: flex; align-items: center; justify-content: space-between; }
+.model-picker-heading > button { display: inline-flex; padding: 6px; margin-right: 4px; }
+.model-option { min-height: 50px; }
+.model-option .c b, .model-option .c small { white-space: normal; overflow-wrap: anywhere; }
+.model-option svg { flex: none; color: var(--accent); }
+.model-recommend { color: var(--accent); font-size: 12px; font-weight: 600; flex: none; }
+.model-depth { display: flex; align-items: center; gap: 12px; padding: 8px 10px; font-size: 13px; }
+.model-depth select { margin-left: auto; max-width: 65%; min-height: 34px; }
+.model-picker-note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 6px 10px; word-break: keep-all; overflow-wrap: anywhere; }
+.model-picker-note p { margin: 0 0 4px; }
+.model-picker-note small { display: block; margin-bottom: 6px; }
+.model-picker-note[role="alert"] { color: var(--bad); }
 /* 아직 고를 수 없는 줄 — 흐리게, 눌리지 않게. */
 .pop-row.off { opacity: .6; cursor: default; }
 .pop-row.off:hover { background: none; }
