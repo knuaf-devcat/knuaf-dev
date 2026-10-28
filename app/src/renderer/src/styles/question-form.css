@@ -1,0 +1,12 @@
+.qform { display: grid; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--panel); max-height: min(65vh, 650px); overflow-y: auto; }
+.qform-head, .qform-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.qform-head span, .qform-foot span, .qform-note, .qform-field label span { color: var(--muted); font-size: var(--fs-caption); }
+.qform-fields { display: grid; gap: var(--sp-3); }
+.qform-field { display: grid; gap: var(--sp-1); }
+.qform-row { display: flex; gap: var(--sp-2); }
+.qform-row button { flex: none; white-space: nowrap; }
+.qform-row input, .qform textarea { min-width: 0; width: 100%; padding: var(--sp-2); color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: inherit; }
+.qform-row input:disabled { background: var(--panel-2); }
+.qform-row button[aria-pressed='true'] { color: var(--btn-ink); background: var(--btn-bg); border-color: var(--btn-border); }
+.qform-preview { padding: var(--sp-3); background: var(--panel-2); border-radius: var(--r-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.qform-preview strong { display: block; margin-bottom: var(--sp-1); }

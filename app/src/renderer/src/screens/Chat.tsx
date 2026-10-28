@@ -9,8 +9,10 @@ import { ReviewQuoteChip } from '../components/ReviewQuote'
 import { ComposerModelChip } from '../components/ComposerModelChip'
 import { Disclosure } from '../components/Disclosure'
 import { QuestionCard } from '../components/QuestionCard'
+import { QuestionForm } from '../components/QuestionForm'
 import { Icon } from '../components/Icon'
 import { RuntimeFix } from '../components/RuntimeFix'
+import { QUESTION_FORM } from '../copy'
 import { CHAT, CHAT_EVENT, CLOSE_LABEL, PROJECT_FOLDER, PROVIDER_NAME, RUNTIME, describeChatError } from '../copy'
 import { chatSuggestion } from '../suggest'
 import { useStage } from '../components/useStage'
@@ -549,6 +551,8 @@ export function Chat() {
 
   // 아래 칸 하나를 정한다 — 허락 · 질문 카드 · 작업 중 · 입력칸 · 미연결(설계 §4-1).
   const zone = zoneOf(snapshot, status, pStatus ?? null)
+  const [freeFormId, setFreeFormId] = useState<string | null>(null)
+  const freeForm = zone.kind === 'form' && freeFormId === zone.messageId
   /**
    * 빈 입력칸의 추천 문구 — 지금 상황(`suggest.ts` 의 `situationOf`)이 먼저고, 그 안에서 보낸
    * 말 수로 문구를 돌린다. 대화가 비었거나·인용이 붙었거나·작업 중이거나 1단계면 `null` 이고
@@ -693,8 +697,16 @@ export function Chat() {
           </>
         )}
 
-        {(zone.kind === 'running' || zone.kind === 'composer' || zone.kind === 'disconnected') && (
+        {zone.kind === 'form' && (
           <>
+            <div hidden={freeForm}><QuestionForm key={zone.messageId} form={zone.form} onFree={() => setFreeFormId(zone.messageId)} onSend={send} disabled={busy || !!waiting} /></div>
+            {!freeForm && <div className="crow question-model"><ComposerModelChip /></div>}
+          </>
+        )}
+
+        {(zone.kind === 'running' || zone.kind === 'composer' || zone.kind === 'disconnected' || freeForm) && (
+          <>
+            {freeForm && <button type="button" onClick={() => setFreeFormId(null)}>{QUESTION_FORM.back}</button>}
             {zone.kind === 'disconnected' && <ZoneLine tone="info" title={connState === 'checking' ? CHAT.checking : chatConnTitle} sub={connState === 'checking' ? undefined : chatConnBody} />}
             {/* 작업 중 한 줄 — 입력칸 위. 입력칸은 쓸 수 있게 두고 보내기만 막는다. 마지막 학생 메시지가 아직
                 보내는 중이면 그 말풍선 아래 글자가 진행 표시라 이 줄은 그리지 않는다(작업 중엔 늘 1개). */}
