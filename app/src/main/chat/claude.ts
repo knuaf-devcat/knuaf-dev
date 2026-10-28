@@ -6,6 +6,7 @@ import { join, resolve, sep } from 'node:path'
 import { query, type Query, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
 import { winSpawn, killTree } from '../win'
+import { claudeSpawnOptions } from './claude-spawn'
 import type { ConnectionStatus } from '../../shared/chat'
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
@@ -322,6 +323,7 @@ export class ClaudeConnection implements AgentConnection {
     // 첫 프롬프트에 작업 루트를 명시 — 모델이 하위 폴더를 추측해 만들지 않게.
     const q = this.active = query({ prompt: sessionId ? text : `/knuaf-dev ${text}\n\n작업 폴더: ${this.options.root}\n이 폴더 자체가 논문 작업 폴더예요. 하위 폴더를 새로 만들지 말고 여기서 바로 작업해 주세요.`, options: {
       cwd: this.options.root, pathToClaudeCodeExecutable: this.options.binary,
+      ...claudeSpawnOptions(this.options.binary),
       // The project's own skill copy stays authoritative — a stale ~/.claude/skills
       // cannot shadow or mix with it. The external .command launcher pins the same
       // scope (buildLaunchScript in ../agent.ts).
