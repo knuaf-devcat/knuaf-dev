@@ -63,11 +63,79 @@ test('보기를 누르면 곧바로 보내고, 보낸 말은 스킬이 받는 �
     await card.getByRole('radio', { name: /온라인 직거래/ }).click()
     await expect(page.locator('.chat-msg.user')).toHaveCount(1, { timeout: 30_000 })
     await expect(page.locator('.chat-msg.user').first()).toContainText(OPTION_2)
-    // ` — ` 뒤 설명이 빠지는지는 단위 시험이 본다(optionAnswer) — 보낸 말은 스킬이 받는 형식 그대로.
     await expect(page.locator('.qcard')).toContainText('임차료는 내년에 한 번 오르나요', { timeout: 30_000 })
   } finally {
     await electronApp.close()
   }
+})
+
+test('전공 표시는 숨기되 원문 전체를 보내고, 질문과 설명을 나눠 보인다', async () => {
+  const dir = scratch(), root = questionProject()
+  const option = '채소전공 (추천): 딸기는 보통 채소(원예) 분야로 분류돼요.'
+  seedChat(root, [questionMessage('major', `[Q2-1] 전공 (학과 소속)\n표지와 머리말에 들어가요.\n전공이 무엇인가요?\n1) ${option}\n2) 과수전공\n3) 지역 (추천) 검토\n→ 번호 또는 자유 입력`)])
+  const env = fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, QUESTION_2) })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const card = page.locator('.qcard')
+    await expect(card.locator('.qcard-q')).toHaveText('전공이 무엇인가요?')
+    await expect(card.locator('.qcard-description')).toHaveText('표지와 머리말에 들어가요.')
+    const first = card.getByRole('radio').first()
+    await expect(first.locator('.qopt-t')).toHaveText('채소전공')
+    await expect(first.locator('.qopt-x')).toHaveText('딸기는 보통 채소(원예) 분야로 분류돼요.')
+    await expect(first).not.toContainText('추천')
+    await expect(card.getByRole('radio').nth(2).locator('.qopt-t')).toHaveText('지역 (추천) 검토')
+    await first.click()
+    await expect(page.locator('.chat-msg.user').first()).toContainText(`1) ${option}`)
+  } finally { await electronApp.close() }
+})
+
+test('부지 추천 배지와 복수 콜론 원문을 보존한다', async () => {
+  const dir = scratch(), root = questionProject()
+  const money = '자기자본: 1억, 융자: 3억'
+  seedChat(root, [questionMessage('land', `[Q2-3] 부지 확보 방식\n전공에 따라 어떤 부지를 고르나요?\n1) 임차 (추천): 땅값이 들지 않아요.\n2) ${money}\n3) 지역 (추천) 검토\n→ 번호 또는 자유 입력`)])
+  const env = fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, QUESTION_2) })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const card = page.locator('.qcard')
+    await expect(card.locator('.qopt-recommend')).toHaveText('추천')
+    await expect(card.getByRole('radio').first().locator('.qopt-x')).toHaveText('땅값이 들지 않아요.')
+    await expect(card.getByRole('radio').nth(2).locator('.qopt-t')).toHaveText('지역 (추천) 검토')
+    const second = card.getByRole('radio').nth(1)
+    await expect(second.locator('.qopt-t')).toHaveText(money)
+    await second.click()
+    await expect(page.locator('.chat-msg.user').first()).toContainText(`2) ${money}`)
+  } finally { await electronApp.close() }
+})
+
+test('전공의 복수 콜론 보기에서 추천만 숨기고 원문을 보낸다', async () => {
+  const dir = scratch(), root = questionProject()
+  const option = '채소전공 (추천): 대표 작목: 딸기'
+  seedChat(root, [questionMessage('major-multiple-colons', `[Q2-1] 전공 (학과 소속)\n전공이 무엇인가요?\n1) ${option}\n2) 과수전공`)])
+  const env = fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in', FAKE_CODEX_REPLY: replyFile(dir, QUESTION_2) })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const first = page.locator('.qcard').getByRole('radio').first()
+    await expect(first.locator('.qopt-t')).toHaveText('채소전공: 대표 작목: 딸기')
+    await expect(first.locator('.qopt-x')).toHaveCount(0)
+    await first.click()
+    await expect(page.locator('.chat-msg.user').first()).toContainText(`1) ${option}`)
+  } finally { await electronApp.close() }
+})
+
+test('전공·작목 제목의 작목 질문에서는 추천을 유지한다', async () => {
+  const dir = scratch(), root = questionProject()
+  seedChat(root, [questionMessage('major-crop', '[Q2-4] 전공·작목 적합성\n어떤 작목을 재배할까요?\n1) 딸기 (추천): 시설을 활용해요.\n2) 사과')])
+  const env = fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' })
+  const { electronApp, page } = await launch({ env })
+  try {
+    await openProject(page, root)
+    const first = page.locator('.qcard').getByRole('radio').first()
+    await expect(first.locator('.qopt-recommend')).toHaveText('추천')
+    await expect(first.locator('.qopt-x')).toHaveText('시설을 활용해요.')
+  } finally { await electronApp.close() }
 })
 
 test('직접 입력: Esc 로 되돌아가도 글이 남고, Enter 로 보낸다', async () => {

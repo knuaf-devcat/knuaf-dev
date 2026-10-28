@@ -1454,3 +1454,14 @@ export const PROJECT_FOLDER = {
   openFailed: '폴더를 열지 못했어요.',
   createFailed: '폴더를 만들지 못했어요. 다시 시도하거나 내 폴더를 골라 주세요.'
 } as const
+
+export const QUESTION_FORM = {
+  undecided: '미정',
+  filled: '채움',
+  preview: '보낼 답',
+  empty: '(비어 있음)',
+  keys: 'Tab 다음 칸 · Enter 보내기',
+  free: '직접 입력',
+  back: '질문창으로 돌아가기',
+  send: '보내기'
+} as const
