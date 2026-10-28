@@ -204,6 +204,7 @@ function NoFolder({ text, setText, onSubmit, submitted, name, setName, onPick, o
   name: string; setName: (name: string) => void; onPick: () => void; onCreate: () => void
   busy: boolean; createError: string | null; onBack: () => void
 }) {
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const error = useProject((s) => s.error)
   const failure = useProject((s) => s.openFailure)
   const retryFailed = useProject((s) => s.retryFailed)
@@ -231,11 +232,19 @@ function NoFolder({ text, setText, onSubmit, submitted, name, setName, onPick, o
           {createError && <p role="alert">{createError}</p>}
           <button className="quiet" onClick={onBack} disabled={busy}>돌아가기</button>
         </section>
-      </div> : <div className="chat-composer">
-        <textarea rows={2} aria-label={CHAT.placeholder} value={text} placeholder="예: 카페 창업 계획으로 창업 논문을 쓰려고 해요"
-          onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit() } }} />
-        <div className="crow"><ComposerModelChip placement="down" /><span className="sp" /><button className="send" aria-label={CHAT.send} disabled={!text.trim()} onClick={onSubmit}><Icon name="up" size={17} /></button></div>
-      </div>}
+      </div> : <>
+        <div className="chat-composer">
+          <textarea ref={inputRef} rows={2} aria-label={CHAT.placeholder} value={text} placeholder="예: 카페 창업 계획으로 창업 논문을 쓰려고 해요"
+            onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit() } }} />
+          <div className="crow"><ComposerModelChip placement="down" /><span className="sp" /><button className="send" aria-label={CHAT.send} disabled={!text.trim()} onClick={onSubmit}><Icon name="up" size={17} /></button></div>
+        </div>
+        <div className="first-suggestions">
+          {CHAT.firstSuggestions.map(({ label, prompt }) => <button type="button" key={label} onClick={() => {
+            setText(text.trim() ? `${text}\n${prompt}` : prompt)
+            inputRef.current?.focus()
+          }}>{label}</button>)}
+        </div>
+      </>}
     </div>
   )
 }
