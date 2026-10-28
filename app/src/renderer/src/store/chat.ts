@@ -312,6 +312,7 @@ export const useChat = create<ChatState>((set, get) => ({
       set({ waitingPrep: false })
     }
     const requestId = crypto.randomUUID()
+    const snapshotAtSend = get().snapshot
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
     if ('result' in r && recovery !== undefined) {
       const before = get()
@@ -338,7 +339,8 @@ export const useChat = create<ChatState>((set, get) => ({
       const keep = (text === undefined || opts?.consumeDraft)
         ? draftAfterSend(seqAtSend, get().draftSeq, get().draft)
         : get().draft
-      set({ busy: false, snapshot: r.result, draft: keep })
+      // 승인·초안 정리 응답보다 스트림 알림이 먼저 올 수 있다. 이미 받은 답변·완료 상태가 최신이다.
+      set({ busy: false, ...(get().snapshot === snapshotAtSend ? { snapshot: r.result } : {}), draft: keep })
       void window.knuaf.chat.setDraft(root, keep)
       return true
     }
