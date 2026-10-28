@@ -76,7 +76,8 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
   .project-sidebar { display: none; position: absolute; z-index: 12; top: var(--titlebar-h); bottom: 0; left: 0; width: 230px; }
   .project-sidebar.open { display: flex; }
   .app .titlebar, [data-platform="win32"] .titlebar, [data-platform="linux"] .titlebar { padding-left: calc(var(--titlebar-inset) + 48px); }
-  .project-drawer-toggle { display: block; position: absolute; z-index: 7; top: 8px; left: var(--titlebar-inset); }
+  /* 제목줄 밖의 단추도 창 끌기 영역에서 빼야 실제 마우스 클릭이 닿는다(WQA-01). */
+  .project-drawer-toggle { display: block; position: absolute; z-index: 7; top: 8px; left: var(--titlebar-inset); -webkit-app-region: no-drag; }
   .project-drawer-backdrop { display: block; position: fixed; inset: var(--titlebar-h) 0 0; z-index: 11; border: 0; background: rgb(0 0 0 / 25%); }
 }
 /* auto 행은 오른쪽 종이의 내용 높이까지 자라 왼쪽 입력칸을 창 밖으로 밀었다(QA-05).
