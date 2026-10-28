@@ -103,10 +103,13 @@ export class ChatService {
     if (got.from === 'tmp') this.setDraft(root, got.value)
     return got.value
   }
-  setDraft(root: string, text: string): void {
+  setDraft(root: string, text: string, expected?: string): boolean {
+    // 첫 메시지 보관본의 성공 정리: 그 사이 편집된 초안은 건드리지 않는다(INT1-01).
+    if (expected !== undefined && this.draft(root) !== expected) return false
     this.draftPending.set(root, text)
     if (this.draftTimer) clearTimeout(this.draftTimer)
     this.draftTimer = setTimeout(() => this.flushDrafts(), 250)
+    return true
   }
   /** 대기 중인 초안을 지금 쓴다. 종료 직전에도 불리므로 동기다. */
   flushDrafts(): void {

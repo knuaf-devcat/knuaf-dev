@@ -55,28 +55,54 @@ test('종료 시작 뒤 늦은 상태 조회가 연결이나 Codex를 되살리�
   const { electronApp, page } = await launch({ env: { PATH: [bindir, '/usr/bin', '/bin'].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1' } })
   let closed = false
   try {
-    await openProject(page, root)
-    await expect.poll(() => existsSync(starts) ? readFileSync(starts, 'utf8') : '', { timeout: 30000 }).toContain('connect-probe')
-    await expect.poll(() => readFileSync(starts, 'utf8'), { timeout: 30000 }).toContain(root)
-    await electronApp.evaluate(({ app, ipcMain }, file) => {
+    await electronApp.evaluate(({ app, ipcMain }, { file, target }) => {
       const fs = process.getBuiltinModule('node:fs')!
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
-      const state = { quitting: false, release: false, calls: [] as string[], before: '' }
+      const pending = Promise.withResolvers<void>()
+      const entered = Promise.withResolvers<void>()
+      const automatic = Promise.withResolvers<void>()
+      const state = {
+        quitting: false, release: false, before: '', projectHeld: false, projectReleased: false,
+        calls: [] as { channel: string; root: unknown; afterProject: boolean; reply: { error?: { message: string } } }[],
+        releaseProject: pending.resolve, entered: entered.promise, automatic: automatic.promise
+      }
       Object.assign(globalThis, { quitProbe: state })
+      // project.open은 root를 먼저 보여 주고 project.status 뒤에 chat.load를 한 번 더 한다.
+      // 그 실제 갱신 응답을 종료 뒤에 풀어 UI의 추가 상태 조회를 결정적으로 발생시킨다.
+      const rpc = handlers.get('rpc')!
+      handlers.set('rpc', async (...args) => {
+        const result = await rpc(...args)
+        if (!state.projectHeld && args[1] === 'project.status' && (args[2] as { root?: string })?.root === target) {
+          state.projectHeld = true
+          entered.resolve()
+          await pending.promise
+        }
+        return result
+      })
       for (const channel of ['chat:status', 'connect:status']) {
         const original = handlers.get(channel)!
-        handlers.set(channel, (...args) => {
-          if (state.quitting) state.calls.push(channel)
-          return original(...args)
+        handlers.set(channel, async (...args) => {
+          const late = state.quitting
+          const afterProject = state.projectReleased
+          const reply = await original(...args) as { error?: { message: string } }
+          if (late) {
+            state.calls.push({ channel, root: args[1], afterProject, reply })
+            if (afterProject && channel === 'chat:status' && args[1] === target) automatic.resolve()
+          }
+          return reply
         })
       }
       app.prependListener('before-quit', () => {
         if (!state.quitting) state.before = fs.readFileSync(file, 'utf8')
         state.quitting = true
       })
-      // 앱이 창을 닫기 전에 명시적 IPC 결과를 확인한다. 해제 뒤 실제 종료는 그대로 진행한다.
+      // 앱이 창을 닫기 전에 실제 IPC 결과를 확인한다. 해제 뒤 실제 종료는 그대로 진행한다.
       app.on('before-quit', (e) => { if (!state.release) e.preventDefault() })
-    }, starts)
+    }, { file: starts, target: root })
+    await openProject(page, root)
+    await electronApp.evaluate(async () => await Reflect.get(globalThis, 'quitProbe').entered)
+    await expect.poll(() => existsSync(starts) ? readFileSync(starts, 'utf8') : '', { timeout: 30000 }).toContain('connect-probe')
+    await expect.poll(() => readFileSync(starts, 'utf8'), { timeout: 30000 }).toContain(root)
     await page.evaluate(({ root, other }) => {
       window.knuaf.onAppQuitting(() => {
         void Promise.all([
@@ -92,16 +118,21 @@ test('종료 시작 뒤 늦은 상태 조회가 연결이나 Codex를 되살리�
     expect(results).toHaveLength(3)
     expect(results.every((r) => r.error?.message.includes('앱을 종료하고 있어요'))).toBe(true)
     await expect(page.getByTitle('이 논문의 도우미')).toContainText('확인 실패', { timeout: 30000 })
-    const state = await electronApp.evaluate(() => Reflect.get(globalThis, 'quitProbe')) as { calls: string[]; before: string }
-    expect(state.calls.filter((c) => c === 'chat:status')).toHaveLength(2)
-    expect(state.calls.filter((c) => c === 'connect:status')).toHaveLength(1)
+    await electronApp.evaluate(() => { const s = Reflect.get(globalThis, 'quitProbe'); s.projectReleased = true; s.releaseProject() })
+    await electronApp.evaluate(async () => await Reflect.get(globalThis, 'quitProbe').automatic)
+    const state = await electronApp.evaluate(() => { const s = Reflect.get(globalThis, 'quitProbe'); return { calls: s.calls, before: s.before } }) as {
+      calls: { channel: string; afterProject: boolean; reply: { error?: { message: string } } }[]; before: string
+    }
+    // 정확한 호출 수가 계약은 아니다. 명시적 조회와 늦은 project.open의 조회 모두 거절돼야 한다.
+    expect(state.calls.every((c) => c.reply.error?.message.includes('앱을 종료하고 있어요'))).toBe(true)
+    expect(state.calls.find((c) => c.afterProject && c.channel === 'chat:status')?.reply.error?.message).toContain('앱을 종료하고 있어요')
     expect(readFileSync(starts, 'utf8')).toBe(state.before)
     await electronApp.evaluate(() => { Reflect.get(globalThis, 'quitProbe').release = true })
     await electronApp.close(); closed = true
     expect(readFileSync(starts, 'utf8')).toBe(state.before)
   } finally {
     if (!closed) {
-      await electronApp.evaluate(() => { const state = Reflect.get(globalThis, 'quitProbe'); if (state) state.release = true })
+      await electronApp.evaluate(() => { const state = Reflect.get(globalThis, 'quitProbe'); if (state) { state.releaseProject(); state.release = true } })
       await electronApp.close()
     }
   }

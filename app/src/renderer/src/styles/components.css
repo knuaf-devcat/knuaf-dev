@@ -55,12 +55,12 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 .project-entry .project-nav { flex: 1; min-width: 0; }
 .project-remove { border: 0; background: transparent; color: var(--muted); padding: 6px; }
 .project-drawer-toggle, .project-drawer-backdrop { display: none; }
-.new-chat { flex: 1; width: min(760px, 100%); margin: 0 auto; padding: 12vh 24px 24px; }
+.new-chat { flex: 1; width: min(760px, 100%); min-height: 0; margin: 0 auto; padding: 12vh 24px 24px; overflow-y: auto; }
 .new-chat h1 { font-family: var(--serif); text-align: center; }
 .new-chat > p { text-align: center; color: var(--muted); }
 .new-chat .chat-composer { margin-top: 24px; }
 .folder-question { display: flex; flex-direction: column; gap: 24px; }
-.folder-message { align-self: flex-end; max-width: 90%; padding: 10px 14px; background: var(--accent-soft); border-radius: 14px; white-space: pre-wrap; }
+.folder-message { align-self: flex-end; max-width: 90%; max-height: min(24vh, 180px); overflow: auto; overflow-wrap: anywhere; padding: 10px 14px; background: var(--accent-soft); border-radius: 14px; white-space: pre-wrap; }
 .folder-card { max-width: 620px; padding: 20px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
 .folder-card h2 { margin: 0 0 8px; }
 .folder-card label { display: grid; gap: 6px; margin: 16px 0; }
@@ -500,6 +500,7 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-composer textarea::placeholder { color: var(--faint); }
 .chat-composer textarea:focus-visible { outline: none; }
 .crow { display: flex; align-items: center; gap: 6px; }
+.question-model { padding: 8px 10px 0; }
 .crow .sp { flex: 1; }
 .crow .circ { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; border: var(--hairline) solid var(--line); background: none; color: var(--ink-2); padding: 0; }
 .crow .circ:hover { background: var(--hover); }

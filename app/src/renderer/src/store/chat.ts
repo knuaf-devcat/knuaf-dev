@@ -104,8 +104,9 @@ interface ChatState {
    *  Returns false when the send was refused — the question card unlocks itself on refusal.
    *  `opts.consumeDraft` — 보기를 눌러 보낸 것이 아니라 **초안을 소비하는** 전송(인용 합치기)임을
    *  알린다. 그러면 명시적 `text` 라도 일반 전송과 같은 `draftSeq` 규칙으로 그 초안만 비운다
-   *  — 전송 중 새로 쓴 글은 지키면서(검토 QA2B-R1-02). */
-  send: (text?: string, opts?: { consumeDraft?: boolean }) => Promise<boolean>
+   *  — 전송 중 새로 쓴 글은 지키면서(검토 QA2B-R1-02).
+   *  `preserveDraftOnFailure` — 첫 메시지를 원래 논문 초안에 먼저 보관하고 성공 때만 정리한다. */
+  send: (text?: string, opts?: { consumeDraft?: boolean; preserveDraftOnFailure?: boolean }) => Promise<boolean>
   respond: (id: string, allow: boolean) => Promise<void>
   stop: () => Promise<void>
   /** Push target for window.knuaf.onChatSnapshot; ignores snapshots for other roots/providers. */
@@ -281,12 +282,25 @@ export const useChat = create<ChatState>((set, get) => ({
     // 보낼 때의 폴더·공급자와 초안 편집 번호. 응답은 몇 초 뒤에 온다 — 그 사이 학생이 다른
     // 논문을 열었을 수 있고, 그러면 이 응답은 지금 화면의 것이 아니다(검토 P1-R1-01).
     // 저장할 초안의 소유 폴더는 늘 `setDraft` 에 넘기는 root 여야 한다.
-    const seqAtSend = get().draftSeq
+    let seqAtSend = get().draftSeq
     const rootAtSend = root
     const providerAtSend = provider
     const visitAtSend = get().visit
     const left = (): boolean => get().visit !== visitAtSend
     set({ busy: true, error: null })
+    let recovery: string | undefined
+    if (opts?.preserveDraftOnFailure) {
+      recovery = draft ? (draft.endsWith('\n') ? draft + body : draft + '\n' + body) : body
+      seqAtSend += 1
+      set({ draft: recovery, draftSeq: seqAtSend })
+      const saved = await window.knuaf.chat.setDraft(root, recovery) as Reply<boolean>
+      if ('error' in saved) {
+        if (!left()) set({ busy: false, error: messageOf(saved) })
+        return false
+      }
+      // 폴더 이동으로 전송이 취소돼도 원래 논문의 보관본은 이미 메인에 있다.
+      if (left()) return false
+    }
     // 폴더 준비 중이면 main 이 전송을 거절한다 — 거절당하지 않고 끝날 때까지 기다렸다 보낸다.
     // 그 사이 다른 대화로 떠나면 보내지 않는다. 잠금·진행 표시는 새 방문을 연 `load` 가 이미 풀었다.
     if (isPreparing(root)) {
@@ -298,7 +312,19 @@ export const useChat = create<ChatState>((set, get) => ({
       set({ waitingPrep: false })
     }
     const requestId = crypto.randomUUID()
+    const snapshotAtSend = get().snapshot
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
+    if ('result' in r && recovery !== undefined) {
+      const before = get()
+      // 같은 방문에서 새로 편집했다면 문자열이 우연히 같아도 소비하지 않는다.
+      if (left() || before.draftSeq === seqAtSend) {
+        const restored = await window.knuaf.chat.setDraft(root, draft, recovery) as Reply<boolean>
+        if ('result' in restored && restored.result && get().root === root && get().visit === before.visit
+          && get().draftSeq === before.draftSeq && get().draft === recovery) {
+          set({ draft, draftSeq: get().draftSeq + 1 })
+        }
+      }
+    }
     // 폴더·공급자가 달라졌으면 스냅샷도 초안도 지금 화면에 적용하지 않는다. 다른 폴더의
     // 늦은 성공이 지금 논문의 미전송 초안을 덮거나, 그 초안을 원래 폴더 파일에 쓰면 안 된다.
     if (left() || get().root !== rootAtSend || get().provider !== providerAtSend) {
@@ -313,7 +339,8 @@ export const useChat = create<ChatState>((set, get) => ({
       const keep = (text === undefined || opts?.consumeDraft)
         ? draftAfterSend(seqAtSend, get().draftSeq, get().draft)
         : get().draft
-      set({ busy: false, snapshot: r.result, draft: keep })
+      // 승인·초안 정리 응답보다 스트림 알림이 먼저 올 수 있다. 이미 받은 답변·완료 상태가 최신이다.
+      set({ busy: false, ...(get().snapshot === snapshotAtSend ? { snapshot: r.result } : {}), draft: keep })
       void window.knuaf.chat.setDraft(root, keep)
       return true
     }
