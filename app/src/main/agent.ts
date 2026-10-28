@@ -226,7 +226,7 @@ export function probeVersion(path: string): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const spec = winSpawn(path, ['--version'])
-      execFile(spec.command, spec.args, { timeout: 8000, encoding: 'utf-8', ...spec.options }, (err, stdout) => {
+      execFile(spec.command, spec.args, { timeout: 8000, encoding: 'utf-8', windowsHide: true, ...spec.options }, (err, stdout) => {
         if (err) return resolve(null)
         const line = String(stdout).split(/\r?\n/).map((l) => l.trim()).find(Boolean)
         resolve(line ?? null)

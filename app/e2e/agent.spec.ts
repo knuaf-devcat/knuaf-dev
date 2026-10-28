@@ -1,6 +1,7 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
 import { spawn } from 'node:child_process'
+import { mock } from 'node:test'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -317,6 +318,37 @@ test.describe('findExecutable / probeVersion', () => {
       expect(process.env[pathKeyOf(process.env)]).toBe(pathBeforeTests)
       expect(process.env.HOME).toBe(homeBeforeTests)
     })
+  })
+
+  test('probeVersion은 네이티브·shim 모두 콘솔을 숨긴다 (W1-R01)', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    const calls: { command: string; args: string[]; options: any }[] = []
+    const execFile = mock.method(require('node:child_process'), 'execFile', (command, args, options, callback) => {
+      calls.push({ command, args, options })
+      callback(null, '\n 1.2.3-test\nsecond line\n')
+    })
+    try {
+      for (const os of ['win32', 'darwin', 'linux']) {
+        Object.defineProperty(process, 'platform', { value: os, configurable: true })
+        for (const binary of ['C:\\native\\codex.exe', 'C:\\native\\claude.exe', 'C:\\npm\\claude.cmd', 'C:\\npm\\claude.bat']) {
+          expect(await probeVersion(binary)).toBe('1.2.3-test')
+          const call = calls.at(-1)!
+          expect(call.options).toMatchObject({ timeout: 8000, encoding: 'utf-8', windowsHide: true })
+          if (os === 'win32' && /\.(cmd|bat)$/.test(binary)) {
+            expect(call.command).toMatch(/(?:^|[\\/])cmd\.exe$/i)
+            expect(call.options.windowsVerbatimArguments).toBe(true)
+            expect(call.args.slice(0, 4)).toEqual(['/v:off', '/d', '/s', '/c'])
+          } else {
+            expect(call.command).toBe(binary)
+            expect(call.args).toEqual(['--version'])
+          }
+        }
+      }
+      expect(calls).toHaveLength(12)
+    } finally {
+      execFile.mock.restore()
+      Object.defineProperty(process, 'platform', platform)
+    }
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {
