@@ -570,15 +570,16 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .qcard { border: var(--hairline) solid var(--line); border-radius: var(--r-xl); background: var(--panel); box-shadow: var(--shadow-1); padding: var(--sp-4) 10px var(--sp-2); margin-top: var(--sp-4); }
 .qcard:focus-visible { outline: none; }
 .qcard-use { display: flex; align-items: baseline; gap: var(--sp-2); padding: 0 10px; font-size: 12.5px; color: var(--muted); }
-.qcard-q { font-size: 17px; font-weight: 650; line-height: 1.45; padding: 4px 10px 10px; letter-spacing: -.005em; }
+.qcard-q { font-size: 18px; font-weight: 650; line-height: 1.45; padding: 4px 10px 10px; letter-spacing: -.012em; text-wrap: balance; }
 .qcard-opts { display: flex; flex-direction: column; }
-.qopt { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 46px; padding: var(--sp-2) 10px; border: 0; background: none; border-radius: var(--r-lg); font-size: 15px; text-align: left; line-height: 1.4; }
+.qopt { display: flex; align-items: flex-start; gap: var(--sp-3); width: 100%; min-height: 46px; padding: var(--sp-2) 10px; border: 0; background: none; border-radius: var(--r-lg); font-size: 15px; text-align: left; line-height: 1.4; }
 .qopt:hover { background: var(--hover); }
 .qopt.on { background: var(--sel-bg); }
 .qopt-k { width: 26px; height: 26px; flex: none; border-radius: 8px; border: var(--hairline) solid var(--line-strong); display: grid; place-items: center; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; background: var(--panel); }
 .qopt.on .qopt-k { background: var(--send-bg); color: var(--send-ink); border-color: var(--send-bg); }
-.qopt-t { min-width: 0; }
-.qopt-x { margin-left: auto; font-size: 12.5px; color: var(--muted); padding-left: 10px; white-space: nowrap; }
+.qopt-body { min-width: 0; display: grid; gap: 1px; padding-top: 2px; }
+.qopt-t { min-width: 0; text-wrap: pretty; font-weight: 550; }
+.qopt-x { font-size: 13px; color: var(--muted); text-wrap: pretty; }
 .qopt.free { color: var(--ink-2); }
 .qopt.free .qopt-k { color: var(--muted); }
 .freebox { display: flex; align-items: flex-end; gap: var(--sp-2); margin: 2px 4px 4px; border: var(--hairline) solid var(--accent-border); border-radius: var(--r-lg); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); background: var(--panel); }
