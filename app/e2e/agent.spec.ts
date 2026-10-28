@@ -86,8 +86,9 @@ test.describe('findExecutable / probeVersion', () => {
     if (claudePath) {
       expect(existsSync(claudePath)).toBe(true)
       if (process.platform === 'win32') {
-        // 윈도우는 `claude`·`claude.cmd`·`claude.exe` 를 허용한다(확장자 없는 이름도 실행물이 된다).
-        expect(['claude', 'claude.cmd', 'claude.exe']).toContain(basename(claudePath))
+        // 윈도우는 실행 가능한 확장자만 후보로 본다(`.exe` → `.cmd` → `.bat`). 확장자 없는
+        // 이름은 CreateProcess 가 띄우지 못한다 — npm 설치 폴더의 `claude` shim 실패(CL-WIN-01).
+        expect(['claude.exe', 'claude.cmd', 'claude.bat']).toContain(basename(claudePath))
       } else {
         // 비 Windows 는 종전과 같다 — 이름이 정확히 `claude` 로 끝나야 한다.
         expect(claudePath.endsWith('/claude')).toBe(true)
@@ -159,6 +160,35 @@ test.describe('findExecutable / probeVersion', () => {
     writeFileSync(plain, '')
     chmodSync(plain, 0o755)
     expect(findExecutable(name, { PATH: '', HOME: dir }, { platform: 'darwin', leadingDirs: [dir] })).toBe(plain)
+  })
+
+  /**
+   * CL-WIN-01 — npm 이 깐 Claude Code 는 한 폴더에 `claude`(셸 스크립트)와 `claude.cmd`(실행
+   * shim)를 같이 둔다. 예전에는 확장자 없는 쪽을 먼저 집어 `execFile` 이 ENOENT(7ms, stdout 0)로
+   * 죽었고, 로그인돼 있어도 "연결 상태를 확인하지 못했어요"(`probe:'failed'`)만 떴다(윈도우 실기기).
+   * 같은 폴더에 둘 다 있을 때 `.cmd` 를 고르는 것을 여기서 고정한다.
+   */
+  test('윈도우: 같은 폴더의 `claude`+`claude.cmd` 에서 `.cmd` 를 고른다 (CL-WIN-01)', () => {
+    const name = 'knuaf-npm-probe'
+    const dir = mkdtempSync(join(tmpdir(), 'kd-win-npm-'))
+    const put = (d: string, file: string): string => {
+      const p = join(d, file)
+      writeFileSync(p, file.endsWith('.cmd') ? '@echo off\r\n' : '#!/bin/sh\nexit 0\n')
+      chmodSync(p, 0o755)
+      return p
+    }
+    put(dir, name)  // npm 이 같이 두는 확장자 없는 셸 스크립트
+    const cmd = put(dir, `${name}.cmd`)
+    // 동봉 자리·PATH 밖(EXTRA_DIRS)의 진짜 설치물이 끼어들지 않게 PATH 만 본다.
+    const env = { Path: dir, USERPROFILE: dir, KNUAF_AGENT_PATH_ONLY: '1' }
+    expect(findExecutable(name, env, { platform: 'win32' })).toBe(cmd)
+    // `.exe`(네이티브 설치본)가 같이 있으면 그쪽이 먼저다 — cmd.exe 를 거치지 않는 길.
+    const exe = put(dir, `${name}.exe`)
+    expect(findExecutable(name, env, { platform: 'win32' })).toBe(exe)
+    // 확장자 없는 이름 하나뿐이면 실행물이 아니다 — 찾았다고 하면 그 순간 ENOENT 다.
+    const plainOnly = mkdtempSync(join(tmpdir(), 'kd-win-plain-'))
+    put(plainOnly, name)
+    expect(findExecutable(name, { Path: plainOnly, USERPROFILE: plainOnly, KNUAF_AGENT_PATH_ONLY: '1' }, { platform: 'win32' })).toBeNull()
   })
 
   test('bundledAgentDirs — 윈도우에서만, 패키지·개발 트리 각각의 자리', () => {

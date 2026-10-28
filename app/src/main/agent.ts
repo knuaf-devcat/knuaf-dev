@@ -12,6 +12,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
 import { pathKeyOf } from './chat/contracts'
 import { renameWithRetry } from './safeWrite'
+import { winSpawn } from './win'
 
 // ---------------------------------------------------------------- types
 
@@ -169,7 +170,7 @@ export function findExecutable(
   const dirs = env.KNUAF_AGENT_PATH_ONLY === '1'
     ? fromPath
     : [...(opts.leadingDirs ?? bundledDirs(platform)), ...fromPath, ...EXTRA_DIRS(home)]
-  const names = platform === 'win32' ? [name, `${name}.cmd`, `${name}.exe`] : [name]
+  const names = platform === 'win32' ? winCandidateNames(name) : [name]
   const seen = new Set<string>()
   for (const dir of dirs) {
     if (seen.has(dir)) continue
@@ -180,6 +181,21 @@ export function findExecutable(
     }
   }
   return null
+}
+
+/**
+ * 윈도우에서 찾아 볼 파일 이름들. **확장자 없는 이름은 넣지 않는다** — `CreateProcess` 는
+ * 확장자를 스스로 붙이지 않으므로 그 이름은 띄울 수 없고, npm 이 깐 Claude Code 는 한 폴더에
+ * `claude`(셸 스크립트)와 `claude.cmd`(실행 shim)를 같이 둔다. 확장자 없는 쪽을 먼저 집으면
+ * `execFile` 이 ENOENT 로 죽어 로그인돼 있어도 "연결 상태를 확인하지 못했어요"가 떴다
+ * (CL-WIN-01, 윈도우 실기기).
+ *
+ * `.exe` 를 먼저 본다: 네이티브 설치본은 cmd.exe 를 거치지 않아 인자 이스케이프(`winSpawn` 의
+ * `%` 거절 포함)가 필요 없고, `probeVersion` 처럼 셸 없이 띄우는 호출에서도 그대로 동작한다.
+ * `.cmd`·`.bat` 은 npm shim 이고 실행 경로들이 `winSpawn` 으로 감싼다.
+ */
+function winCandidateNames(name: string): string[] {
+  return [`${name}.exe`, `${name}.cmd`, `${name}.bat`]
 }
 
 /**
@@ -199,11 +215,18 @@ export function bundledAgentDirs(
   return [join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')]
 }
 
-/** `<path> --version`, trimmed first line; null on failure or after 8s. */
+/**
+ * `<path> --version`, trimmed first line; null on failure or after 8s.
+ *
+ * 윈도우에서 npm 이 깐 `.cmd` shim 은 셸 없이 띄울 수 없다(Node 의 CVE-2024-27980 수정 이후
+ * EINVAL) — 그래서 다른 실행 경로(`chat/claude.ts`·`chat/transport.ts`)와 같은 `winSpawn` 을
+ * 거친다. 이걸 빼면 찾은 도우미의 버전만 조용히 비어 배지가 빈칸으로 남는다.
+ */
 export function probeVersion(path: string): Promise<string | null> {
   return new Promise((resolve) => {
     try {
-      execFile(path, ['--version'], { timeout: 8000, encoding: 'utf-8', windowsHide: true }, (err, stdout) => {
+      const spec = winSpawn(path, ['--version'])
+      execFile(spec.command, spec.args, { timeout: 8000, encoding: 'utf-8', ...spec.options }, (err, stdout) => {
         if (err) return resolve(null)
         const line = String(stdout).split(/\r?\n/).map((l) => l.trim()).find(Boolean)
         resolve(line ?? null)
