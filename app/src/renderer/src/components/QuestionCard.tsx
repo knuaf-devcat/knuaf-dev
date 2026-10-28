@@ -83,7 +83,7 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
     if (Number.isInteger(n) && n >= 1 && n <= card.options.length) { e.preventDefault(); pick(n - 1) }
   }
   // 제목이 전공 자체를 가리킬 때만 숨긴다. 작목·전공이 함께 언급된 다른 질문은 건드리지 않는다.
-  const majorQuestion = /^전공\s*(?:$|[(:·])/.test(card.use) ||
+  const majorQuestion = /^전공(?:\s*\(학과 소속\))?$/.test(card.use) ||
     (/^전공(?:이|은|을)\s.*\?$/.test(card.text) && !card.text.includes('작목'))
 
 
@@ -99,7 +99,9 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
         {card.options.map((option, i) => {
           const { main, note } = splitOption(option)
           const recommended = /\s*\(추천\)$/.test(main) && main.replace(/\s*\(추천\)$/, '').trim().length > 0
-          const label = recommended ? main.replace(/\s*\(추천\)$/, '') : main
+          const label = majorQuestion
+            ? main.replace(/^([^:]+?)\s*\(추천\)(?=: |$)/, '$1')
+            : recommended ? main.replace(/\s*\(추천\)$/, '') : main
           return (
             <button key={i} type="button" role="radio" aria-checked={chosen === i}
               className={`qopt${chosen === i ? ' on' : ''}`} onClick={() => pick(i)}>
