@@ -9,7 +9,7 @@ import { CodexConnection } from '../src/main/chat/codex'
 import { findExecutable, installSkill, skillSource, skillTargets, skillVersion } from '../src/main/agent'
 import { useChat } from '../src/renderer/src/store/chat'
 import {
-  CODEX_TIER_MODELS, codexRecommendations, effectiveModelChoice,
+  CODEX_TIER_MODELS, codexRecommendations, effectiveModelChoice, isCrossProviderModelId, resolveCodexAlias,
   type ChatModelInfo, type ModelChoice
 } from '../src/shared/chat'
 import type { AgentConnection, AgentEvents, AgentOptions } from '../src/main/chat/contracts'
@@ -53,13 +53,35 @@ test('높음 줄 모델이 없으면 낮음 줄로 내려가고, 목록에 없�
   const lunaOnly = codexRecommendations([model({ model: 'gpt-luna', name: 'Luna' })])
   expect(lunaOnly.lanes.every((l) => l.model === 'gpt-luna')).toBe(true)
   expect(lunaOnly.lanes).toHaveLength(3)
-  // 별칭은 model·name 어디에 있어도 찾는다(요금제별 실제 id 는 아직 미확인).
+  // 별칭은 model·name 의 **끝 낱말**로 찾는다(요금제별 실제 id 는 아직 미확인). 끝에 붙는
+  // 괄호·한글은 낱말이 아니라 구분자로 쳐서 `GPT Sol (높음)` 도 Sol 이다.
   expect(codexRecommendations([model({ model: 'gpt-5.1', name: 'GPT Sol (높음)' })]).tier).toBe('high')
+  expect(resolveCodexAlias([model({ model: 'GPT-6.1-Sol', name: 'GPT-6.1-Sol' })], 'sol')).toBe('GPT-6.1-Sol')
+  // 중간에 들어 있는 별칭은 더 이상 일치가 아니다 — 이름 뒤에 다른 낱말이 붙으면 그 낱말이 끝이다.
+  expect(resolveCodexAlias([model({ model: 'gpt-sol-mini', name: 'Sol Mini' })], 'sol')).toBeUndefined()
   // 표에 없는 모델은 어떤 칸에도 붙지 않는다.
   const stray = codexRecommendations([model({ model: 'gpt-nova', name: 'Nova' })])
   expect(stray.lanes).toEqual([])
   expect(stray.byModel).toEqual({})
   expect(CODEX_TIER_MODELS.high.review).toBe('astra')
+})
+
+test('다른 공급자로 우회되는 모델은 추천에 붙지 않는다 (DQA-01)', () => {
+  // 형님 맥 실측 모양: OpenAI 세 개 뒤에 다른 공급자 모델이 `/` 접두어 id 로 섞여 온다.
+  expect(isCrossProviderModelId('commandcode-auth/gpt-5.6-terra')).toBe(true)
+  expect(isCrossProviderModelId('gpt-6.1-sol')).toBe(false)
+  const mixed = [
+    model({ model: 'GPT-6.1-Sol', name: 'GPT-6.1-Sol' }),
+    model({ model: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4' }),
+    model({ model: 'commandcode-auth/gpt-5.6-terra', name: 'Terra' })
+  ]
+  const rec = codexRecommendations(mixed)
+  // 높음 줄 Sol 은 그대로. OpenAI Terra 가 목록에 없으니 글쓰기 추천은 사라진다(엉뚱한 안내 금지).
+  expect(rec.tier).toBe('high')
+  expect(rec.lanes).toEqual([{ lane: 'design', label: '설계', model: 'GPT-6.1-Sol' }])
+  expect(rec.byModel['commandcode-auth/gpt-5.6-terra']).toBeUndefined()
+  // 목록을 거치지 않은 배열이 들어와도 별칭 찾기 자체가 다른 공급자 id 를 고르지 않는다.
+  expect(resolveCodexAlias(mixed, 'terra')).toBeUndefined()
 })
 
 test('고른 값은 이 계정 목록에 비춰 정규화된다 (없는 모델=안 골름, 미지원 깊이=버림)', () => {
@@ -274,10 +296,12 @@ test('초기화가 끝나기 전에 상태·목록을 동시에 물어도 둘 �
   })
 })
 
-test('model/list 를 읽어 화면이 쓸 모양으로 옮기고, 숨긴 모델은 뺀다', async () => {
+test('model/list 를 읽어 화면이 쓸 모양으로 옮기고, 숨긴 모델·다른 공급자 모델은 뺀다', async () => {
   const hidden = [
     { id: 'gpt-sol', model: 'gpt-sol', displayName: 'Sol', hidden: false, isDefault: true, defaultReasoningEffort: 'high', supportedReasoningEfforts: [{ reasoningEffort: 'high', description: '' }] },
     { id: 'gpt-internal', model: 'gpt-internal', displayName: 'Internal', hidden: true, supportedReasoningEfforts: [] },
+    // 형님 맥 실측: 로컬 중계(opencodex)가 남의 회사 모델을 `/` 접두어 id 로 같이 내놓는다.
+    { id: 'anthropic/claude-sonnet-4', model: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4', hidden: false, description: 'Routed via opencodex → anthropic (anthropic).', supportedReasoningEfforts: [] },
     { id: 'gpt-luna', model: 'gpt-luna', displayName: 'Luna', hidden: false, supportedReasoningEfforts: [{ reasoningEffort: 'low', description: '' }] }
   ]
   await withCodex({ FAKE_CODEX_MODELS: JSON.stringify(hidden) }, async (conn) => {
@@ -342,6 +366,26 @@ test('main 쪽: 목록으로 검증해 저장하고, 전송할 때 그 값이 �
   expect((await svc.models(root, 'codex')).selected).toBeNull()
   await svc.send(root, 'codex', '다음 질문', 'req-model-2')
   expect(seen[0].modelChoice?.()).toBeNull()
+})
+
+test('저장된 선택이 다른 공급자 모델이면 보내지도 덮어쓰지도 않고 계정 기본값으로 둔다 (DQA-01)', async () => {
+  const list = { current: FOUR }
+  const stored: { current: ModelChoice | null } = { current: { model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' } }
+  const writes: (ModelChoice | null)[] = []
+  const { svc, seen } = serviceWith(list, stored, { chosen: () => true, store: (c) => writes.push(c) })
+  const root = mkdtempSync(join(tmpdir(), 'kd-model-project-'))
+
+  // 목록을 받기 전에 보내도 그 id 는 전송 값에 없다 — 다른 회사·다른 과금 경로로 새지 않는다.
+  await svc.send(root, 'codex', '안녕하세요', 'req-cross-1')
+  expect(seen[0].modelChoice?.()).toBeNull()
+
+  // 목록을 받아도 같다. 설정 파일의 값은 지우거나 다른 모델로 바꾸지 않는다.
+  expect((await svc.models(root, 'codex')).selected).toBeNull()
+  expect(stored.current).toEqual({ model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' })
+  expect(writes).toEqual([])
+
+  // 화면이 그 id 를 골라 저장하려 해도 거절한다(목록에 없는 모델).
+  await expect(svc.setModel(root, 'codex', { model: 'anthropic/claude-opus-4', effort: null })).rejects.toThrow('이 계정에서 쓸 수 없는 모델이에요')
 })
 
 test('고른 적 없는 학생의 해제는 설정에 흔적을 남기지 않는다 (L-02)', async () => {
@@ -528,9 +572,18 @@ test('앱 통로: 목록을 받고, 고른 모델이 설정에 남아 다음 전
   writeFileSync(log, '')
   writeFileSync(state, 'chatgpt\n')
   const root = synthProject()
+  // 실측 모양: 로컬 중계(opencodex)가 남의 회사 모델을 `/` 접두어 id 로 같이 내놓는다(DQA-01).
+  const mixed = [
+    { id: 'gpt-sol', model: 'gpt-sol', displayName: 'Sol', defaultReasoningEffort: 'high', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] },
+    { id: 'gpt-terra', model: 'gpt-terra', displayName: 'Terra', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] },
+    { id: 'gpt-luna', model: 'gpt-luna', displayName: 'Luna', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] },
+    { id: 'gpt-astra', model: 'gpt-astra', displayName: 'Astra', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] },
+    { id: 'anthropic/claude-sonnet-4', model: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4', description: 'Routed via opencodex → anthropic (anthropic).', supportedReasoningEfforts: [] },
+    { id: 'commandcode-auth/gpt-5.6-terra', model: 'commandcode-auth/gpt-5.6-terra', displayName: 'Terra', description: 'Routed via opencodex → commandcode (commandcode).', supportedReasoningEfforts: [] }
+  ]
   const { electronApp, page } = await launch({
     userData,
-    env: fakeCodexEnv(dir, { FAKE_CODEX_STATE: state, FAKE_CODEX_TURN_LOG: log })
+    env: fakeCodexEnv(dir, { FAKE_CODEX_STATE: state, FAKE_CODEX_TURN_LOG: log, FAKE_CODEX_MODELS: JSON.stringify(mixed) })
   })
   type ChatApi = {
     models: (root: string, provider: string) => Promise<{ result?: { supported: boolean; models: { model: string; name: string }[]; selected: ModelChoice | null } ; error?: { message: string } }>

@@ -11,12 +11,12 @@ const option = (model: string, name: string, hidden = false) => ({
 const lowModels = [option('gpt-terra', 'Terra'), option('gpt-luna', 'Luna'), option('gpt-hidden-sol', 'Sol', true)]
 const highModels = [option('gpt-sol', 'Sol'), option('gpt-astra', 'Astra'), option('gpt-terra', 'Terra'), option('gpt-luna', 'Luna')]
 
-async function scene(models = highModels, colorScheme: 'light' | 'dark' = 'light', extra: Record<string, string> = {}) {
+async function scene(models = highModels, colorScheme: 'light' | 'dark' = 'light', extra: Record<string, string> = {}, settings: Record<string, unknown> = {}) {
   const dir = scratch()
   const bin = join(dir, 'bin')
   const env = fakeCodexEnv(bin, { FAKE_CODEX_MODELS: JSON.stringify(models), FAKE_CODEX_REPLY: replyFile(dir, '작업을 마쳤어요.'), ...extra })
   writeFakeClaude(bin)
-  const userData = userDataWith(dir, { helper_mode: 'codex-chat', provider_choice: { provider: 'codex', at: '' } })
+  const userData = userDataWith(dir, { helper_mode: 'codex-chat', provider_choice: { provider: 'codex', at: '' }, ...settings })
   const app = await launch({ env, userData, colorScheme })
   return { ...app, dir, userData }
 }
@@ -115,6 +115,44 @@ test('폴더 없이 모델·깊이를 고르고 다음 메시지부터 같은 �
     ])
     const last = JSON.parse(readFileSync(join(root, '.knuaf-gui', 'chat-codex.json'), 'utf8')) as { sessionId: string }
     expect(last.sessionId).toBe(first.sessionId)
+  } finally { await electronApp.close() }
+})
+
+test('다른 공급자 모델은 칩 목록에도 추천에도 나오지 않는다 (DQA-01)', async () => {
+  const mixed = [
+    ...highModels,
+    option('anthropic/claude-sonnet-4', 'Claude Sonnet 4'),
+    // 실측: 이 id 에 '글쓰기' 추천이 붙었던 장면. OpenAI Terra 가 아니라 이 모델이 잡혔다.
+    option('commandcode-auth/gpt-5.6-terra', 'Terra')
+  ]
+  const { electronApp, page } = await scene(mixed)
+  try {
+    const chip = page.getByTitle('이 논문의 도우미')
+    await expect(chip).toContainText('연결됨')
+    await chip.click()
+    const popup = page.locator('.composer-model-host .popover')
+    const rows = popup.locator('.model-option')
+    // OpenAI 네 개 + '안 고름'. 접두어 모델 두 개는 목록에 없다.
+    await expect(rows).toHaveCount(5)
+    await expect(rows.filter({ hasText: 'Claude Sonnet 4' })).toHaveCount(0)
+    // Terra 는 OpenAI 것 하나뿐이고, 글쓰기 추천은 그 하나에만 붙는다.
+    await expect(rows.filter({ hasText: 'Terra' })).toHaveCount(1)
+    await expect(rows.filter({ hasText: 'Terra' })).toContainText('글쓰기에 추천')
+  } finally { await electronApp.close() }
+})
+
+test('저장된 선택이 다른 공급자 모델이면 칩이 그 모델을 고른 것으로 보이지 않는다 (DQA-01)', async () => {
+  // 예전 판에서 저장된 값(다른 공급자 id)이 남아 있는 상태. 앱은 이 값을 보내지 않으므로
+  // 칩도 '계정 기본'으로 보여야 한다 — 화면과 실제 전송이 어긋나면 안 된다.
+  const { electronApp, page } = await scene(highModels, 'light', {}, {
+    chat_models: { codex: { model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' } }
+  })
+  try {
+    const chip = page.getByTitle('이 논문의 도우미')
+    await expect(chip).toContainText('연결됨')
+    await expect(chip).toContainText('생각 깊이 기본')
+    await expect(chip).not.toContainText('Terra')
+    await expect(chip).not.toContainText('생각 깊이 높게')
   } finally { await electronApp.close() }
 })
 

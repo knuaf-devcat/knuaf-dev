@@ -7,7 +7,7 @@ import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
 import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
-import { effectiveModelChoice } from '../../shared/chat'
+import { effectiveModelChoice, isCrossProviderModelId } from '../../shared/chat'
 
 /** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
 function parseChat(text: string, provider: Provider): ChatSnapshot {
@@ -229,6 +229,10 @@ export class ChatService {
   /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
   private effectiveChoice(provider: Provider): ModelChoice | null {
     const stored = this.opts.modelChoice?.(provider) ?? null
+    // 목록을 아직 못 받았어도 다른 공급자로 우회되는 id 는 보내지 않는다(DQA-01). 목록을
+    // 받은 뒤에는 `effectiveModelChoice` 가 같은 판정을 목록으로 한다. 설정 파일의 값은
+    // 지우지 않는다 — 학생 몫을 몰래 다른 모델로 바꾸지 않고, 계정 기본값으로 보낸다.
+    if (provider === 'codex' && stored?.model && isCrossProviderModelId(stored.model)) return null
     return effectiveModelChoice(stored, this.modelLists.get(provider) ?? null)
   }
   /**

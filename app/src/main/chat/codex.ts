@@ -4,6 +4,7 @@ import { JsonRpcProcess } from './transport'
 import { codexSkillConfigOverride } from '../agent'
 import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
 import type { ChatModelInfo } from '../../shared/chat'
+import { isCrossProviderModelId } from '../../shared/chat'
 
 /** 존재하면 realpath, 아니면 입력 그대로. 경로 비교는 반드시 이것을 거친다. */
 export function realOrSelf(p: string): string {
@@ -148,6 +149,10 @@ export class CodexConnection implements AgentConnection {
    *
    * `hidden` 은 기본 고르기 목록에서 숨긴 모델이라 뺀다. `model`(턴에 넣는 값)이 비어 있는
    * 응답은 건너뛴다. 쪽이 남아 있으면 이어 받는다(서버가 한 번에 다 안 줄 수 있다).
+   *
+   * **다른 공급자로 우회되는 모델도 뺀다**(DQA-01). 로컬 중계(opencodex)를 거치는 CLI 는
+   * 이 계정이 쓸 수 없는 남의 회사 모델까지 `<공급자>/…` id 로 같이 내놓는다(실측 92개 중
+   * 다수). 칩 목록·추천·전송이 모두 이 목록에서 나오므로 여기서 한 번 거르면 셋 다 막힌다.
    * 실계정 목록은 미확인이다 — 이번 판 시험은 가짜 서버로만 돈다.
    */
   async models(): Promise<ChatModelInfo[]> {
@@ -164,7 +169,7 @@ export class CodexConnection implements AgentConnection {
         const m = raw as Record<string, unknown>
         if (m.hidden === true) continue
         const model = typeof m.model === 'string' && m.model ? m.model : typeof m.id === 'string' ? m.id : ''
-        if (!model || seen.has(model)) continue
+        if (!model || isCrossProviderModelId(model) || seen.has(model)) continue
         seen.add(model)
         const efforts = Array.isArray(m.supportedReasoningEfforts)
           ? m.supportedReasoningEfforts

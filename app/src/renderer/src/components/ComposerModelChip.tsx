@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 import { useChat } from '../store/chat'
 import { useProject } from '../store/project'
 import { CHAT, MODEL_PICKER, PROVIDER_NAME } from '../copy'
-import { codexRecommendations, type ModelChoice } from '../../../shared/chat'
+import { codexRecommendations, isCrossProviderModelId, type ModelChoice } from '../../../shared/chat'
 
 /** 회사 전환은 AccountChooser, 같은 회사의 모델 선택은 이 부품이 맡는다. */
 export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'down' }) {
@@ -25,7 +25,11 @@ export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'do
   })))
   const sameProvider = modelProvider === provider
   const catalog = sameProvider ? models : null
-  const choice = provider === 'codex' ? (sameProvider && catalog !== null ? modelChoice : settings?.chat_models?.[provider] ?? null) : null
+  // 목록을 받기 전에는 설정값을 그대로 보여 준다. 다만 다른 공급자로 우회되는 id 는 이 앱이
+  // 보내지 않는 값이라(DQA-01) '안 고름'으로 보인다 — 칩과 실제 전송이 어긋나지 않게.
+  const stored = provider === 'codex' ? settings?.chat_models?.[provider] ?? null : null
+  const usableStored = stored?.model && isCrossProviderModelId(stored.model) ? null : stored
+  const choice = provider === 'codex' ? (sameProvider && catalog !== null ? modelChoice : usableStored) : null
   const selected = catalog?.find((m) => m.model === choice?.model)
   const recommendations = codexRecommendations(catalog ?? [])
   const loading = sameProvider && modelLoading
