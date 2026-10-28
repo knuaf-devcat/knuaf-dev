@@ -73,23 +73,30 @@ test('첫 실행 [다음] 은 연결된 AI 하나를 기록한다 — 고른 것
 // ---------------------------------------------------------------- 실행 파일 찾기
 
 test('KNUAF_AGENT_PATH_ONLY=1 이면 PATH 만 본다', () => {
-  // Finder 로 띄운 앱처럼 PATH 가 비어 있으면 아무것도 찾지 못한다 — 개발 기계에
-  // 진짜 codex 가 깔려 있어도 "도구 없음" 화면을 재현할 수 있어야 한다.
-  expect(findExecutable('codex', { PATH: '', HOME: tmpdir(), KNUAF_AGENT_PATH_ONLY: '1' })).toBeNull()
-  // PATH 에 있으면 찾는다 — 항목 구분자는 플랫폼마다 다르다(`:` vs `;`).
-  const onPath = mkdtempSync(join(tmpdir(), 'kd-path-'))
-  const probe = join(onPath, 'knuaf-probe-tool')
-  writeFileSync(probe, '#!/bin/sh\nexit 0\n', 'utf-8')
-  chmodSync(probe, 0o755)   // POSIX 는 실행 비트가 있어야 executable — 윈도우에서는 no-op
-  expect(findExecutable('knuaf-probe-tool', { PATH: ['/nonexistent-first', onPath].join(delimiter), KNUAF_AGENT_PATH_ONLY: '1' })).toBe(probe)
-  // 표식이 없으면 지금까지처럼 사용자 설치 위치도 본다(홈 아래 임시 설치로 확인).
-  const home = mkdtempSync(join(tmpdir(), 'kd-bin-'))
-  const binDir = join(home, '.local', 'bin')
-  mkdirSync(binDir, { recursive: true })
-  const fake = join(binDir, 'knuaf-probe-tool')
-  writeFileSync(fake, '#!/bin/sh\nexit 0\n', 'utf-8'); chmodSync(fake, 0o755)
-  expect(findExecutable('knuaf-probe-tool', { PATH: '', HOME: home })).toBe(fake)
-  expect(findExecutable('knuaf-probe-tool', { PATH: '', HOME: home, KNUAF_AGENT_PATH_ONLY: '1' })).toBeNull()
+  // 호스트 규칙과 Windows 규칙을 함께 검사한다. Windows에서는 중복 없이 한 번 돈다.
+  for (const platform of new Set<NodeJS.Platform>([process.platform, 'win32'])) {
+    const win = platform === 'win32'
+    const separator = win ? ';' : delimiter
+    const filename = win ? 'knuaf-probe-tool.cmd' : 'knuaf-probe-tool'
+    const body = win ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n'
+    // Finder 로 띄운 앱처럼 PATH 가 비어 있으면 아무것도 찾지 못한다 — 개발 기계에
+    // 진짜 codex 가 깔려 있어도 "도구 없음" 화면을 재현할 수 있어야 한다.
+    expect(findExecutable('codex', { PATH: '', HOME: tmpdir(), KNUAF_AGENT_PATH_ONLY: '1' }, { platform })).toBeNull()
+    // PATH 에 있으면 찾는다 — 항목 구분자는 플랫폼마다 다르다(`:` vs `;`).
+    const onPath = mkdtempSync(join(tmpdir(), 'kd-path-'))
+    const probe = join(onPath, filename)
+    writeFileSync(probe, body, 'utf-8')
+    chmodSync(probe, 0o755)   // POSIX 는 실행 비트가 있어야 executable — 윈도우에서는 no-op
+    expect(findExecutable('knuaf-probe-tool', { PATH: ['/nonexistent-first', onPath].join(separator), KNUAF_AGENT_PATH_ONLY: '1' }, { platform })).toBe(probe)
+    // 표식이 없으면 지금까지처럼 사용자 설치 위치도 본다(홈 아래 임시 설치로 확인).
+    const home = mkdtempSync(join(tmpdir(), 'kd-bin-'))
+    const binDir = join(home, '.local', 'bin')
+    mkdirSync(binDir, { recursive: true })
+    const fake = join(binDir, filename)
+    writeFileSync(fake, body, 'utf-8'); chmodSync(fake, 0o755)
+    expect(findExecutable('knuaf-probe-tool', { PATH: '', HOME: home }, { platform })).toBe(fake)
+    expect(findExecutable('knuaf-probe-tool', { PATH: '', HOME: home, KNUAF_AGENT_PATH_ONLY: '1' }, { platform })).toBeNull()
+  }
 })
 
 // ---------------------------------------------------------------- Claude 확인 실패
