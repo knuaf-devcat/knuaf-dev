@@ -97,8 +97,10 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
             <button key={i} type="button" role="radio" aria-checked={chosen === i}
               className={`qopt${chosen === i ? ' on' : ''}`} onClick={() => pick(i)}>
               <span className="qopt-k">{i + 1}</span>
-              <span className="qopt-t">{main}</span>
-              {note && <span className="qopt-x">{note}</span>}
+              <span className="qopt-body">
+                <span className="qopt-t">{main}</span>
+                {note && <span className="qopt-x">{note}</span>}
+              </span>
             </button>
           )
         })}

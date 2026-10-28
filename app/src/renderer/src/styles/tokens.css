@@ -1,5 +1,13 @@
 /* Design tokens — v5 색(설계 §7). 값은 여기 한 곳에서만 바꾼다 — 컴포넌트는 토큰 이름으로 쓴다.
    코발트 바탕 · 안내 상자(허락) 아이스 그레이 · 채운 버튼은 보내기 하나(먹색), 주 행동은 소프트 코발트. */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("../fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light dark;
   --accent: #3a5a9f; --accent-ink: #ffffff; --accent-soft: #edf2fa; --accent-border: #cfdaee;
@@ -34,7 +42,7 @@
   --fs-body: 0.875rem; --lh-body: 1.55; --ls-body: 0; --fw-body: 400;
   --fs-caption: 12px; --lh-caption: 1.45; --ls-caption: 0.005em;
   --fs-micro: 11px; --ls-micro: 0.01em;
-  --font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", "Pretendard Variable", system-ui, sans-serif;
+  --font: "Pretendard Variable", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
   --sp-1: .25rem; --sp-2: .5rem; --sp-3: .75rem; --sp-4: 1rem; --sp-5: 1.25rem; --sp-6: 1.5rem; --sp-8: 2rem; --sp-10: 2.5rem; --sp-12: 3rem;
   --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-pill: 999px;
@@ -43,7 +51,7 @@
   /* 제목줄 왼쪽 여백 — macOS 신호등 자리다. **다른 OS 는 0** 이고, 윈도우는 컨트롤이
      오른쪽 위를 덮으므로 오른쪽 여백을 비운다(components.css 의 win32 규칙). */
   --titlebar-inset: 0px;
-  --serif: "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
+  --serif: "신명조", "HY신명조", "HYSinMyeongJo-Medium", "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
   /* 종이 칸(3단계) — 종이와 책상. */
   --desk: #eef2f7; --paper: #fffffe; --paper-ink: #161b26;
   --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .18);
