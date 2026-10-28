@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { mkdir, lstat } from 'node:fs/promises'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import type { Sidecar } from './sidecar'
 import type { ProjectPeek, WindowInfo } from '../shared/types'
-import type { Provider } from '../shared/chat'
+import type { ModelChoice, Provider } from '../shared/chat'
 import { APP_ROOT, basePython, bundledPython, venvPython, wheelhouseDir } from './python'
 import { cancelRuntimeInstall, cleanupRuntime, installRuntime, runtimeStatus } from './runtime'
 import { agentApi, skillSource, type AgentCtx, type AgentKind } from './agent'
@@ -12,6 +13,7 @@ import { openGuide } from './menu'
 import { loadSettings, rememberRecent, saveSettings } from './settings'
 import { APP_NAME } from '../shared/name'
 import { hideAppDirs } from './hidden'
+import { projectFolderName } from '../shared/project-folder'
 
 /** Chrome hints the renderer uses to lay out its title bar; also used by main when creating the window. */
 export function windowInfo(): WindowInfo {
@@ -232,12 +234,26 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     isTrusted: (root) => {
       const s = loadSettings()
       return s.permission_mode === 'trust' || (s.trusted_roots ?? []).includes(trustKey(root))
+    },
+    // 고른 모델은 설정에 남는다(대화 파일 형식은 그대로). 전송할 때마다 새로 읽으므로
+    // 칩에서 바꾼 값이 다음 메시지부터 적용된다.
+    modelChoice: (provider) => loadSettings().chat_models?.[provider] ?? null,
+    // "고른 적 있음"은 설정에 그 공급자 키가 있는지로 판정한다. 키가 없으면(처음부터 안 고름)
+    // 기본값 조회·복귀 확인을 하지 않아, 요청이 지금까지와 똑같이 나간다(검토 L-02).
+    modelChosen: (provider) => {
+      const m = loadSettings().chat_models
+      return !!m && typeof m === 'object' && Object.prototype.hasOwnProperty.call(m, provider)
+    },
+    // 고른 값은 설정에 남는다(대화 파일 형식은 그대로). 저장 위치를 서비스가 정하는 이유는
+    // 선택의 선후를 한 곳에서 지키기 위해서다(검토 MC1-03).
+    storeModelChoice: (provider, choice) => {
+      saveSettings({ chat_models: { ...(loadSettings().chat_models ?? {}), [provider]: choice } })
     }
   })
   const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:draft', (_e, root: string) => { try { return { result: chat.draft(root) } } catch (e) { return chatFail(e) } })
-  ipcMain.handle('chat:set-draft', (_e, root: string, text: string) => { try { chat.setDraft(root, text); return { result: true } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:set-draft', (_e, root: string, text: string, expected?: string) => { try { return { result: chat.setDraft(root, text, expected) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:status', async (_e, root: string, provider: Provider) => { try { return { result: await chat.status(root, provider) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:login', async (_e, root: string, provider: Provider) => { try { await chat.login(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:send', async (_e, root: string, provider: Provider, text: string, requestId: string) => {
@@ -256,6 +272,15 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
   })
   ipcMain.handle('chat:respond', (_e, root: string, provider: Provider, id: string, allow: boolean) => { try { chat.respond(root, provider, id, allow); return { result: true } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:stop', async (_e, root: string, provider: Provider) => { try { await chat.stop(root, provider); return { result: true } } catch (e) { return chatFail(e) } })
+  /**
+   * 모델 칩의 뒷단. 목록은 계정에 묻고(`model/list`), 고른 값은 **설정에** 남긴다 —
+   * `.knuaf-gui/chat-*.json` 저장 형식은 이번 판에서 건드리지 않는다.
+   */
+  ipcMain.handle('chat:models', async (_e, root: string | null, provider: Provider) => { try { return { result: await chat.models(root, provider) } } catch (e) { return chatFail(e) } })
+  ipcMain.handle('chat:set-model', async (_e, root: string | null, provider: Provider, choice: ModelChoice | null) => {
+    // 저장·순서는 ChatService 가 맡는다(목록 검증과 저장 사이에 새 선택이 끼어드는 경합).
+    try { return { result: await chat.setModel(root, provider, choice) } } catch (e) { return chatFail(e) }
+  })
 
   // 폴더 없이 쓰는 연결 — 첫 실행 화면(온보딩)이 폴더를 고르기 전에 쓴다. root 인자가 없다.
   // 대화·스킬 계약은 그대로다: 이 연결로는 아무것도 보낼 수 없다(service.ts 전역 연결 주석).
@@ -314,6 +339,23 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       return { error }
     } finally {
       inflight.delete(clientId)
+    }
+  })
+  ipcMain.handle('project:create-folder', async (_e, title: unknown) => {
+    if (typeof title !== 'string') return { error: { code: 'invalid_name', message: '논문 이름을 확인해 주세요.' } }
+    const parent = join(app.getPath('documents'), 'knuaf-dev')
+    try {
+      await mkdir(parent, { recursive: true })
+      if (!(await lstat(parent)).isDirectory()) throw new Error('논문 폴더 위치가 실제 폴더가 아닙니다.')
+      const name = projectFolderName(title)
+      for (let n = 1; n <= 10000; n++) {
+        const root = join(parent, n === 1 ? name : `${name} (${n})`)
+        try { await mkdir(root); return { result: { root } } }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+      }
+      throw new Error('같은 이름의 폴더가 너무 많아요.')
+    } catch (error) {
+      return { error: { code: 'create_folder_failed', message: String(error) } }
     }
   })
 

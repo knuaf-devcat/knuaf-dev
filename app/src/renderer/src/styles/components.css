@@ -46,6 +46,40 @@ label.opt-row input[type="radio"] { margin-top: 2px; }
 
 /* ---- 작업 공간 ---- */
 .stage { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.project-sidebar { flex: 0 0 230px; display: flex; flex-direction: column; gap: 4px; padding: 18px 12px; overflow: auto; background: var(--bg-2); border-right: var(--hairline) solid var(--line); }
+.project-sidebar-label { padding: 20px 10px 6px; color: var(--muted); font-size: 12px; }
+.project-nav { text-align: left; border: 0; background: transparent; border-radius: 8px; padding: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-nav:hover, .project-nav.selected { background: var(--hover); }
+.project-nav.selected { font-weight: 700; }
+.project-entry { display: flex; align-items: center; min-width: 0; }
+.project-entry .project-nav { flex: 1; min-width: 0; }
+.project-remove { border: 0; background: transparent; color: var(--muted); padding: 6px; }
+.project-drawer-toggle, .project-drawer-backdrop { display: none; }
+.new-chat { flex: 1; width: min(760px, 100%); min-height: 0; margin: 0 auto; padding: 12vh 24px 24px; overflow-y: auto; }
+.new-chat h1 { font-family: var(--serif); text-align: center; }
+.new-chat > p { text-align: center; color: var(--muted); }
+.new-chat .chat-composer { margin-top: 24px; }
+.first-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+.first-suggestions button { border: 1px solid var(--line-strong); border-radius: 999px; background: var(--panel); color: var(--ink); padding: 8px 12px; }
+.first-suggestions button:hover { background: var(--hover); }
+.folder-question { display: flex; flex-direction: column; gap: 24px; }
+.folder-message { align-self: flex-end; max-width: 90%; max-height: min(24vh, 180px); overflow: auto; overflow-wrap: anywhere; padding: 10px 14px; background: var(--accent-soft); border-radius: 14px; white-space: pre-wrap; }
+.folder-card { max-width: 620px; padding: 20px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); }
+.folder-card h2 { margin: 0 0 8px; }
+.folder-card label { display: grid; gap: 6px; margin: 16px 0; }
+.folder-card input { width: 100%; padding: 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.folder-option { display: flex; flex-direction: column; align-items: flex-start; width: 100%; gap: 4px; margin: 8px 0; padding: 12px; text-align: left; }
+.folder-option small { color: var(--muted); overflow-wrap: anywhere; }
+.folder-option.recommended { border-color: var(--accent); background: var(--accent-soft); }
+/* WIDE_MIN(1140) + 프로젝트 목록(230) 미만에서는 목록부터 접는다. */
+@media (max-width: 1369px) {
+  .project-sidebar { display: none; position: absolute; z-index: 12; top: var(--titlebar-h); bottom: 0; left: 0; width: 230px; }
+  .project-sidebar.open { display: flex; }
+  .app .titlebar, [data-platform="win32"] .titlebar, [data-platform="linux"] .titlebar { padding-left: calc(var(--titlebar-inset) + 48px); }
+  /* 제목줄 밖의 단추도 창 끌기 영역에서 빼야 실제 마우스 클릭이 닿는다(WQA-01). */
+  .project-drawer-toggle { display: block; position: absolute; z-index: 7; top: 8px; left: var(--titlebar-inset); -webkit-app-region: no-drag; }
+  .project-drawer-backdrop { display: block; position: fixed; inset: var(--titlebar-h) 0 0; z-index: 11; border: 0; background: rgb(0 0 0 / 25%); }
+}
 /* auto 행은 오른쪽 종이의 내용 높이까지 자라 왼쪽 입력칸을 창 밖으로 밀었다(QA-05).
    한 행을 작업 공간 높이로 제한하고, 각 칸의 본문 스크롤에 넘친 내용을 맡긴다. */
 .workspace { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
@@ -470,15 +504,42 @@ dialog.sheet .sheet-foot { display: flex; justify-content: flex-end; gap: var(--
 .chat-composer textarea::placeholder { color: var(--faint); }
 .chat-composer textarea:focus-visible { outline: none; }
 .crow { display: flex; align-items: center; gap: 6px; }
+.question-model { padding: 8px 10px 0; }
 .crow .sp { flex: 1; }
 .crow .circ { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; border: var(--hairline) solid var(--line); background: none; color: var(--ink-2); padding: 0; }
 .crow .circ:hover { background: var(--hover); }
 /* 보내기 원형(먹색 채움) — 작업 중이면 같은 자리 멈추기(같은 34×34). */
 .crow .send { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 0; background: var(--send-bg); color: var(--send-ink); padding: 0; }
 .crow .send:disabled { opacity: .28; }
-/* I-02 ① 표시만 — `+` 오른쪽 칩(예: `ChatGPT · 생각 깊이 기본 ▾`). 누르면 AI 바꾸기 + 깊이(비활성). */
+/* 모델 칩은 회사 전환과 같은 회사 모델·생각 깊이 선택을 연다. */
 .crow .model { border: 0; background: none; font-size: 13px; color: var(--muted); padding: 6px 8px; border-radius: 8px; display: inline-flex; gap: 4px; align-items: center; }
 .crow .model:hover { background: var(--hover); color: var(--ink-2); }
+.composer-model-host { min-width: 0; }
+.composer-model-host > .model { min-width: 0; max-width: 100%; }
+.composer-model-host > .model span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-host > .model svg { flex: none; }
+.composer-model-host .popover { width: min(400px, calc(100vw - 48px)); max-height: var(--model-pop-height, calc(100vh - 160px)); margin-left: var(--model-pop-shift, 0px); }
+.model-picker { overscroll-behavior: contain; }
+.model-picker .list { gap: 3px; }
+.model-picker .list > p { margin: 0 10px 4px; font-size: 12px; }
+.model-picker .item { border: 0; padding: 8px 10px; border-radius: 9px; }
+.model-picker .item.cur { background: var(--sel-bg); }
+.model-picker .item .name { font-size: 14px; font-weight: 600; }
+.model-picker .item .reason { font-size: 12px; margin-top: 2px; }
+.model-picker .item .head { gap: 8px; align-items: center; }
+.model-picker .item button { font-size: 12px; padding: 5px 8px; }
+.model-picker-heading { display: flex; align-items: center; justify-content: space-between; }
+.model-picker-heading > button { display: inline-flex; padding: 6px; margin-right: 4px; }
+.model-option { min-height: 50px; }
+.model-option .c b, .model-option .c small { white-space: normal; overflow-wrap: anywhere; }
+.model-option svg { flex: none; color: var(--accent); }
+.model-recommend { color: var(--accent); font-size: 12px; font-weight: 600; flex: none; }
+.model-depth { display: flex; align-items: center; gap: 12px; padding: 8px 10px; font-size: 13px; }
+.model-depth select { margin-left: auto; max-width: 65%; min-height: 34px; }
+.model-picker-note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 6px 10px; word-break: keep-all; overflow-wrap: anywhere; }
+.model-picker-note p { margin: 0 0 4px; }
+.model-picker-note small { display: block; margin-bottom: 6px; }
+.model-picker-note[role="alert"] { color: var(--bad); }
 /* 아직 고를 수 없는 줄 — 흐리게, 눌리지 않게. */
 .pop-row.off { opacity: .6; cursor: default; }
 .pop-row.off:hover { background: none; }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { ChatSnapshot, Provider } from '../shared/chat'
+import type { ChatModels, ChatSnapshot, ModelChoice, Provider } from '../shared/chat'
 import type { AppInfo, OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
 
 type EventHandler = (event: string, data: unknown) => void
@@ -29,6 +29,7 @@ const api = {
   /** 이 작업폴더에서는 판정 불가한 명령도 묻지 않는다(설정에서 되돌릴 수 있다). */
   trustProject: (root: string, on: boolean) => ipcRenderer.invoke('project:trust', root, on),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('project:pick'),
+  createProjectFolder: (title: string): Promise<{ result: { root: string } } | { error: { code: string; message: string } }> => ipcRenderer.invoke('project:create-folder', title),
   pickFile: (opts: { title?: string; filters?: { name: string; extensions: string[] }[]; defaultPath?: string }): Promise<string | null> => ipcRenderer.invoke('file:pick', opts),
   reveal: (path: string) => ipcRenderer.invoke('shell:reveal', path),
   openPath: (path: string) => ipcRenderer.invoke('shell:open', path),
@@ -63,6 +64,11 @@ const api = {
     ipcRenderer.on('menu', listener)
     return () => ipcRenderer.removeListener('menu', listener)
   },
+  onAppQuitting: (fn: () => void) => {
+    const listener = () => fn()
+    ipcRenderer.on('app:quitting', listener)
+    return () => ipcRenderer.removeListener('app:quitting', listener)
+  },
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   isDir: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:is-dir', p),
   agentStatus: (root: string | null) => ipcRenderer.invoke('agent:status', root),
@@ -73,11 +79,17 @@ const api = {
     snapshot: (root: string, provider: Provider) => ipcRenderer.invoke('chat:snapshot', root, provider),
     status: (root: string, provider: Provider) => ipcRenderer.invoke('chat:status', root, provider),
     draft: (root: string) => ipcRenderer.invoke('chat:draft', root),
-    setDraft: (root: string, text: string) => ipcRenderer.invoke('chat:set-draft', root, text),
+    setDraft: (root: string, text: string, expected?: string) => ipcRenderer.invoke('chat:set-draft', root, text, expected),
     login: (root: string, provider: Provider) => ipcRenderer.invoke('chat:login', root, provider),
     send: (root: string, provider: Provider, text: string, requestId: string) => ipcRenderer.invoke('chat:send', root, provider, text, requestId),
     respond: (root: string, provider: Provider, id: string, allow: boolean) => ipcRenderer.invoke('chat:respond', root, provider, id, allow),
-    stop: (root: string, provider: Provider) => ipcRenderer.invoke('chat:stop', root, provider)
+    stop: (root: string, provider: Provider) => ipcRenderer.invoke('chat:stop', root, provider),
+    /**
+     * 모델 칩의 뒷단 — 이 계정이 쓸 수 있는 모델과 지금 고른 값. 고른 값은 설정에 남고,
+     * 다음 메시지의 `turn/start` 부터 같은 대화에 적용된다(같은 회사 모델끼리라 맥락이 안 끊긴다).
+     */
+    models: (root: string | null, provider: Provider): Promise<RpcResult<ChatModels>> => ipcRenderer.invoke('chat:models', root, provider),
+    setModel: (root: string | null, provider: Provider, choice: ModelChoice | null): Promise<RpcResult<ModelChoice | null>> => ipcRenderer.invoke('chat:set-model', root, provider, choice)
   },
   /**
    * 폴더 없이 쓰는 연결 상태·로그인 — 첫 실행 화면(온보딩). 대화(root 있는 chat.*)와 달리

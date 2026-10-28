@@ -10,7 +10,7 @@ import { launch, synthProject } from './helpers'
 import { fakeCodexEnv, scratch, writeFakeClaude } from './fixtures/fake-codex'
 import { fakeRuntime, writeOldPython } from './fixtures/fake-runtime'
 
-const FOLDER_STEP = 'text=논문을 담을 폴더를 골라요'
+const FOLDER_STEP = 'text=어떤 논문을 쓰고 있어요?'
 const FIX_BUTTON = 'Python 자동으로 준비하기'
 /** 첫 실행 온보딩까지 켠 화면 — 1단계(AI 연결)가 아니라 2단계에서 시작한다(연결된 선택을 심는다). */
 const WIN = process.platform === 'win32'
@@ -58,7 +58,7 @@ test('낡은 PATH Python → 오류 카드의 버튼 → 진행률 → managed �
   })
   try {
     // ① 첫 실행(온보딩 미완료) 화면의 2단계에서 최근 폴더를 연다 → 시작 단계에서 실패한다.
-    await page.locator('.project').first().click()
+    await page.locator('.project-sidebar button[title]').first().click()
     await expect(page.getByText('Python 버전이 너무 낮아요')).toBeVisible({ timeout: 30_000 })
     // 실패한 그 선택(path)을 근거로 준비 버튼이 선다 — 이전 프로젝트의 kind 로 판단하지 않는다.
     const fix = page.getByRole('button', { name: FIX_BUTTON })
@@ -100,7 +100,7 @@ test('해시가 다르면 설치하지 않고, 설치 폴더·임시 파일을 �
     env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
   })
   try {
-    await page.locator('.project').first().click()
+    await page.locator('.project-sidebar button[title]').first().click()
     await page.getByRole('button', { name: FIX_BUTTON }).click()
     await expect(page.getByText('받은 파일이 예상과 달라 설치하지 않았어요')).toBeVisible({ timeout: 30_000 })
     expect(runtimeEntries(userData).filter((n) => n.startsWith('cpython-'))).toEqual([])
@@ -134,7 +134,7 @@ test('직접 지정한 실행기(env)가 원인이면 준비 버튼을 세우지
     }
   })
   try {
-    await page.locator('.project').first().click()
+    await page.locator('.project-sidebar button[title]').first().click()
     await expect(page.getByText('Python 버전이 너무 낮아요')).toBeVisible({ timeout: 30_000 })
     // 사용자가 고른 경로를 몰래 무시하지 않는다 — 기존 안내만 남는다.
     await expect(page.getByRole('button', { name: FIX_BUTTON })).toHaveCount(0)
@@ -155,7 +155,7 @@ test('다운로드가 도중에 끊기면 실패 카드가 서고, 다시 시도
     env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
   })
   try {
-    await page.locator('.project').first().click()
+    await page.locator('.project-sidebar button[title]').first().click()
     await page.getByRole('button', { name: FIX_BUTTON }).click()
     // 첫 내려받기는 본문 도중에 끊긴다 — 설치 슬롯이 풀려 버튼이 다시 서야 한다.
     await expect(page.getByRole('button', { name: '다시 시도' })).toBeVisible({ timeout: 30_000 })
@@ -182,7 +182,7 @@ test('다운로드 뒤(푸는 중·확인 중)에 누른 취소는 게시하지 
     env: envWithOldPython(dir, { KNUAF_RUNTIME_SPEC: rt.specPath, KNUAF_RUNTIME_BASE_URL: rt.baseUrl })
   })
   try {
-    await page.locator('.project').first().click()
+    await page.locator('.project-sidebar button[title]').first().click()
     await page.getByRole('button', { name: FIX_BUTTON }).click()
     await expect(page.locator('.progress-log').getByText('확인 중', { exact: true })).toBeVisible({ timeout: 30_000 })
     await page.locator('.progress').getByRole('button', { name: '취소' }).click()

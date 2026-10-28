@@ -1,3 +1,4 @@
+import { MODEL_SELECTION_COPY } from '../../shared/copy'
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
@@ -6,7 +7,8 @@ import { readRecoverable, tmpOf, writeFileAtomic, type SafeWriteFs } from '../sa
 import { ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
-import type { ChatSnapshot, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
+import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
+import { effectiveModelChoice, isCrossProviderModelId } from '../../shared/chat'
 
 /** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
 function parseChat(text: string, provider: Provider): ChatSnapshot {
@@ -20,6 +22,12 @@ export class ChatService {
   private connections = new Map<string, AgentConnection>()
   private owners = new Set<string>()
   private runs = new Map<string, Promise<void>>()
+  private shuttingDown = false
+  /** 종료 시작과 동시에 새 연결·상태 확인을 막는다. 기존 연결은 close()가 정리한다. */
+  beginShutdown(): void { this.shuttingDown = true }
+  private ensureActive(): void {
+    if (this.shuttingDown) throw new Error('앱을 종료하고 있어요.')
+  }
   /**
    * 아직 카드로 올리지 못한 권한 요청 줄. 카드는 한 번에 하나만 뜨지만 요청은 동시에
    * 온다 — 도우미가 서브에이전트를 띄우면 그쪽 도구 호출도 같은 통로로 들어온다.
@@ -45,6 +53,22 @@ export class ChatService {
     bundledPython?: () => string | null
     /** 학생이 "이 폴더에서는 계속 허용"을 고른 폴더인가. */
     isTrusted?: (root: string) => boolean
+    /**
+     * 지금 설정에 남은 모델 선택(공급자별). 대화 파일이 아니라 설정 쪽이 정본이다 —
+     * 이번 판은 대화 저장 형식을 그대로 둔다.
+     */
+    modelChoice?: (provider: Provider) => ModelChoice | null
+    /**
+     * 이 공급자로 모델을 고른 적이 있는가(설정에 흔적이 있는가). 없으면 해제를 저장하지도,
+     * 기본값 복귀를 확인하지도 않는다 — 고른 적 없는 학생의 요청은 지금까지와 같아야 한다.
+     */
+    modelChosen?: (provider: Provider) => boolean
+    /**
+     * 고른 값을 설정에 남기는 통로(ipc 가 settings.json 에 쓴다). 저장을 여기서 하는 이유는
+     * **선택의 선후**를 한 곳에서 지키기 위해서다 — 느린 검증이 나중에 끝나도 마지막 선택을
+     * 덮지 않는다(검토 MC1-03).
+     */
+    storeModelChoice?: (provider: Provider, choice: ModelChoice | null) => void
     /** Test seam: 대화 기록·초안을 쓰는 파일시스템(e2e/safe-write.spec.ts 가 실패를 주입한다). */
     fs?: SafeWriteFs
   }) {}
@@ -80,10 +104,13 @@ export class ChatService {
     if (got.from === 'tmp') this.setDraft(root, got.value)
     return got.value
   }
-  setDraft(root: string, text: string): void {
+  setDraft(root: string, text: string, expected?: string): boolean {
+    // 첫 메시지 보관본의 성공 정리: 그 사이 편집된 초안은 건드리지 않는다(INT1-01).
+    if (expected !== undefined && this.draft(root) !== expected) return false
     this.draftPending.set(root, text)
     if (this.draftTimer) clearTimeout(this.draftTimer)
     this.draftTimer = setTimeout(() => this.flushDrafts(), 250)
+    return true
   }
   /** 대기 중인 초안을 지금 쓴다. 종료 직전에도 불리므로 동기다. */
   flushDrafts(): void {
@@ -161,10 +188,17 @@ export class ChatService {
   }
   private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-dev') }
   private connection(root: string, provider: Provider): AgentConnection {
+    this.ensureActive()
     const key = this.key(root, provider)
     let c = this.connections.get(key)
     if (!c) {
-      const options: AgentOptions = { binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)), openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false }
+      const options: AgentOptions = {
+        binary: '', root, skill: this.skillDir(root, provider), env: this.opts.env ?? subscriptionEnv(this.pythonBinDirs(root)),
+        openExternal: this.opts.openExternal, trusted: () => this.opts.isTrusted?.(root) ?? false,
+        // 연결은 폴더·공급자마다 한 번만 만들어진다 — 선택은 전송할 때마다 다시 읽는다.
+        modelChoice: () => this.effectiveChoice(provider),
+        modelChosen: () => this.opts.modelChosen?.(provider) ?? false
+      }
       if (this.opts.connectionFactory) {
         c = this.opts.connectionFactory(provider, options)
       } else {
@@ -178,10 +212,78 @@ export class ChatService {
     return c
   }
   async status(root: string, provider: Provider): Promise<ConnectionStatus> {
+    this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     return this.connection(root, provider).status()
   }
   async login(root: string, provider: Provider) { await this.connection(root, provider).login() }
+
+  // ---------------------------------------------------------------- 모델 고르기 (ChatGPT 쪽)
+  /**
+   * 마지막으로 성공한 모델 목록. 전송할 때 고른 모델이 아직 이 계정에 있는지 판정하는 데 쓴다 —
+   * 요금제가 바뀌어 목록에서 사라진 모델을 계속 보내면 **모든 전송이 실패**한다.
+   * 아직 목록을 못 받았으면(`null`) 선택을 그대로 보낸다(학생이 방금 고른 값을 이유 없이 무시하지 않는다).
+   */
+  private modelLists = new Map<Provider, ChatModelInfo[]>()
+  /** 선택 호출의 선후 — 느린 검증이 나중 선택을 덮지 않게 한다(검토 MC1-03). */
+  private selectionSeq = new Map<Provider, number>()
+  /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
+  private effectiveChoice(provider: Provider): ModelChoice | null {
+    const stored = this.opts.modelChoice?.(provider) ?? null
+    // 제외된 저장 선택은 해제(null)가 아니다. 명시적 재선택 전에는 전송을 차단한다.
+    if (provider === 'codex' && stored?.model && isCrossProviderModelId(stored.model)) {
+      throw new Error(MODEL_SELECTION_COPY.reselectionRequired)
+    }
+    return effectiveModelChoice(stored, this.modelLists.get(provider) ?? null)
+  }
+  /**
+   * 이 계정이 쓸 수 있는 모델 목록. 통로가 없는 공급자(이번 판의 Claude)는 `supported:false` 로
+   * 답한다 — 화면은 추천도 칩도 띄우지 않고 지금처럼 기본값으로 둔다.
+   */
+  async models(root: string | null, provider: Provider): Promise<ChatModels> {
+    // 폴더를 정하기 전에도 계정 목록은 고를 수 있다. 전역 연결로는 턴을 보내지 않는다.
+    const connection = root ? this.connection(root, provider) : this.globalConnection(provider)
+    if (!connection.models) return { provider, supported: false, models: [], selected: null }
+    try {
+      const models = await connection.models()
+      this.modelLists.set(provider, models)
+      return { provider, supported: true, models, selected: effectiveModelChoice(this.opts.modelChoice?.(provider), models) }
+    } catch (e) {
+      // 목록을 못 받았다고 저장된 선택을 지우지 않는다 — 화면이 "안 골름"으로 보이면 고른 것이 사라진 줄 안다.
+      return {
+        provider, supported: true, models: [],
+        selected: provider === 'codex' && isCrossProviderModelId(this.opts.modelChoice?.(provider)?.model ?? '')
+          ? null : this.opts.modelChoice?.(provider) ?? null,
+        error: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.'
+      }
+    }
+  }
+  /**
+   * 고른 모델·생각 깊이를 이 계정 목록으로 검증해 **설정에 남긴다**. `null` 은 "안 골름".
+   *
+   * 선택은 마지막 것이 이긴다: 호출마다 번호를 올리고, 목록을 기다리는 동안 더 새 선택이
+   * 들어왔으면 저장하지 않고 **지금 설정값**을 돌려준다. 해제(null)는 목록을 기다리지 않으므로
+   * 느린 선택 검증이 그 뒤에 끝나도 해제를 되살리지 못한다(검토 MC1-03).
+   */
+  async setModel(root: string | null, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
+    const seq = (this.selectionSeq.get(provider) ?? 0) + 1
+    this.selectionSeq.set(provider, seq)
+    if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) {
+      // 고른 적 없는 학생의 "해제"는 아무것도 남기지 않는다 — 흔적을 만들면 다음 재개부터
+      // 기본값 조회가 돌아, 고른 적 없는 학생의 동작이 달라진다(검토 L-02).
+      if (this.opts.modelChosen?.(provider) ?? true) this.opts.storeModelChoice?.(provider, null)
+      return null
+    }
+    const list = await this.models(root, provider)
+    if (this.selectionSeq.get(provider) !== seq) return this.opts.modelChoice?.(provider) ?? null
+    if (!list.supported) throw new Error('이 도우미는 아직 모델 고르기를 지원하지 않아요.')
+    if (list.error) throw new Error(list.error)
+    const picked = effectiveModelChoice(choice, list.models)
+    if (!picked) throw new Error('이 계정에서 쓸 수 없는 모델이에요. 목록을 다시 불러와 주세요.')
+    if (choice.effort && !picked.effort) throw new Error('이 모델은 그 생각 깊이를 지원하지 않아요.')
+    this.opts.storeModelChoice?.(provider, picked)
+    return picked
+  }
 
   // ---------------------------------------------------------------- 전역 연결 (폴더 없이)
   //
@@ -204,6 +306,7 @@ export class ChatService {
     return this.globalRoot
   }
   private globalConnection(provider: Provider): AgentConnection {
+    this.ensureActive()
     let c = this.globals.get(provider)
     if (!c) {
       const root = this.connectRoot()
@@ -229,6 +332,7 @@ export class ChatService {
    * 조회가 실패하면(`probe:'failed'`) — 확인하지 못한 것을 "로그인 필요"로 꾸미지 않는다.
    */
   async globalStatus(provider: Provider): Promise<ConnectionStatus> {
+    this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     try {
       return await this.globalConnection(provider).status()
@@ -252,6 +356,7 @@ export class ChatService {
   }
   async send(root: string, provider: Provider, text: string, requestId: string) {
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
+    this.effectiveChoice(provider)
     this.snapshot(root, provider)
     const s = this.snapshots.get(this.key(root, provider))!
     if (s.messages.some(m => m.id === requestId)) return structuredClone(s)
@@ -272,6 +377,9 @@ export class ChatService {
       }
       const connection = this.connection(root, provider)
       if (!(await connection.status()).connected) throw new Error('AI 계정 연결을 먼저 완료해 주세요.')
+      // 전송 전 확인 — 여기서 던지면 보낸 말이 대화에 남지 않고 초안도 그대로다. 예전 모델로
+      // 조용히 보내는 대신 학생에게 오류로 알린다(검토 MC1-01).
+      await connection.prepare?.(s.sessionId)
       s.skillHash = version; s.skillLoaded = false; s.state = 'running'; s.error = undefined
       s.messages.push({ id: requestId, role: 'user', text, at: new Date().toISOString(), delivery: 'pending' })
       this.publish(s)
@@ -363,6 +471,7 @@ export class ChatService {
     await this.runs.get(key)
   }
   async close() {
+    this.beginShutdown()
     await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) }))
     await Promise.all([...this.globals.values()].map((c) => c.stop()))
     this.globals.clear()

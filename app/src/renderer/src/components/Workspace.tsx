@@ -29,7 +29,7 @@ export function Workspace({ chat, paper }: { chat: ReactNode; paper: ReactNode }
   const prev = useRef<{ root: string | null; body: boolean } | null>(null)
 
   useEffect(() => {
-    const stage = document.querySelector('.stage')
+    const stage = document.querySelector('.workspace')
     if (!stage) return
     const measure = (): void => setWindowWidth(stage.clientWidth)
     measure()

@@ -57,40 +57,37 @@ const POLL_LIMIT_MS = 180_000
 type PollTimer = ReturnType<typeof setInterval>
 
 /**
- * 로그인을 지켜보는 폴링 — **공급자마다 하나**. 첫 화면(전역 연결)과 폴더 화면
- * (`useChat.login`)이 같은 규칙을 쓴다 — 두 곳에 타이머를 두면 한쪽만 바뀐다
- * (설계 §4-3: "폴링은 이리로 옮긴다").
- *
- * 공급자별인 이유(W2 D1): 예전에는 전역 타이머 하나여서 Claude 로그인을 시작하는 순간
- * GPT 로그인 감시가 사라졌다. 실제로는 GPT 가 연결됐는데도 화면은 "로그인 중"에 멈췄다.
- * 한 공급자의 시작·취소는 다른 공급자의 타이머를 건드리지 않는다.
- *
- * `tick` 이 true 를 돌려주면(연결됨) 멈춘다. 폴더를 바꾸거나 화면을 떠나면 `stopPoll()` —
- * 인자 없이 부르면 전부 멈춘다.
+ * 폴더 대화의 감시와 전역 계정 감시는 수명이 다르다. 폴더를 바꿀 때 `useChat.load`
+ * 가 멈추는 것은 대화 감시뿐이며, 모델 칩에서 시작한 로그인은 앱 전체에서 계속된다.
  */
 const polls = new Map<Provider, PollTimer>()
-export function stopPoll(provider?: Provider): void {
+const globalPolls = new Map<Provider, PollTimer>()
+
+function clearPoll(map: Map<Provider, PollTimer>, provider?: Provider): void {
   if (provider) {
-    const timer = polls.get(provider)
-    if (timer) { clearInterval(timer); polls.delete(provider) }
+    const timer = map.get(provider)
+    if (timer) { clearInterval(timer); map.delete(provider) }
     return
   }
-  for (const timer of polls.values()) clearInterval(timer)
-  polls.clear()
+  for (const timer of map.values()) clearInterval(timer)
+  map.clear()
 }
-export function startPoll(provider: Provider, tick: () => Promise<boolean>): void {
-  stopPoll(provider)
+
+function poll(map: Map<Provider, PollTimer>, provider: Provider, tick: () => Promise<boolean>): void {
+  clearPoll(map, provider)
   const deadline = Date.now() + POLL_LIMIT_MS
   const timer = setInterval(() => {
     void (async () => {
       const done = await tick()
-      // 기다리는 사이 새 시도가 이 타이머를 갈아 끼웠으면 이 응답은 지금 것의 것이 아니다.
-      if (polls.get(provider) !== timer) return
-      if (done || Date.now() > deadline) stopPoll(provider)
+      if (map.get(provider) !== timer) return
+      if (done || Date.now() > deadline) clearPoll(map, provider)
     })()
   }, POLL_MS)
-  polls.set(provider, timer)
+  map.set(provider, timer)
 }
+
+export function stopPoll(provider?: Provider): void { clearPoll(polls, provider) }
+export function startPoll(provider: Provider, tick: () => Promise<boolean>): void { poll(polls, provider, tick) }
 
 /**
  * 로그인 시도 번호 — **공급자마다**. 취소·새 시도가 그 공급자의 번호를 올리면, **이미 진행
@@ -160,6 +157,8 @@ interface ConnectState {
   selected: Provider | null
   /** 로그인 창을 띄워 둔 공급자 — displayState 가 이 값을 쓴다. */
   loggingIn: Record<Provider, boolean>
+  /** 현재 폴더에서 확인한 최신 연결 상태를 모델 칩에도 반영한다. */
+  observeChat: (provider: Provider, info: ConnInfo) => void
   select: (provider: Provider | null) => void
   /** 한 공급자의 상태를 지금 다시 묻는다. */
   refresh: (provider: Provider) => Promise<void>
@@ -183,6 +182,10 @@ export const useConnect = create<ConnectState>((set, get) => ({
   selected: null,
   loggingIn: { codex: false, claude: false },
   select: (selected) => set({ selected }),
+  observeChat: (provider, info) => {
+    const previous = get()[provider]
+    if (previous.state !== info.state || previous.detail !== info.detail || previous.version !== info.version) set(one(provider, info))
+  },
   refresh: async (provider) => {
     const r = await window.knuaf.connect.status(provider) as Reply<ConnectionStatus>
     if (!('result' in r)) {
@@ -197,6 +200,7 @@ export const useConnect = create<ConnectState>((set, get) => ({
     // 진행 중이던 로그인의 응답이 무효가 되거나 그 감시가 사라지지 않는다.
     const mine = beginLoginAttempt(provider)
     stopPoll(provider)
+    clearPoll(globalPolls, provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: true } }))
     const r = await window.knuaf.connect.login(provider) as Reply<true>
     // 그 사이에 이 공급자를 취소했거나 새 시도가 시작됐으면 이 응답은 지금 화면의 것이 아니다 —
@@ -208,8 +212,10 @@ export const useConnect = create<ConnectState>((set, get) => ({
       return
     }
     // 로그인이 끝나면 기다림 표시도 내린다.
-    startPoll(provider, async () => {
+    poll(globalPolls, provider, async () => {
+      if (!loginAttemptLive(provider, mine)) return true
       await get().refresh(provider)
+      if (!loginAttemptLive(provider, mine)) return true
       const done = displayState(get()[provider], get().loggingIn[provider]) === 'connected'
       if (done) set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
       return done
@@ -218,6 +224,7 @@ export const useConnect = create<ConnectState>((set, get) => ({
   cancel: async (provider) => {
     invalidateLoginAttempt(provider)   // 이 공급자의 진행 중 로그인 응답을 무효로 만든다
     stopPoll(provider)
+    clearPoll(globalPolls, provider)
     set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
     await window.knuaf.connect.cancel(provider)
     // 취소 뒤의 사실은 다시 물어서 말한다 — "취소했어요"를 상태로 단정하지 않는다.
@@ -227,5 +234,5 @@ export const useConnect = create<ConnectState>((set, get) => ({
     const r = await window.knuaf.connect.reopen(provider) as Reply<true>
     if ('error' in r) set((s) => ({ loggingIn: { ...s.loggingIn, [provider]: false } }))
   },
-  stopPolling: () => stopPoll()
+  stopPolling: () => { stopPoll(); clearPoll(globalPolls) }
 }))

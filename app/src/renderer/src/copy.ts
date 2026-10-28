@@ -1,3 +1,4 @@
+import { MODEL_SELECTION_COPY } from '../../shared/copy'
 import { APP_NAME } from '../../shared/name'
 import { fileStateOf, isReviewExport, reviewBasisOf, type LoadLike } from '../../shared/files'
 /**
@@ -919,6 +920,11 @@ export const CHAT = {
   /** 입력칸 아래 한 줄 — 시안 P/L 그대로(아이스 그레이 아님, 조용한 글). */
   disclaimer: '도우미도 틀릴 수 있어요. 수치와 출처는 꼭 확인하세요.',
   send: '보내기',
+  firstSuggestions: [
+    { label: '새 창업 논문 시작', prompt: '새 창업 논문을 쓰고 싶어요. 제 창업 아이템부터 이야기할게요.' },
+    { label: '쓰던 원고(docx) 이어 쓰기', prompt: '이미 쓰던 docx 원고를 바탕으로 창업 논문을 이어 쓰고 싶어요.' },
+    { label: '제출 전 점검만', prompt: '작성한 논문을 제출하기 전에 점검하고 싶어요.' },
+  ],
   emptyTitle: '아직 대화가 없어요',
   emptyBody: '도우미와 나눈 대화가 여기 쌓여요.',
   emptyBodyStart: '도우미가 질문하며 논문을 함께 써요.',
@@ -940,7 +946,7 @@ export const CHAT = {
    * 빈 대화(자동 시작이 안 된 경우) — AI 는 첫 실행·계정 팝오버에서 고른다. 여기서 다시 고르게
    * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
    */
-  emptyChangeAi: '다른 AI로 바꾸려면 오른쪽 위 계정에서 바꿀 수 있어요',
+  emptyChangeAi: '다른 AI로 바꾸려면 입력칸의 모델 칩을 열어 주세요',
   // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',
@@ -988,15 +994,12 @@ export const CHAT = {
   askTitle: '도우미가 허락을 기다려요',
   /** 명령·상세를 접어 두는 자리 — 쉬운 말 이유는 앞에, 명령·경로는 작게 보이고 상세만 여기로. */
   askDetail: '무엇을 바꾸는지 보기',
-  // --- I-02 ① 표시만: 입력칸 `+` 오른쪽 칩과 그 팝오버 -----------------------
-  /** 지금 연결된 AI 이름 뒤에 붙는 칩 글자(예: `ChatGPT · 생각 깊이 기본 ▾`). */
-  depthChip: '생각 깊이 기본',
+  // --- 입력칸 모델 칩 ------------------------------------------------------
   modelChipTitle: '이 논문의 도우미',
   depthTitle: '생각 깊이',
   depthDefault: '기본값',
   /** 값은 지어내지 않는다 — 지금은 그 사용자의 CLI 기본값이 쓰인다는 사실만 말한다. */
   depthFollows: (name: string) => `내 ${name} 설정을 따라요`,
-  depthSoon: '곧 고를 수 있어요',
   // --- 아래 칸: 작업 중 한 줄(설계 §3) --------------------------------------
   runningLine: '도우미가 작업 중이에요',
   /** 폴더 준비(.venv) 중 — 입력칸 위 진행 표시(store/prep.ts). 처음 한 번, 윈도우에서는 몇 분 걸린다. */
@@ -1005,6 +1008,32 @@ export const CHAT = {
   appBusyTitle: '앱이 저장·검사를 마치는 중이에요',
   appBusyBody: '끝나면 다시 보내 주세요.',
   appBusyWaitSub: '끝나면 보낼 수 있어요',
+}
+
+/** 모델 칩: 계정 목록·추천·선택은 학생이 팝오버를 열었을 때만 조회한다. */
+export const MODEL_PICKER = {
+  companyTitle: '어느 AI와 대화할까요',
+  modelsTitle: 'ChatGPT 모델',
+  accountDefault: '안 고름(계정 기본)',
+  accountDefaultHint: '내 ChatGPT 설정을 그대로 써요',
+  ...MODEL_SELECTION_COPY,
+  defaultDepth: '기본값',
+  depthChip: (depth: string) => `생각 깊이 ${depth === '기본값' ? '기본' : depth}`,
+  efforts: { none: '없음', minimal: '최소', low: '낮게', medium: '보통', high: '높게', xhigh: '아주 높게', max: '최대로' } as Record<string, string>,
+  purpose: (lanes: string) => `${lanes}에 추천`,
+  recommended: '추천',
+  otherModel: '그 밖의 작업은 모델 설명을 참고해 주세요',
+  reload: '모델 목록 새로고침',
+  loading: '이 계정에서 쓸 수 있는 모델을 확인하고 있어요…',
+  saving: '모델 선택을 저장하고 있어요…',
+  listFailed: '모델 목록을 불러오지 못했어요.',
+  empty: '이 계정에서 고를 수 있는 모델이 없어요. 계정 기본값으로 대화할 수 있어요.',
+  connectFirst: 'ChatGPT에 연결하면 이 계정에서 쓸 수 있는 모델이 보여요.',
+  chooseForDepth: '모델을 고르면 생각 깊이도 바꿀 수 있어요.',
+  sameConversation: '같은 ChatGPT 대화에서 다음 메시지부터 적용돼요.',
+  reviewNotice: '검토는 새 대화로 하세요. 검토용 새 대화 열기는 아직 지원하지 않아요.',
+  limitNotice: 'Sol 같은 무거운 모델은 구독 한도를 더 빨리 쓸 수 있어요.',
+  subscription: '앱은 AI를 팔지 않아요. 내 구독 계정을 써요.'
 }
 
 /**
@@ -1412,3 +1441,18 @@ export const HELPER = {
     ? '처음이면 터미널 안내에 따라 ChatGPT 계정으로 로그인해요.'
     : '처음이면 브라우저에 Claude 로그인 창이 떠요.'} 터미널에 오류가 보이면 그 내용을 확인해 주세요. 인터뷰 답변은 그 터미널 창에서 해요. 도우미가 저장할 때마다 이 앱을 새로고침하면 결과가 보여요.`,
 }
+
+export const PROJECT_FOLDER = {
+  title: '논문 파일을 어디에 둘까요?',
+  body: '원고와 자료, 만든 파일이 한 곳에 모여요. 같은 이름이 있으면 번호를 붙여요.',
+  name: '논문 이름',
+  create: '앱이 만들어 둘게요',
+  recommended: '추천',
+  location: (name: string) => `문서 / knuaf-dev / ${name}`,
+  pick: '내 폴더 고르기',
+  pickBody: '이미 쓰던 원고 폴더가 있으면 골라 주세요.',
+  finder: 'Finder에서 열기',
+  explorer: '파일 탐색기에서 열기',
+  openFailed: '폴더를 열지 못했어요.',
+  createFailed: '폴더를 만들지 못했어요. 다시 시도하거나 내 폴더를 골라 주세요.'
+} as const

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isPreparing, waitPrepared } from './prep'
 import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, type ConnState } from './connect'
-import type { ChatSnapshot, ConnectionStatus, Provider } from '../../../shared/chat'
+import type { ChatModelInfo, ChatModels, ChatSnapshot, ConnectionStatus, ModelChoice, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
 export type ChatMode = 'codex-chat' | 'claude-chat'
@@ -104,12 +104,35 @@ interface ChatState {
    *  Returns false when the send was refused — the question card unlocks itself on refusal.
    *  `opts.consumeDraft` — 보기를 눌러 보낸 것이 아니라 **초안을 소비하는** 전송(인용 합치기)임을
    *  알린다. 그러면 명시적 `text` 라도 일반 전송과 같은 `draftSeq` 규칙으로 그 초안만 비운다
-   *  — 전송 중 새로 쓴 글은 지키면서(검토 QA2B-R1-02). */
-  send: (text?: string, opts?: { consumeDraft?: boolean }) => Promise<boolean>
+   *  — 전송 중 새로 쓴 글은 지키면서(검토 QA2B-R1-02).
+   *  `preserveDraftOnFailure` — 첫 메시지를 원래 논문 초안에 먼저 보관하고 성공 때만 정리한다. */
+  send: (text?: string, opts?: { consumeDraft?: boolean; preserveDraftOnFailure?: boolean }) => Promise<boolean>
   respond: (id: string, allow: boolean) => Promise<void>
   stop: () => Promise<void>
   /** Push target for window.knuaf.onChatSnapshot; ignores snapshots for other roots/providers. */
   onSnapshot: (snapshot: ChatSnapshot) => void
+  /**
+   * 이 계정이 쓸 수 있는 모델(`model/list`)과 지금 고른 값. 칩 화면이 이 상태만 그리면 된다.
+   * `models: null` 은 아직 안 불러옴, `modelsSupported: false` 는 그 공급자에 통로가 없음(Claude).
+   */
+  models: ChatModelInfo[] | null
+  modelsSupported: boolean
+  modelsError: string | null
+  modelChoice: ModelChoice | null
+  modelProvider: Provider
+  modelLoading: boolean
+  modelSaving: boolean
+  modelSaveError: string | null
+  /**
+   * 모델 요청의 선후. **읽기(목록)와 쓰기(선택)를 따로 센다** — 목록 읽기가 진행 중인 선택의
+   * 성공을 취소하면 저장값과 화면이 어긋난다(검토 MC1-03).
+   */
+  modelReadSeq: number
+  modelChoiceSeq: number
+  /** 목록을 지금 계정에 다시 묻는다. 실패해도 저장된 선택은 유지된다. */
+  loadModels: (provider?: Provider) => Promise<void>
+  /** 고른 모델·생각 깊이를 설정에 남긴다. `null` 이면 "안 고름"(계정 기본). */
+  chooseModel: (choice: ModelChoice | null, provider?: Provider) => Promise<boolean>
 }
 
 export const useChat = create<ChatState>((set, get) => ({
@@ -127,6 +150,16 @@ export const useChat = create<ChatState>((set, get) => ({
   error: null,
   mode: null,
   startIntent: null,
+  models: null,
+  modelsSupported: false,
+  modelsError: null,
+  modelChoice: null,
+  modelProvider: 'codex',
+  modelLoading: false,
+  modelSaving: false,
+  modelSaveError: null,
+  modelReadSeq: 0,
+  modelChoiceSeq: 0,
   armStart: (root) => set({ startIntent: root }),
   disarmStart: () => set({ startIntent: null }),
   setMode: (mode) => set({ mode, ...(mode ? { provider: chatProvider(mode) } : {}) }),
@@ -195,6 +228,9 @@ export const useChat = create<ChatState>((set, get) => ({
       ...(draftMoved || get().draft !== '' ? {} : { draft: savedDraft, draftSeq: get().draftSeq + 1 }),
       error: messageOf(snap) ?? messageOf(st)
     })
+    // 모델 목록은 **자동으로 부르지 않는다** — 칩 화면이 열릴 때 `loadModels()` 를 부른다.
+    // 지금까지 모델을 고른 적 없는 학생에게 `model/list` 왕복을 얹지 않고, 이 호출을 모르는
+    // 화면 대역(시험의 가짜 window.knuaf)에서도 대화 로드가 그대로 돈다.
   },
   refreshStatus: async () => {
     const { root, provider } = get()
@@ -246,12 +282,25 @@ export const useChat = create<ChatState>((set, get) => ({
     // 보낼 때의 폴더·공급자와 초안 편집 번호. 응답은 몇 초 뒤에 온다 — 그 사이 학생이 다른
     // 논문을 열었을 수 있고, 그러면 이 응답은 지금 화면의 것이 아니다(검토 P1-R1-01).
     // 저장할 초안의 소유 폴더는 늘 `setDraft` 에 넘기는 root 여야 한다.
-    const seqAtSend = get().draftSeq
+    let seqAtSend = get().draftSeq
     const rootAtSend = root
     const providerAtSend = provider
     const visitAtSend = get().visit
     const left = (): boolean => get().visit !== visitAtSend
     set({ busy: true, error: null })
+    let recovery: string | undefined
+    if (opts?.preserveDraftOnFailure) {
+      recovery = draft ? (draft.endsWith('\n') ? draft + body : draft + '\n' + body) : body
+      seqAtSend += 1
+      set({ draft: recovery, draftSeq: seqAtSend })
+      const saved = await window.knuaf.chat.setDraft(root, recovery) as Reply<boolean>
+      if ('error' in saved) {
+        if (!left()) set({ busy: false, error: messageOf(saved) })
+        return false
+      }
+      // 폴더 이동으로 전송이 취소돼도 원래 논문의 보관본은 이미 메인에 있다.
+      if (left()) return false
+    }
     // 폴더 준비 중이면 main 이 전송을 거절한다 — 거절당하지 않고 끝날 때까지 기다렸다 보낸다.
     // 그 사이 다른 대화로 떠나면 보내지 않는다. 잠금·진행 표시는 새 방문을 연 `load` 가 이미 풀었다.
     if (isPreparing(root)) {
@@ -263,7 +312,19 @@ export const useChat = create<ChatState>((set, get) => ({
       set({ waitingPrep: false })
     }
     const requestId = crypto.randomUUID()
+    const snapshotAtSend = get().snapshot
     const r = await window.knuaf.chat.send(root, provider, body, requestId) as Reply<ChatSnapshot>
+    if ('result' in r && recovery !== undefined) {
+      const before = get()
+      // 같은 방문에서 새로 편집했다면 문자열이 우연히 같아도 소비하지 않는다.
+      if (left() || before.draftSeq === seqAtSend) {
+        const restored = await window.knuaf.chat.setDraft(root, draft, recovery) as Reply<boolean>
+        if ('result' in restored && restored.result && get().root === root && get().visit === before.visit
+          && get().draftSeq === before.draftSeq && get().draft === recovery) {
+          set({ draft, draftSeq: get().draftSeq + 1 })
+        }
+      }
+    }
     // 폴더·공급자가 달라졌으면 스냅샷도 초안도 지금 화면에 적용하지 않는다. 다른 폴더의
     // 늦은 성공이 지금 논문의 미전송 초안을 덮거나, 그 초안을 원래 폴더 파일에 쓰면 안 된다.
     if (left() || get().root !== rootAtSend || get().provider !== providerAtSend) {
@@ -278,7 +339,8 @@ export const useChat = create<ChatState>((set, get) => ({
       const keep = (text === undefined || opts?.consumeDraft)
         ? draftAfterSend(seqAtSend, get().draftSeq, get().draft)
         : get().draft
-      set({ busy: false, snapshot: r.result, draft: keep })
+      // 승인·초안 정리 응답보다 스트림 알림이 먼저 올 수 있다. 이미 받은 답변·완료 상태가 최신이다.
+      set({ busy: false, ...(get().snapshot === snapshotAtSend ? { snapshot: r.result } : {}), draft: keep })
       void window.knuaf.chat.setDraft(root, keep)
       return true
     }
@@ -299,5 +361,54 @@ export const useChat = create<ChatState>((set, get) => ({
   },
   onSnapshot: (snapshot) => {
     if (snapshot.root === get().root && snapshot.provider === get().provider) set({ snapshot })
+  },
+  loadModels: async (provider = get().provider) => {
+    const readSeq = get().modelReadSeq + 1
+    const choiceAtStart = get().modelChoiceSeq
+    // 선택 시작 번호뿐 아니라 읽기 시작 때 선택이 진행 중이었는지도 기억한다.
+    // 그 선택이 성공한 뒤 도착하는 selected는 저장 전 값일 수 있다(MC1-03).
+    const choicePendingAtStart = get().modelProvider === provider && get().modelSaving
+    const changedProvider = get().modelProvider !== provider
+    set({
+      modelReadSeq: readSeq, modelProvider: provider, modelLoading: true, modelsError: null,
+      ...(changedProvider ? { models: null, modelChoice: null, modelSaveError: null, modelSaving: false } : {})
+    })
+    try {
+      // 모델 선택은 공급자별 설정이다. 논문 폴더를 고르기 전에도 같은 계정 목록을 쓴다.
+      const r = await window.knuaf.chat.models(null, provider) as Reply<ChatModels>
+      if (get().modelProvider !== provider || get().modelReadSeq !== readSeq) return
+      if ('result' in r) {
+        const selectedStale = choicePendingAtStart || get().modelSaving || get().modelChoiceSeq !== choiceAtStart
+        set({
+          models: r.result.models, modelsSupported: r.result.supported,
+          modelsError: r.result.error ?? null,
+          ...(selectedStale ? {} : { modelChoice: r.result.selected })
+        })
+      } else set({ modelsError: messageOf(r) })
+    } catch (e) {
+      if (get().modelProvider === provider && get().modelReadSeq === readSeq) set({ modelsError: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.' })
+    } finally {
+      if (get().modelProvider === provider && get().modelReadSeq === readSeq) set({ modelLoading: false })
+    }
+  },
+  chooseModel: async (choice, provider = get().provider) => {
+    const seq = get().modelChoiceSeq + 1
+    set({ modelChoiceSeq: seq, modelProvider: provider, modelSaving: true, modelSaveError: null })
+    const current = (): boolean => get().modelProvider === provider && get().modelChoiceSeq === seq
+    try {
+      const r = await window.knuaf.chat.setModel(null, provider, choice) as Reply<ModelChoice | null>
+      if (!current()) return false
+      if ('result' in r) {
+        set({ modelChoice: r.result, modelSaveError: null })
+        return true
+      }
+      set({ modelSaveError: messageOf(r) })
+      return false
+    } catch (e) {
+      if (current()) set({ modelSaveError: e instanceof Error ? e.message : '모델 선택을 저장하지 못했어요.' })
+      return false
+    } finally {
+      if (current()) set({ modelSaving: false })
+    }
   }
 }))
