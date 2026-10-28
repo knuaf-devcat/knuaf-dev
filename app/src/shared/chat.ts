@@ -116,15 +116,37 @@ export interface CodexRecommendation {
  * 예전에는 model·name **어디에든** 별칭 낱말이 들어 있으면 맞다고 봤다. 그래서
  * `commandcode-auth/gpt-5.6-terra` 같은 다른 공급자 모델이 terra 로 잡혀 추천이 붙었다
  * (DQA-01). 지금은 **끝 낱말**만 본다 — `GPT-6.1-Sol` → `sol`, `GPT Sol (높음)` → `sol`.
- * 다른 공급자 id 는 애초에 넘기지 않지만, 넘어와도 여기서 다시 거른다.
+ * 다른 공급자 id 는 애초에 넘기지 않지만, 넘어와도 여기서 다시 거른다. 세대가 읽히는
+ * 후보가 있으면 가장 높은 GPT 버전을 고르고, 없거나 동률이면 목록의 첫 후보를 쓴다.
  */
 export function resolveCodexAlias(models: Pick<ChatModelInfo, 'model' | 'name'>[], alias: string): string | undefined {
   const words = (CODEX_MODEL_ALIASES[alias] ?? [alias]).map((w) => w.toLowerCase())
+  let best: string | undefined
+  let bestVersion: number[] | null = null
   for (const m of models) {
     if (isCrossProviderModelId(m.model)) continue
-    if (words.includes(lastWord(m.model)) || words.includes(lastWord(m.name))) return m.model
+    if (!words.includes(lastWord(m.model)) && !words.includes(lastWord(m.name))) continue
+    const version = codexVersion(m.model) ?? codexVersion(m.name)
+    if (best === undefined || (version && (!bestVersion || compareVersion(version, bestVersion) > 0))) {
+      best = m.model
+      bestVersion = version
+    }
   }
-  return undefined
+  return best
+}
+
+/** GPT 뒤의 세대만 읽는다 — 다른 숫자(설명·날짜)를 모델 버전으로 오인하지 않는다. */
+function codexVersion(text: string): number[] | null {
+  const match = /\bgpt[-\s]+(\d+(?:\.\d+)*)/i.exec(text)
+  return match ? match[1].split('.').map(Number) : null
+}
+
+function compareVersion(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
 }
 
 /** 낱말 하나로 쪼갠 마지막 토큰 — `gpt-6.1-sol` → `sol`, `GPT Sol (높음)` → `sol`. */

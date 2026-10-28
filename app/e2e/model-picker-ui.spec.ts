@@ -141,6 +141,31 @@ test('다른 공급자 모델은 칩 목록에도 추천에도 나오지 않는�
   } finally { await electronApp.close() }
 })
 
+test('실측 순서의 같은 별칭 여러 세대 중 최신 모델에만 추천한다', async () => {
+  const names = ['GPT-6-Astra', 'GPT-6-Luna', 'GPT-6.1-Sol', 'GPT-5.5', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-6-Sol', 'GPT-6.1 Terra']
+  const { electronApp, page } = await scene(names.map((name) => option(name, name)))
+  try {
+    const chip = page.getByTitle('이 논문의 도우미')
+    await expect(chip).toContainText('연결됨')
+    await chip.click()
+    const rows = page.locator('.composer-model-host .popover .model-option')
+    await expect(rows).toHaveCount(10)
+    for (const [name, purpose] of [
+      ['GPT-6-Astra', '자료 찾기 · 검토(새 대화)에 추천'],
+      ['GPT-6-Luna', '반복 작업에 추천'],
+      ['GPT-6.1-Sol', '설계에 추천'],
+      ['GPT-6.1 Terra', '글쓰기에 추천']
+    ]) {
+      const row = rows.filter({ has: page.getByText(name, { exact: true }) })
+      await expect(row).toContainText(purpose)
+      await expect(row.locator('.model-recommend')).toHaveCount(1)
+    }
+    for (const name of ['GPT-5.5', 'GPT-5.6-Sol', 'GPT-5.6-Terra', 'GPT-5.6-Luna', 'GPT-6-Sol']) {
+      await expect(rows.filter({ has: page.getByText(name, { exact: true }) }).locator('.model-recommend')).toHaveCount(0)
+    }
+  } finally { await electronApp.close() }
+})
+
 
 test('빈 목록도 기본값으로 둘 수 있고 Claude는 모델 추천 없이 기본값을 유지한다', async () => {
   const { electronApp, page } = await scene([])
