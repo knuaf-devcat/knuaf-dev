@@ -96,24 +96,23 @@ figure.diagram svg { max-width: 100%; height: auto; border: 0; }
 <p>앱은 아직 서명이 없어서 처음에는 경고가 나올 수 있어요.</p>
 <ul><li><strong>macOS 14 이하</strong>: 응용 프로그램에서 앱을 <strong>오른쪽 클릭 → 열기 → 열기</strong>.</li><li><strong>macOS 15 이상</strong>: 한 번 실행을 시도한 뒤 <strong>시스템 설정 → 개인정보 보호 및 보안</strong> 맨 아래에서 <strong>그래도 열기</strong>.</li><li><strong>Windows</strong>: <strong>&quot;Windows의 PC 보호&quot;</strong> 창이 뜨면 <strong>추가 정보 → 실행</strong>을 눌러요. 설치할 때와 같은 창이에요. 자세한 순서는 <a href="https://github.com/knuaf-devcat/knuaf-dev/blob/main/docs/%EC%84%A4%EC%B9%98-%EC%95%88%EB%82%B4-Windows.md">설치 안내 (Windows)</a>에 있어요.</li></ul>
 <p>두 번째부터는 그냥 실행하면 돼요.</p>
-<figure><img src="images/01-home.png" alt="내 논문 — 폴더 없음"></figure>
+<figure><img src="images/01-home.png" alt="처음 켰을 때 대화창"></figure>
 <h2>5. 폴더 열기</h2>
-<p>앱을 열면 <strong>내 논문</strong> 화면에서 <strong>폴더 열기…</strong> 를 눌러 논문 작업 폴더를 골라요. 새 빈 폴더도 괜찮고, 이미 쓰던 폴더도 괜찮아요.<br>최근에 연 폴더는 같은 화면 아래에 카드로 남아요.</p>
+<p>앱을 열면 바로 대화창이 보여요. 첫 메시지를 보내면 논문 파일을 둘 곳을 한 번 물어요.<br>무엇을 쓸지 막막하면 입력칸 아래 제안 단추를 눌러 첫 문장을 채우고, 주제나 상황을 덧붙여 보낼 수 있어요. 이미 적은 글은 지우지 않고 제안 문장을 덧붙여요.<br><strong>쓰던 원고(docx) 이어 쓰기</strong>는 기존 대화를 여는 단추가 아니라 원고에 관한 새 요청이에요. 원고가 있는 폴더는 메시지를 보낸 뒤 <strong>내 폴더 고르기</strong>로 선택하세요.<br><strong>제출 전 점검만</strong>도 점검 요청 문장을 채우는 단추예요. 자동 점검 결과는 논문을 연 뒤 <strong>점검</strong>에서 확인할 수 있어요.<br><strong>앱이 만들어 둘게요</strong>를 고르면 <code>문서/knuaf-dev/논문 이름</code>에 새 폴더를 만들어요. 이름은 고치거나 그대로 쓸 수 있어요.<br>이미 쓰던 폴더가 있으면 <strong>내 폴더 고르기</strong>를 눌러요. 최근 논문은 왼쪽 <strong>프로젝트(논문)</strong>에서 다시 열 수 있어요.<br>폴더 위치는 목록의 <strong>Finder에서 열기</strong>(Windows에서는 <strong>파일 탐색기에서 열기</strong>)로 확인해요. 좁은 창에서는 프로젝트 목록 단추를 눌러요.</p>
 <h2>6. 작업 준비 (자동)</h2>
 <p>폴더를 열면 점검과 파일 만들기에 필요한 도구를 논문 폴더 안 <code>.venv</code>에 자동으로 준비해요.<br>준비가 안 되면 화면에 알림이 뜨고, <strong>설정 → 문제 해결 → 준비 상태 → 패키지 준비</strong>에서 다시 시도할 수 있어요.<br>컴퓨터의 다른 Python은 건드리지 않아요. 인터넷이 없어도 앱 안에 들어 있는 파일로 설치돼요.</p>
 <figure><img src="images/08-settings.png" alt="설정"></figure>
 <h2>7. 내 논문 화면에서 인터뷰하기</h2>
 <p><strong>내 논문</strong> 화면이 인터뷰와 작문이 일어나는 곳이에요. 앱이 규칙집을 논문 폴더 안의 도우미 설정 폴더에 자동으로 넣어 둬요. 도우미가 논문을 어떤 순서와 형식으로 쓸지 적힌 파일이에요. 내 자료는 옮기지 않아요.</p>
-<p>대화가 비어 있으면 시작 버튼이 보여요 — &quot;시작하기&quot;를 직접 칠 필요는 없어요. 두 도우미가 다 설치돼 있으면 처음 한 번 골라요.</p>
-<ul><li><strong>ChatGPT 채팅으로 시작</strong> — 앱 안 채팅이에요. 처음이면 <strong>ChatGPT 로그인</strong>을 눌러 브라우저에서 로그인해요. 이후 도우미의 질문에 채팅으로 답해요. Enter는 전송, Shift+Enter는 줄바꿈이에요.</li><li><strong>Claude Code 터미널로 시작</strong> — 앱 창 안에 진짜 Claude Code 터미널이 열려요. 처음이면 그 터미널 안에서 Claude 로그인을 해요. 도우미가 꺼져 있으면 <strong>다시 시작</strong>으로 새로 열고, 이전 대화는 <strong>이어서 하기</strong>로 돌아와요. 진행 상태를 앱이 정확히 알 수 없어요.</li></ul>
+<p>입력칸의 모델 칩에서 ChatGPT 또는 Claude를 연결하고 바꿀 수 있어요. 처음 연결할 때는 모델 칩 안의 로그인 단추를 눌러 브라우저에서 로그인해요.<br>Enter는 전송, Shift+Enter는 줄바꿈이에요. AI 회사를 바꾸면 다른 회사와 나눈 대화는 이어서 볼 수 없지만 논문 파일과 진행 상황은 그대로예요.</p>
 <figure><img src="images/02b-chat.png" alt="내 논문 — 대화"></figure>
-<p>한 번 고르면 기억해요. 바꾸려면 설정에서 바꿀 수 있어요.</p>
+<p>고른 AI는 기억해요. 바꾸려면 입력칸의 모델 칩을 열어요.</p>
 <p>알아 두면 좋은 것:</p>
 <ul><li>답변이 <strong>전송 여부 불확실</strong>로 표시되면 내용을 확인한 뒤 <strong>다시 보내기</strong>를 눌러요. 앱은 답변이 도우미에게 닿았는지 스스로 판단하지 않아요.</li><li>도우미가 답변을 만들거나 터미널이 막 출력을 낸 동안에는 저장·점검 버튼이 잠시 막혀요(&quot;AI 도우미가 작업 중이에요&quot;). 답변이 끝나거나 터미널 출력이 멈춘 뒤 다시 누르면 돼요.</li><li>반대로 앱이 저장·점검을 하는 동안에는 채팅 전송이 잠시 막혀요. 끝난 뒤 보내면 돼요.</li><li>도우미가 저장할 때마다 <strong>점검</strong> 화면이 새로 바뀌어요.</li></ul>
 <p>예전 방식으로 macOS 터미널 창을 따로 열고 싶으면 <strong>설정 → 도우미 연결 → 앱 밖 터미널로 도우미 열기</strong>를 써요. 그 경우 인터뷰 답변은 따로 열린 터미널 창에서 해요.</p>
 <h2>8. 화면 안내</h2>
-<p>사이드바에는 <strong>내 논문 · 자료 · 결과물 · 점검 · 설정</strong> 다섯 가지가 늘 보여요. 그 아래 <strong>논문 차례</strong>에는 등록된 장이 읽기 전용으로 나열되고, 누르면 본문 미리보기가 열려요.</p>
-<table><thead><tr><th>화면</th><th>보여 주는 것</th></tr></thead><tbody><tr><td>내 논문</td><td>AI 도우미와의 인터뷰·작문. 폴더가 없으면 폴더 고르기·최근 폴더가 여기 떠요</td></tr><tr><td>자료</td><td>인터뷰에서 정해진 현재 작성물·재무 파일과 sources 폴더의 파일(현재 작성물·참고자료 구분), 파일 첨부</td></tr><tr><td>결과물</td><td>build 폴더에 만들어진 DOCX·엑셀·PDF·메모의 목록과 미리보기, 다른 이름으로 저장</td></tr><tr><td>점검</td><td>내가 해야 할 일 · 고칠 곳 · 아직 확인 못 한 것, 그리고 자동 점검·다른 사람 검토·파일 확인·교수님 승인 네 가지를 따로</td></tr><tr><td>설정</td><td>폴더·최근 폴더, 도우미 연결 방식(채팅/터미널 — 한 번 고르면 기억해요), 문제 해결(준비 상태·쓰기 잠금·이전 원고 스냅샷·남은 임시 파일·문서 읽기 도구), 고급 도구(검토본·골격·DOCX·재무 엑셀·Office 렌더·build 폴더), Python 실행기, 앱 정보</td></tr></tbody></table>
+<p>왼쪽에는 최근 프로젝트가 보여요. 대화 옆의 <strong>내 논문</strong>에서 본문을 읽고, 자료·결과물·점검·설정은 작업 공간 위에 열어요.</p>
+<table><thead><tr><th>화면</th><th>보여 주는 것</th></tr></thead><tbody><tr><td>내 논문</td><td>AI 도우미와의 인터뷰·작문, 저장된 논문 본문</td></tr><tr><td>자료</td><td>인터뷰에서 정해진 현재 작성물·재무 파일과 sources 폴더의 파일(현재 작성물·참고자료 구분), 파일 첨부</td></tr><tr><td>결과물</td><td>build 폴더에 만들어진 DOCX·엑셀·PDF·메모의 목록과 미리보기, 다른 이름으로 저장</td></tr><tr><td>점검</td><td>내가 해야 할 일 · 고칠 곳 · 아직 확인 못 한 것, 그리고 자동 점검·다른 사람 검토·파일 확인·교수님 승인 네 가지를 따로</td></tr><tr><td>설정</td><td>폴더, 도우미 연결, 문제 해결, 고급 도구, Python 실행기와 앱 정보</td></tr></tbody></table>
 <figure><img src="images/02-checkup.png" alt="점검"></figure>
 <p><strong>독립검토 미실행</strong> 알림은 점검 화면의 &quot;다른 사람 검토&quot; 줄과, 제출용 파일을 만들거나 결과물을 저장하려는 지점에 떠요. 아직 작성자와 다른 사람이 내용을 검토한 기록이 없다는 뜻이에요. 자동 점검 통과와는 별개예요.</p>
 <figure><img src="images/04-artifacts.png" alt="결과물"></figure>

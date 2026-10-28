@@ -919,6 +919,11 @@ export const CHAT = {
   /** 입력칸 아래 한 줄 — 시안 P/L 그대로(아이스 그레이 아님, 조용한 글). */
   disclaimer: '도우미도 틀릴 수 있어요. 수치와 출처는 꼭 확인하세요.',
   send: '보내기',
+  firstSuggestions: [
+    { label: '새 창업 논문 시작', prompt: '새 창업 논문을 쓰고 싶어요. 제 창업 아이템부터 이야기할게요.' },
+    { label: '쓰던 원고(docx) 이어 쓰기', prompt: '이미 쓰던 docx 원고를 바탕으로 창업 논문을 이어 쓰고 싶어요.' },
+    { label: '제출 전 점검만', prompt: '작성한 논문을 제출하기 전에 점검하고 싶어요.' },
+  ],
   emptyTitle: '아직 대화가 없어요',
   emptyBody: '도우미와 나눈 대화가 여기 쌓여요.',
   emptyBodyStart: '도우미가 질문하며 논문을 함께 써요.',
