@@ -1,3 +1,4 @@
+import { MODEL_SELECTION_COPY } from '../../shared/copy'
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonRpcProcess } from './transport'
@@ -286,6 +287,7 @@ export class CodexConnection implements AgentConnection {
    */
   private async turnModelParams(resumed: boolean): Promise<{ params: { model?: string; effort?: string }; clears: boolean }> {
     const choice = this.options.modelChoice?.() ?? null
+    if (choice?.model && isCrossProviderModelId(choice.model)) throw new Error(MODEL_SELECTION_COPY.reselectionRequired)
     if (choice?.model) {
       this.overridden = true
       const effort = choice.effort ?? await this.defaultEffortOf(choice.model)
@@ -311,6 +313,8 @@ export class CodexConnection implements AgentConnection {
    * 새 대화(`sessionId` 없음)는 덮어쓴 적이 없으므로 묻지 않는다.
    */
   async prepare(sessionId: string | undefined): Promise<void> {
+    const choice = this.options.modelChoice?.()
+    if (choice?.model && isCrossProviderModelId(choice.model)) throw new Error(MODEL_SELECTION_COPY.reselectionRequired)
     if (!sessionId) return
     if (!this.everChosen) return
     if (this.options.modelChoice?.()?.model) return
@@ -321,12 +325,15 @@ export class CodexConnection implements AgentConnection {
   private get everChosen(): boolean { return this.options.modelChosen?.() ?? true }
   /** 기본값 조회 실패를 학생이 읽을 수 있는 오류로 바꾼다 — 조용히 이전 모델로 보내지 않는다. */
   private async serverDefaultsOrFail(): Promise<{ model: string; effort: string | null }> {
+    let base: { model: string; effort: string | null }
     try {
-      return await this.serverDefaults()
+      base = await this.serverDefaults()
     } catch (e) {
       const detail = e instanceof Error && e.message ? ` (${e.message})` : ''
       throw new Error(`Codex 기본 모델을 확인하지 못해 이전 모델 설정을 되돌리지 못했어요. 잠시 뒤 다시 보내 주세요.${detail}`)
     }
+    if (isCrossProviderModelId(base.model)) throw new Error(MODEL_SELECTION_COPY.crossProviderDefault)
+    return base
   }
   /**
    * 서버가 새 대화에 쓰는 기본 model·effort. `ephemeral` 대화는 디스크에 남지 않는다.

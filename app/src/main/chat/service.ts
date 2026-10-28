@@ -1,3 +1,4 @@
+import { MODEL_SELECTION_COPY } from '../../shared/copy'
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
@@ -229,10 +230,10 @@ export class ChatService {
   /** 설정의 선택을 이 계정 목록에 비춰 정규화한다 — 고른 모델이 없으면 `null`(안 골름). */
   private effectiveChoice(provider: Provider): ModelChoice | null {
     const stored = this.opts.modelChoice?.(provider) ?? null
-    // 목록을 아직 못 받았어도 다른 공급자로 우회되는 id 는 보내지 않는다(DQA-01). 목록을
-    // 받은 뒤에는 `effectiveModelChoice` 가 같은 판정을 목록으로 한다. 설정 파일의 값은
-    // 지우지 않는다 — 학생 몫을 몰래 다른 모델로 바꾸지 않고, 계정 기본값으로 보낸다.
-    if (provider === 'codex' && stored?.model && isCrossProviderModelId(stored.model)) return null
+    // 제외된 저장 선택은 해제(null)가 아니다. 명시적 재선택 전에는 전송을 차단한다.
+    if (provider === 'codex' && stored?.model && isCrossProviderModelId(stored.model)) {
+      throw new Error(MODEL_SELECTION_COPY.reselectionRequired)
+    }
     return effectiveModelChoice(stored, this.modelLists.get(provider) ?? null)
   }
   /**
@@ -251,7 +252,8 @@ export class ChatService {
       // 목록을 못 받았다고 저장된 선택을 지우지 않는다 — 화면이 "안 골름"으로 보이면 고른 것이 사라진 줄 안다.
       return {
         provider, supported: true, models: [],
-        selected: this.opts.modelChoice?.(provider) ?? null,
+        selected: provider === 'codex' && isCrossProviderModelId(this.opts.modelChoice?.(provider)?.model ?? '')
+          ? null : this.opts.modelChoice?.(provider) ?? null,
         error: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.'
       }
     }
@@ -354,6 +356,7 @@ export class ChatService {
   }
   async send(root: string, provider: Provider, text: string, requestId: string) {
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
+    this.effectiveChoice(provider)
     this.snapshot(root, provider)
     const s = this.snapshots.get(this.key(root, provider))!
     if (s.messages.some(m => m.id === requestId)) return structuredClone(s)

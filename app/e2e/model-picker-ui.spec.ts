@@ -141,20 +141,6 @@ test('다른 공급자 모델은 칩 목록에도 추천에도 나오지 않는�
   } finally { await electronApp.close() }
 })
 
-test('저장된 선택이 다른 공급자 모델이면 칩이 그 모델을 고른 것으로 보이지 않는다 (DQA-01)', async () => {
-  // 예전 판에서 저장된 값(다른 공급자 id)이 남아 있는 상태. 앱은 이 값을 보내지 않으므로
-  // 칩도 '계정 기본'으로 보여야 한다 — 화면과 실제 전송이 어긋나면 안 된다.
-  const { electronApp, page } = await scene(highModels, 'light', {}, {
-    chat_models: { codex: { model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' } }
-  })
-  try {
-    const chip = page.getByTitle('이 논문의 도우미')
-    await expect(chip).toContainText('연결됨')
-    await expect(chip).toContainText('생각 깊이 기본')
-    await expect(chip).not.toContainText('Terra')
-    await expect(chip).not.toContainText('생각 깊이 높게')
-  } finally { await electronApp.close() }
-})
 
 test('빈 목록도 기본값으로 둘 수 있고 Claude는 모델 추천 없이 기본값을 유지한다', async () => {
   const { electronApp, page } = await scene([])

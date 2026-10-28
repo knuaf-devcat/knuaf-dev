@@ -1,3 +1,4 @@
+import { MODEL_SELECTION_COPY } from '../../shared/copy'
 import { APP_NAME } from '../../shared/name'
 import { fileStateOf, isReviewExport, reviewBasisOf, type LoadLike } from '../../shared/files'
 /**
@@ -1015,6 +1016,7 @@ export const MODEL_PICKER = {
   modelsTitle: 'ChatGPT 모델',
   accountDefault: '안 고름(계정 기본)',
   accountDefaultHint: '내 ChatGPT 설정을 그대로 써요',
+  ...MODEL_SELECTION_COPY,
   defaultDepth: '기본값',
   depthChip: (depth: string) => `생각 깊이 ${depth === '기본값' ? '기본' : depth}`,
   efforts: { none: '없음', minimal: '최소', low: '낮게', medium: '보통', high: '높게', xhigh: '아주 높게', max: '최대로' } as Record<string, string>,

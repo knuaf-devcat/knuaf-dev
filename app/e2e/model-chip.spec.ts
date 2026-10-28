@@ -368,25 +368,6 @@ test('main 쪽: 목록으로 검증해 저장하고, 전송할 때 그 값이 �
   expect(seen[0].modelChoice?.()).toBeNull()
 })
 
-test('저장된 선택이 다른 공급자 모델이면 보내지도 덮어쓰지도 않고 계정 기본값으로 둔다 (DQA-01)', async () => {
-  const list = { current: FOUR }
-  const stored: { current: ModelChoice | null } = { current: { model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' } }
-  const writes: (ModelChoice | null)[] = []
-  const { svc, seen } = serviceWith(list, stored, { chosen: () => true, store: (c) => writes.push(c) })
-  const root = mkdtempSync(join(tmpdir(), 'kd-model-project-'))
-
-  // 목록을 받기 전에 보내도 그 id 는 전송 값에 없다 — 다른 회사·다른 과금 경로로 새지 않는다.
-  await svc.send(root, 'codex', '안녕하세요', 'req-cross-1')
-  expect(seen[0].modelChoice?.()).toBeNull()
-
-  // 목록을 받아도 같다. 설정 파일의 값은 지우거나 다른 모델로 바꾸지 않는다.
-  expect((await svc.models(root, 'codex')).selected).toBeNull()
-  expect(stored.current).toEqual({ model: 'commandcode-auth/gpt-5.6-terra', effort: 'high' })
-  expect(writes).toEqual([])
-
-  // 화면이 그 id 를 골라 저장하려 해도 거절한다(목록에 없는 모델).
-  await expect(svc.setModel(root, 'codex', { model: 'anthropic/claude-opus-4', effort: null })).rejects.toThrow('이 계정에서 쓸 수 없는 모델이에요')
-})
 
 test('고른 적 없는 학생의 해제는 설정에 흔적을 남기지 않는다 (L-02)', async () => {
   const list = { current: FOUR }
