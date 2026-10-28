@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 import { useChat } from '../store/chat'
 import { useProject } from '../store/project'
 import { CHAT, MODEL_PICKER, PROVIDER_NAME } from '../copy'
-import { codexRecommendations, type ModelChoice } from '../../../shared/chat'
+import { codexRecommendations, isCrossProviderModelId, type ModelChoice } from '../../../shared/chat'
 
 /** 회사 전환은 AccountChooser, 같은 회사의 모델 선택은 이 부품이 맡는다. */
 export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'down' }) {
@@ -25,7 +25,13 @@ export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'do
   })))
   const sameProvider = modelProvider === provider
   const catalog = sameProvider ? models : null
-  const choice = provider === 'codex' ? (sameProvider && catalog !== null ? modelChoice : settings?.chat_models?.[provider] ?? null) : null
+  const stored = provider === 'codex' ? settings?.chat_models?.[provider] ?? null : null
+  const currentChoice = provider === 'codex' ? (sameProvider && catalog !== null ? modelChoice : stored) : null
+  // 제외된 선택은 미선택이 아니다. 목록 실패 때도 저장된 외부 ID를 표시하지 않는다.
+  const needsReselection = provider === 'codex' && (
+    isCrossProviderModelId(stored?.model ?? '') || isCrossProviderModelId(currentChoice?.model ?? '')
+  )
+  const choice = needsReselection ? null : currentChoice
   const selected = catalog?.find((m) => m.model === choice?.model)
   const recommendations = codexRecommendations(catalog ?? [])
   const loading = sameProvider && modelLoading
@@ -67,7 +73,7 @@ export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'do
   return (
     <div className="pop-host composer-model-host" ref={host}>
       <button type="button" className="model" ref={trigger} title={CHAT.modelChipTitle} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span>{PROVIDER_NAME[provider]} · {state === 'connected' && choice ? selected?.name ?? choice.model : connection} · {MODEL_PICKER.depthChip(depth)}</span><Icon name="chevronDown" size={12} />
+        <span>{PROVIDER_NAME[provider]} · {needsReselection ? MODEL_PICKER.reselectionTitle : state === 'connected' && choice ? selected?.name ?? choice.model : connection} · {MODEL_PICKER.depthChip(depth)}</span><Icon name="chevronDown" size={12} />
       </button>
       <Popover open={open} onClose={close} align="left" placement={direction} label={CHAT.modelChipTitle}>
         <div className="pop-scroll model-picker">
@@ -79,9 +85,10 @@ export function ComposerModelChip({ placement = 'up' }: { placement?: 'up' | 'do
               {state === 'connected' && <button type="button" className="quiet" aria-label={MODEL_PICKER.reload} onClick={() => void loadModels(provider)} disabled={loading || saving}><Icon name="refresh" size={14} /></button>}
             </div>
             {state !== 'connected' ? <p className="model-picker-note">{MODEL_PICKER.connectFirst}</p> : <>
-              <button type="button" className={`pop-row model-option${!choice ? ' cur' : ''}`} aria-pressed={!choice} disabled={saving} onClick={() => void pick(null)}>
+              {needsReselection && <p className="model-picker-note" role="alert">{MODEL_PICKER.reselectionRequired}</p>}
+              <button type="button" className={`pop-row model-option${!choice && !needsReselection ? ' cur' : ''}`} aria-pressed={!choice && !needsReselection} disabled={saving} onClick={() => void pick(null)}>
                 <span className="c"><b>{MODEL_PICKER.accountDefault}</b><small>{MODEL_PICKER.accountDefaultHint}</small></span>
-                {!choice && <Icon name="check" size={16} />}
+                {!choice && !needsReselection && <Icon name="check" size={16} />}
               </button>
               {loading && <p className="model-picker-note" role="status">{MODEL_PICKER.loading}</p>}
               {listError ? <div className="model-picker-note" role="alert"><p>{MODEL_PICKER.listFailed}</p><small>{listError}</small><button type="button" onClick={() => void loadModels(provider)} disabled={loading}>{CHAT.recheck}</button></div>

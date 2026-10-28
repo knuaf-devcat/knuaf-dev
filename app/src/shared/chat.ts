@@ -67,8 +67,8 @@ export type GuiReply<T> = { result: T; error?: never } | { error: string; result
 // 이 상수와 `codexRecommendations()` 만 쓰면 되고, 문구를 화면 쪽에서 다시 짓지 않는다.
 //
 // 값은 **별칭**(sol·terra·astra·luna)이다. 계정이 실제로 쓰는 모델 id 는 요금제마다 달라
-// 아직 확인되지 않았다 — `model/list` 가 준 model/name 에 별칭 낱말이 들어 있는지로 찾는다.
-// 실제 목록을 실기기에서 확인하면 `CODEX_MODEL_ALIASES` 만 고치면 된다.
+// 아직 확인되지 않았다 — `model/list` 가 준 model/name 의 **끝 낱말**이 별칭인지로 찾는다
+// (`resolveCodexAlias`). 실제 목록을 실기기에서 확인하면 `CODEX_MODEL_ALIASES` 만 고치면 된다.
 
 /** 형님이 말한 작업 레인. 검토는 항상 새 대화로 시작한다. */
 export type WorkLane = 'design' | 'research' | 'writing' | 'repeat' | 'review'
@@ -85,9 +85,19 @@ export const CODEX_TIER_MODELS: Record<CodexTier, Record<WorkLane, string>> = {
   low: { design: 'terra', research: 'luna', writing: 'luna', repeat: 'luna', review: 'terra' },
   high: { design: 'sol', research: 'astra', writing: 'terra', repeat: 'luna', review: 'astra' }
 }
-/** 별칭 판정 낱말. 목록의 model·name 을 소문자로 만들어 이 낱말이 들어 있으면 그 별칭이다. */
+/** 별칭 판정 낱말. 목록의 model·name 의 **끝 낱말**이 이 낱말이면 그 별칭이다. */
 export const CODEX_MODEL_ALIASES: Record<string, string[]> = {
   sol: ['sol'], terra: ['terra'], astra: ['astra'], luna: ['luna']
+}
+
+/**
+ * 다른 공급자로 우회되는 id 인가 — OpenAI 쪽 id 에는 `공급자/` 접두어가 없고, 다른 공급자
+ * 모델은 전부 `<공급자>/…` 형식이다(DQA-01 실측: `anthropic/claude-…`,
+ * `commandcode-auth/gpt-5.6-terra`). 이런 id 는 이 ChatGPT 계정의 모델이 아니므로 목록·추천·
+ * 전송 어디에도 올리지 않는다 — 고르면 다른 회사·다른 과금 경로로 간다.
+ */
+export function isCrossProviderModelId(model: string): boolean {
+  return model.includes('/')
 }
 
 export interface LaneRecommendation { lane: WorkLane; label: string; model: string }
@@ -100,14 +110,27 @@ export interface CodexRecommendation {
   byModel: Record<string, { alias: string; lanes: WorkLane[]; purpose: string }>
 }
 
-/** 계정 목록에서 별칭 하나가 가리키는 모델을 찾는다. 없으면 undefined. */
+/**
+ * 별칭 하나가 가리키는 모델을 계정 목록에서 찾는다. 없으면 undefined.
+ *
+ * 예전에는 model·name **어디에든** 별칭 낱말이 들어 있으면 맞다고 봤다. 그래서
+ * `commandcode-auth/gpt-5.6-terra` 같은 다른 공급자 모델이 terra 로 잡혀 추천이 붙었다
+ * (DQA-01). 지금은 **끝 낱말**만 본다 — `GPT-6.1-Sol` → `sol`, `GPT Sol (높음)` → `sol`.
+ * 다른 공급자 id 는 애초에 넘기지 않지만, 넘어와도 여기서 다시 거른다.
+ */
 export function resolveCodexAlias(models: Pick<ChatModelInfo, 'model' | 'name'>[], alias: string): string | undefined {
-  const words = CODEX_MODEL_ALIASES[alias] ?? [alias]
+  const words = (CODEX_MODEL_ALIASES[alias] ?? [alias]).map((w) => w.toLowerCase())
   for (const m of models) {
-    const hay = `${m.model} ${m.name}`.toLowerCase()
-    if (words.some((w) => hay.includes(w.toLowerCase()))) return m.model
+    if (isCrossProviderModelId(m.model)) continue
+    if (words.includes(lastWord(m.model)) || words.includes(lastWord(m.name))) return m.model
   }
   return undefined
+}
+
+/** 낱말 하나로 쪼갠 마지막 토큰 — `gpt-6.1-sol` → `sol`, `GPT Sol (높음)` → `sol`. */
+function lastWord(text: string): string {
+  const words = text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  return words[words.length - 1] ?? ''
 }
 
 /**
