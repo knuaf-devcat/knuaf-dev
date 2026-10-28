@@ -51,7 +51,7 @@
   /* 제목줄 왼쪽 여백 — macOS 신호등 자리다. **다른 OS 는 0** 이고, 윈도우는 컨트롤이
      오른쪽 위를 덮으므로 오른쪽 여백을 비운다(components.css 의 win32 규칙). */
   --titlebar-inset: 0px;
-  --serif: "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
+  --serif: "신명조", "HY신명조", "HYSinMyeongJo-Medium", "AppleMyungjo", "Nanum Myeongjo", "Batang", "바탕", serif;
   /* 종이 칸(3단계) — 종이와 책상. */
   --desk: #eef2f7; --paper: #fffffe; --paper-ink: #161b26;
   --shadow-sheet: 0 12px 40px rgba(0, 0, 0, .18);
