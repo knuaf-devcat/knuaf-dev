@@ -8,6 +8,22 @@ import type { AgentConnection, AgentEvents, AgentOptions } from './contracts'
 import { winSpawn, killTree } from '../win'
 import { claudeSpawnOptions } from './claude-spawn'
 import type { ConnectionStatus } from '../../shared/chat'
+import { CLAUDE_AUTH_COPY } from '../../shared/copy'
+
+export class ClaudeAuthenticationError extends Error {
+  constructor() { super(CLAUDE_AUTH_COPY.required) }
+}
+
+const AUTH_FAILURE = /\b401\b[^\n]*OAuth access token (?:has expired|is invalid)|Failed to authenticate\.\s*API Error:\s*401\b/i
+
+/** 정상 답변·도구 출력에 인용된 401은 판정하지 않는다. SDK 오류 필드만 읽는다. */
+export function claudeAuthenticationFailed(message: unknown): boolean {
+  if (message instanceof Error) return AUTH_FAILURE.test(message.message)
+  const m = message as { type?: string; error?: string; is_error?: boolean; errors?: unknown[] }
+  if (m?.type === 'assistant') return m.error === 'authentication_failed'
+  return m?.type === 'result' && m.is_error === true && Array.isArray(m.errors)
+    && m.errors.some(e => typeof e === 'string' && AUTH_FAILURE.test(e))
+}
 
 /** 작업폴더 밖을 가리키면 null이 아닌 그 경로를 돌려준다(묻는 이유를 문장으로 쓰기 위해). */
 function outsideRoot(root: string, value: unknown): string | null {
@@ -249,6 +265,9 @@ export { describeTool }
 export class ClaudeConnection implements AgentConnection {
   private active?: Query
   private loginProcess?: ChildProcess
+  private loginUnconfirmed = false
+  /** 계정 복구 판정은 실제 로그인 시도의 성공 종료와 status 응답을 함께 본다. */
+  get loginConfirmed(): boolean { return !this.loginUnconfirmed }
   private controller?: AbortController
   private approvals = new Map<string, (allow: boolean) => void>()
   constructor(private options: AgentOptions) {}
@@ -262,6 +281,9 @@ export class ClaudeConnection implements AgentConnection {
    * (IMPL-R1-04). `probe:'failed'` 가 그 구분이고, 폴더별 화면도 같은 필드를 쓴다.
    */
   async status(): Promise<ConnectionStatus> {
+    // auth status는 만료된 자격정보에도 loggedIn:true일 수 있다. 새 로그인 프로세스가
+    // 성공 종료하기 전에는 그 옛 응답으로 재인증 성공을 선언하지 않는다.
+    if (this.loginProcess) return { installed: true, connected: false, version: null, probe: 'ok', detail: CLAUDE_AUTH_COPY.required }
     let output = ''
     // 윈도우에서 npm 이 깐 claude 는 `.cmd` 다 — Node 가 셸 없이 띄우지 못해 cmd.exe 로 감싼다
     // (맥·리눅스와 `.exe` 는 그대로 — winSpawn 이 빈 옵션을 돌려준다).
@@ -271,7 +293,7 @@ export class ClaudeConnection implements AgentConnection {
     let r: Record<string, unknown> | null = null
     try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object') r = parsed as Record<string, unknown> } catch { /* 실행 실패·시간 초과·깨진 JSON → 확인 실패 */ }
     if (!r) return { installed: true, connected: false, version: null, probe: 'failed', detail: 'Claude 연결 상태를 확인하지 못했어요. 잠시 후 "다시 확인"을 눌러 주세요.' }
-    const connected = r.loggedIn === true && r.authMethod === 'claude.ai' && r.apiProvider === 'firstParty'
+    const connected = !this.loginProcess && r.loggedIn === true && r.authMethod === 'claude.ai' && r.apiProvider === 'firstParty'
     return { installed: true, connected, version: null, probe: 'ok', detail: connected ? '' : 'Claude 구독 계정 로그인이 필요해요. 개인용 검증만 지원하며 API로 자동 전환하지 않아요.' }
   }
   async login() {
@@ -280,6 +302,7 @@ export class ClaudeConnection implements AgentConnection {
     // student's browser instead of letting it die on a pipe nobody reads.
     // 윈도우의 `.cmd` 는 cmd.exe 로 감싼다(status 와 같은 이유 — winSpawn).
     const spec = winSpawn(this.options.binary, ['auth', 'login', '--claudeai'])
+    this.loginUnconfirmed = true
     const child = this.loginProcess = spawn(spec.command, spec.args, { env: this.options.env, stdio: ['ignore', 'pipe', 'pipe'], ...spec.options })
     let buf = ''
     let opened = false
@@ -298,8 +321,11 @@ export class ClaudeConnection implements AgentConnection {
      */
     const release = () => { if (this.loginProcess === child) this.loginProcess = undefined }
     child.on('error', release)
-    child.on('close', release)
-    const timer = setTimeout(() => killTree(child), 180_000)
+    child.on('close', (code) => {
+      if (this.loginProcess === child && code === 0) this.loginUnconfirmed = false
+      release()
+    })
+    const timer = setTimeout(() => { release(); killTree(child) }, 180_000)
     timer.unref(); child.once('close', () => clearTimeout(timer))
   }
   /** 취소 = 이 창에서 기다리기를 그만둔다. CLI 가 소유한 로그인 프로세스를 끝낸다. */
@@ -380,6 +406,7 @@ export class ClaudeConnection implements AgentConnection {
       if (account.apiKeySource && account.apiKeySource !== 'none') throw new Error('API 인증이 감지되어 중단했어요. 구독 인증을 확인해 주세요.')
       let lost = 0
       for await (const message of q) {
+        if (claudeAuthenticationFailed(message)) throw new ClaudeAuthenticationError()
         if ('session_id' in message && message.session_id) events.session(message.session_id)
         lost += lostToolCalls(message)
         if (message.type === 'assistant') {
@@ -391,6 +418,9 @@ export class ClaudeConnection implements AgentConnection {
       // 턴이 성공으로 끝나도 그 안에서 조용히 죽은 작업이 있으면 그대로 말한다.
       // 이걸 안 하면 도우미의 마무리 인사만 남고 실패는 아무 데도 안 보인다.
       if (lost > 0) events.note(`도우미가 이번 작업 중에 파일 ${lost}건을 저장하지 못했어요. 앱이 승인 창을 띄우기 전에 통로가 닫혀서, 그 저장은 일어나지 않았어요. 필요하면 다시 요청해 주세요.`)
+    } catch (e) {
+      if (claudeAuthenticationFailed(e)) throw new ClaudeAuthenticationError()
+      throw e
     } finally {
       q.close(); this.active = undefined
       // 답을 기다리던 요청은 거절로 닫고 지운다. 그냥 지우면 canUseTool 의 promise 가
