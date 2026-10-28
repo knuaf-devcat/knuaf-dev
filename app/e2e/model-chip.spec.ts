@@ -84,6 +84,21 @@ test('다른 공급자로 우회되는 모델은 추천에 붙지 않는다 (DQA
   expect(resolveCodexAlias(mixed, 'terra')).toBeUndefined()
 })
 
+test('동일 별칭은 숫자 세대가 가장 높은 모델을 추천하고 미상 세대는 안전하게 처리한다', () => {
+  const items = (ids: string[]) => ids.map((id) => model({ model: id, name: id }))
+  for (const ids of [
+    ['GPT-5.6-Terra', 'GPT-6.1 Terra', 'GPT-6-Terra'],
+    ['GPT-6-Terra', 'GPT-6.1 Terra', 'GPT-5.6-Terra']
+  ]) expect(resolveCodexAlias(items(ids), 'terra')).toBe('GPT-6.1 Terra')
+  expect(resolveCodexAlias(items(['GPT-6.9-Terra', 'GPT-6.10-Terra']), 'terra')).toBe('GPT-6.10-Terra')
+  expect(resolveCodexAlias(items(['Terra', 'GPT-5.6-Terra', 'GPT-6.1-Terra']), 'terra')).toBe('GPT-6.1-Terra')
+  expect(resolveCodexAlias(items(['GPT-6.1-Terra', 'Terra']), 'terra')).toBe('GPT-6.1-Terra')
+  expect(resolveCodexAlias(items(['Terra', 'GPT Terra']), 'terra')).toBe('Terra')
+  expect(resolveCodexAlias(items(['GPT-6-Terra', 'GPT-6.0-Terra']), 'terra')).toBe('GPT-6-Terra')
+  expect(resolveCodexAlias([model({ model: 'terra', name: 'GPT-6.1 Terra' }), ...items(['GPT-5.6-Terra'])], 'terra')).toBe('terra')
+  expect(resolveCodexAlias(items(['commandcode-auth/gpt-99-terra', 'GPT-6.1-Terra']), 'terra')).toBe('GPT-6.1-Terra')
+})
+
 test('고른 값은 이 계정 목록에 비춰 정규화된다 (없는 모델=안 골름, 미지원 깊이=버림)', () => {
   expect(effectiveModelChoice(null, FOUR)).toBeNull()
   // 목록을 아직 못 받았으면 선택을 그대로 둔다 — 목록 실패가 선택을 지우면 안 된다.
