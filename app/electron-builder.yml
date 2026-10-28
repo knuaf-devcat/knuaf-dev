@@ -30,6 +30,7 @@ files:
   - package.json
   # 앱 내 설치(runtime.ts)와 빌드(fetch-python.mjs)가 함께 읽는 런타임 명세 — 고정 해시의 정본.
   - python-runtime.json
+  - src/renderer/src/fonts/LICENSE-Pretendard.txt
 extraResources:
   - from: sidecar
     to: sidecar
