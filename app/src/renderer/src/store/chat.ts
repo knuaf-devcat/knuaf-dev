@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { CLAUDE_AUTH_COPY } from '../../../shared/copy'
 import { isPreparing, waitPrepared } from './prep'
-import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, type ConnState } from './connect'
+import { beginLoginAttempt, connInfoOf, loginAttemptLive, startPoll, stopPoll, useConnect, type ConnState } from './connect'
 import type { ChatModelInfo, ChatModels, ChatSnapshot, ConnectionStatus, ModelChoice, Provider } from '../../../shared/chat'
 
 /** 어떤 도우미로 채팅하는지. 인앱 터미널 모드는 제거됐다 — 내 논문은 항상 앱 채팅이다. */
@@ -360,7 +361,10 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ error: messageOf(r) })
   },
   onSnapshot: (snapshot) => {
-    if (snapshot.root === get().root && snapshot.provider === get().provider) set({ snapshot })
+    if (snapshot.authRequired) useConnect.getState().observeChat(snapshot.provider, { state: 'need-login', detail: CLAUDE_AUTH_COPY.required, version: null })
+    if (snapshot.root === get().root && snapshot.provider === get().provider) set({ snapshot,
+      ...(snapshot.authRequired ? { status: { installed: true, connected: false, version: null, probe: 'ok' as const, detail: CLAUDE_AUTH_COPY.required }, statusFailed: false, connState: 'need-login' as const } : {})
+    })
   },
   loadModels: async (provider = get().provider) => {
     const readSeq = get().modelReadSeq + 1

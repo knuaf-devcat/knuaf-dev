@@ -101,9 +101,37 @@ test('보기 사이 질문 문장이 없으면 제목 줄이 질문이 된다', 
 test('` — ` 뒤 설명은 지우지 않고 나눠 보여 줄 뿐이다', () => {
   expect(splitOption('아직 몰라요 — 지역 판로를 찾아 제안해 드릴게요')).toEqual({ main: '아직 몰라요', note: '지역 판로를 찾아 제안해 드릴게요' })
   expect(splitOption('농협 공판장')).toEqual({ main: '농협 공판장', note: null })
-  // 보낸 말은 스킬이 받는 형식 그대로 — 번호 + 보기 본문(설명은 뺀다).
   expect(optionAnswer(1, '온라인 직거래')).toBe('2) 온라인 직거래')
-  expect(optionAnswer(2, '아직 몰라요 — 지역 판로를 찾아 제안해 드릴게요')).toBe('3) 아직 몰라요')
+  expect(optionAnswer(2, '아직 몰라요 — 지역 판로를 찾아 제안해 드릴게요')).toBe('3) 아직 몰라요 — 지역 판로를 찾아 제안해 드릴게요')
+})
+
+test('질문 줄이 하나일 때만 배경 설명과 분리한다', () => {
+  const parse = (lines: string) => parseQuestion(`[Q2-3] 부지 확보 방식\n${lines}\n1) 매입\n2) 임차`)!
+  const one = parse('처음 설명입니다.\n어떤 방식을 고르나요?\n마지막 설명입니다.')
+  expect(one.text).toBe('어떤 방식을 고르나요?')
+  expect(one.description).toBe('처음 설명입니다. 마지막 설명입니다.')
+  const zero = parse('첫 설명입니다.\n둘째 설명입니다.')
+  expect(zero.text).toBe('첫 설명입니다. 둘째 설명입니다.')
+  expect(zero.description).toBeNull()
+  const two = parse('어디인가요?\n누구인가요?')
+  expect(two.text).toBe('어디인가요? 누구인가요?')
+  expect(two.description).toBeNull()
+})
+
+test('콜론은 하나이고 앞부분이 짧을 때만 표시를 나눈다', () => {
+  expect(splitOption('임차 (추천): 땅값이 들지 않아요.')).toEqual({ main: '임차 (추천)', note: '땅값이 들지 않아요.' })
+  const money = '자기자본: 1억, 융자: 3억'
+  expect(splitOption(money)).toEqual({ main: money, note: null })
+  expect(optionAnswer(0, money)).toBe(`1) ${money}`)
+  const long = `${'가'.repeat(21)}: 설명`
+  expect(splitOption(long)).toEqual({ main: long, note: null })
+  expect(splitOption(`${'가'.repeat(20)}: 설명`).note).toBe('설명')
+})
+
+test('보기 본문의 원래 표기를 보내고 화면 정규화와 분리한다', () => {
+  const parsed = parseQuestion('[Q2-3] 부지\n어디인가요?\n**1)** 임차 （추천）: **시설**에 씁니다.\n2) 매입')!
+  expect(parsed.options[0]).toBe('임차 (추천): 시설에 씁니다.')
+  expect(optionAnswer(0, parsed.answers[0])).toBe('1) 임차 （추천）: **시설**에 씁니다.')
 })
 
 // --------------------------------------------------------------- zoneOf

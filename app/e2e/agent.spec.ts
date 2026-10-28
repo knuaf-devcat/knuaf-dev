@@ -1,6 +1,7 @@
 // Unit tests for src/main/agent.ts. Plain Playwright `test()` in Node: no Electron is launched.
 import { expect, test } from '@playwright/test'
 import { spawn } from 'node:child_process'
+import { mock } from 'node:test'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -86,8 +87,9 @@ test.describe('findExecutable / probeVersion', () => {
     if (claudePath) {
       expect(existsSync(claudePath)).toBe(true)
       if (process.platform === 'win32') {
-        // 윈도우는 `claude`·`claude.cmd`·`claude.exe` 를 허용한다(확장자 없는 이름도 실행물이 된다).
-        expect(['claude', 'claude.cmd', 'claude.exe']).toContain(basename(claudePath))
+        // 윈도우는 실행 가능한 확장자만 후보로 본다(`.exe` → `.cmd` → `.bat`). 확장자 없는
+        // 이름은 CreateProcess 가 띄우지 못한다 — npm 설치 폴더의 `claude` shim 실패(CL-WIN-01).
+        expect(['claude.exe', 'claude.cmd', 'claude.bat']).toContain(basename(claudePath))
       } else {
         // 비 Windows 는 종전과 같다 — 이름이 정확히 `claude` 로 끝나야 한다.
         expect(claudePath.endsWith('/claude')).toBe(true)
@@ -159,6 +161,35 @@ test.describe('findExecutable / probeVersion', () => {
     writeFileSync(plain, '')
     chmodSync(plain, 0o755)
     expect(findExecutable(name, { PATH: '', HOME: dir }, { platform: 'darwin', leadingDirs: [dir] })).toBe(plain)
+  })
+
+  /**
+   * CL-WIN-01 — npm 이 깐 Claude Code 는 한 폴더에 `claude`(셸 스크립트)와 `claude.cmd`(실행
+   * shim)를 같이 둔다. 예전에는 확장자 없는 쪽을 먼저 집어 `execFile` 이 ENOENT(7ms, stdout 0)로
+   * 죽었고, 로그인돼 있어도 "연결 상태를 확인하지 못했어요"(`probe:'failed'`)만 떴다(윈도우 실기기).
+   * 같은 폴더에 둘 다 있을 때 `.cmd` 를 고르는 것을 여기서 고정한다.
+   */
+  test('윈도우: 같은 폴더의 `claude`+`claude.cmd` 에서 `.cmd` 를 고른다 (CL-WIN-01)', () => {
+    const name = 'knuaf-npm-probe'
+    const dir = mkdtempSync(join(tmpdir(), 'kd-win-npm-'))
+    const put = (d: string, file: string): string => {
+      const p = join(d, file)
+      writeFileSync(p, file.endsWith('.cmd') ? '@echo off\r\n' : '#!/bin/sh\nexit 0\n')
+      chmodSync(p, 0o755)
+      return p
+    }
+    put(dir, name)  // npm 이 같이 두는 확장자 없는 셸 스크립트
+    const cmd = put(dir, `${name}.cmd`)
+    // 동봉 자리·PATH 밖(EXTRA_DIRS)의 진짜 설치물이 끼어들지 않게 PATH 만 본다.
+    const env = { Path: dir, USERPROFILE: dir, KNUAF_AGENT_PATH_ONLY: '1' }
+    expect(findExecutable(name, env, { platform: 'win32' })).toBe(cmd)
+    // `.exe`(네이티브 설치본)가 같이 있으면 그쪽이 먼저다 — cmd.exe 를 거치지 않는 길.
+    const exe = put(dir, `${name}.exe`)
+    expect(findExecutable(name, env, { platform: 'win32' })).toBe(exe)
+    // 확장자 없는 이름 하나뿐이면 실행물이 아니다 — 찾았다고 하면 그 순간 ENOENT 다.
+    const plainOnly = mkdtempSync(join(tmpdir(), 'kd-win-plain-'))
+    put(plainOnly, name)
+    expect(findExecutable(name, { Path: plainOnly, USERPROFILE: plainOnly, KNUAF_AGENT_PATH_ONLY: '1' }, { platform: 'win32' })).toBeNull()
   })
 
   test('bundledAgentDirs — 윈도우에서만, 패키지·개발 트리 각각의 자리', () => {
@@ -287,6 +318,37 @@ test.describe('findExecutable / probeVersion', () => {
       expect(process.env[pathKeyOf(process.env)]).toBe(pathBeforeTests)
       expect(process.env.HOME).toBe(homeBeforeTests)
     })
+  })
+
+  test('probeVersion은 네이티브·shim 모두 콘솔을 숨긴다 (W1-R01)', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    const calls: { command: string; args: string[]; options: any }[] = []
+    const execFile = mock.method(require('node:child_process'), 'execFile', (command, args, options, callback) => {
+      calls.push({ command, args, options })
+      callback(null, '\n 1.2.3-test\nsecond line\n')
+    })
+    try {
+      for (const os of ['win32', 'darwin', 'linux']) {
+        Object.defineProperty(process, 'platform', { value: os, configurable: true })
+        for (const binary of ['C:\\native\\codex.exe', 'C:\\native\\claude.exe', 'C:\\npm\\claude.cmd', 'C:\\npm\\claude.bat']) {
+          expect(await probeVersion(binary)).toBe('1.2.3-test')
+          const call = calls.at(-1)!
+          expect(call.options).toMatchObject({ timeout: 8000, encoding: 'utf-8', windowsHide: true })
+          if (os === 'win32' && /\.(cmd|bat)$/.test(binary)) {
+            expect(call.command).toMatch(/(?:^|[\\/])cmd\.exe$/i)
+            expect(call.options.windowsVerbatimArguments).toBe(true)
+            expect(call.args.slice(0, 4)).toEqual(['/v:off', '/d', '/s', '/c'])
+          } else {
+            expect(call.command).toBe(binary)
+            expect(call.args).toEqual(['--version'])
+          }
+        }
+      }
+      expect(calls).toHaveLength(12)
+    } finally {
+      execFile.mock.restore()
+      Object.defineProperty(process, 'platform', platform)
+    }
   })
 
   test('probeVersion returns a line for claude and null for a missing binary', async () => {

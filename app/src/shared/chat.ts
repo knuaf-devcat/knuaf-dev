@@ -45,6 +45,8 @@ export interface ChatSnapshot {
   root: string; provider: Provider; sessionId?: string; state: RunState
   messages: ChatMessage[]; permission?: PermissionRequest; error?: string
   skillHash?: string; skillLoaded?: boolean
+  /** 전송 중 확인된 인증 실패. 상태 조회의 옛 로그인 정보보다 우선한다. */
+  authRequired?: boolean
 }
 /**
  * 연결 도구의 상태. `connected` 하나로는 "로그인이 필요해요"와 "확인하지 못했어요"를

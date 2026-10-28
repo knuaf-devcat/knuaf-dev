@@ -694,7 +694,6 @@ export const ONBOARD = {
   connectTitle: '먼저, 쓰고 있는 AI를 연결해요',
   connectIntro: '평소 쓰는 ChatGPT나 Claude 계정 하나면 돼요. 이 앱은 AI 이용권을 따로 팔지 않아요 — 도우미는 내 계정으로 일해요.',
   recommended: '권장',
-  claudeExperimental: '아직 실험 중인 연결이에요',
   installGuide: '설치 안내',
   loginAs: (name: string) => `${name}로 로그인`,
   reopenBrowser: '브라우저 다시 열기',
@@ -947,7 +946,6 @@ export const CHAT = {
    * 하지 않고(DESIGN §4: 카드 없음), 고른 AI 는 `chosenProvider` 결과 그대로다.
    */
   emptyChangeAi: '다른 AI로 바꾸려면 입력칸의 모델 칩을 열어 주세요',
-  // Claude 채팅 연결은 아직 실험 중 — 그 사실을 숨기지 않는다.
   needInstallTitle: '도우미 프로그램이 아직 설치되지 않았어요',
   needInstallBody: '설치 안내를 따라 설치한 뒤 "다시 확인"을 눌러 주세요.',
   needLoginTitleFor: (p: string) => `${p === 'claude' ? 'Claude' : 'ChatGPT'} 로그인이 필요해요`,
@@ -1377,8 +1375,8 @@ export const SETTINGS = {
   helperTitle: '도우미 연결',
   helperChatWhich: '어느 도우미와 채팅할까요?',
   helperChatCodex: 'ChatGPT',
-  helperChatClaude: 'Claude — 실험 중',
-  helperChatNote: 'Claude 채팅은 아직 실험 중이에요. 막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
+  helperChatClaude: 'Claude',
+  helperChatNote: '막히면 아래 "앱 밖 터미널로 도우미 열기"로 같은 도우미를 직접 띄울 수 있어요.',
   /**
    * 권한 묻기 기본값 — 기본은 '묻지 않기'다. 숨기지 않고 여기 보이는 설정으로 둔다.
    * tradeoff 는 무엇을 포기하는지 사실만 적는다: 도우미는 논문 폴더 밖의 PDF·웹 문서도 읽고,
@@ -1455,4 +1453,15 @@ export const PROJECT_FOLDER = {
   explorer: '파일 탐색기에서 열기',
   openFailed: '폴더를 열지 못했어요.',
   createFailed: '폴더를 만들지 못했어요. 다시 시도하거나 내 폴더를 골라 주세요.'
+} as const
+
+export const QUESTION_FORM = {
+  undecided: '미정',
+  filled: '채움',
+  preview: '보낼 답',
+  empty: '(비어 있음)',
+  keys: 'Tab 다음 칸 · Enter 보내기',
+  free: '직접 입력',
+  back: '질문창으로 돌아가기',
+  send: '보내기'
 } as const

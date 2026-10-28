@@ -1,0 +1,65 @@
+import { expect, test } from '@playwright/test'
+import { parseQuestionForm } from '../src/shared/question-form'
+import { zoneOf } from '../src/shared/zone'
+import { launch, openProject } from './helpers'
+import { fakeCodexEnv, questionMessage, questionProject, scratch, seedChat } from './fixtures/fake-codex'
+
+const Q = `[Q2] 기본 계획
+
+각각 알려주세요.
+
+1. 전공 (학과 소속)
+   예: 특용작물전공 / 채소전공
+   미정이면: 학과를 알려주세요
+
+2. 자금 (자기자본과 융자를 나눠서)
+   가족 지원이 있으면 적어주세요
+   예: 자기자본 1억
+   미정이면: 표준 모델을 제시합니다
+   (확인 후 시범값으로 진행합니다)
+
+각 항목에 값을 적거나 미정이라고 답해주세요.`
+
+test('여러 칸과 설명을 보존하고 애매한 번호는 거부한다', () => {
+  const form = parseQuestionForm(Q)!
+  expect(form.fields[1]).toEqual({ label: '자금', description: '자기자본과 융자를 나눠서', example: '예: 자기자본 1억', undecided: '표준 모델을 제시합니다 (확인 후 시범값으로 진행합니다)', notes: ['가족 지원이 있으면 적어주세요'] })
+  expect(parseQuestionForm(Q.replace('2. 자금', '3. 자금'))).toBeNull()
+  expect(parseQuestionForm(Q.replace('2. 자금', '2) 자금'))).toBeNull()
+  expect(parseQuestionForm(Q.replace('2. 자금', '다른 질문입니다\n2. 자금'))).toBeNull()
+  expect(parseQuestionForm('[Q2] 하나\n1. 전공')).toBeNull()
+  expect(parseQuestionForm(`${Q}\n3. 다른 질문`)).toBeNull()
+  expect(parseQuestionForm('[Q2-2] 농장 개요\n1. 농장명\n2. 규모')).not.toBeNull()
+  const connection = { installed: true, connected: true, version: '', detail: '' }
+  const message = { id: 'a', role: 'assistant' as const, text: Q, at: '' }
+  expect(zoneOf({ root: '/p', provider: 'codex', state: 'idle', messages: [message] }, connection, null).kind).toBe('form')
+  expect(zoneOf({ root: '/p', provider: 'codex', state: 'idle', messages: [message, { ...message, id: 'u', role: 'user' }] }, connection, null).kind).toBe('composer')
+})
+
+test('질문창에서 모든 답을 명시하고 한 메시지로 보낸다', async () => {
+  const dir = scratch()
+  const root = questionProject()
+  seedChat(root, [questionMessage('form', Q)])
+  const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
+  try {
+    await openProject(page, root)
+    const form = page.locator('.qform')
+    await expect(form).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('.chat-msg.assistant')).toContainText('각각 알려주세요')
+    await expect(form.getByRole('button', { name: '보내기' })).toBeDisabled()
+    await form.getByLabel('1. 전공').fill('특용작물전공')
+    await form.getByLabel('1. 전공').press('Tab')
+    await expect(form.getByLabel('2. 자금')).toBeFocused()
+    await form.getByRole('button', { name: '직접 입력' }).click()
+    await expect(page.locator('.chat-composer textarea')).toBeVisible()
+    await page.getByRole('button', { name: '질문창으로 돌아가기' }).click()
+    await expect(form.getByLabel('1. 전공')).toHaveValue('특용작물전공')
+    await form.getByRole('button', { name: '미정' }).nth(1).click()
+    await expect(form).toContainText('표준 모델을 제시합니다')
+    await expect(form.locator('input').nth(1)).toBeDisabled()
+    await expect(form.getByRole('button', { name: '보내기' })).toBeEnabled()
+    await form.locator('input').first().press('Enter')
+    await expect(page.locator('.chat-msg.user')).toHaveCount(1, { timeout: 30000 })
+    await expect(page.locator('.chat-msg.user').first()).toContainText('1. 전공: 특용작물전공')
+    await expect(page.locator('.chat-msg.user').first()).toContainText('2. 자금: 미정')
+  } finally { await electronApp.close() }
+})

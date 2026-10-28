@@ -7,12 +7,14 @@
  * 우선순위: disconnected > permission > running > question > composer.
  */
 import { parseQuestion, type ParsedQuestion } from './question'
+import { parseQuestionForm, type ParsedForm } from './question-form'
 import type { ChatSnapshot, ConnectionStatus, PermissionRequest } from './chat'
 import type { Status } from './types'
 
 export type Zone =
   | { kind: 'permission'; request: PermissionRequest }
   | { kind: 'question'; card: ParsedQuestion; messageId: string }
+  | { kind: 'form'; form: ParsedForm; messageId: string }
   | { kind: 'running' }
   | { kind: 'composer' }
   /** 지금의 로그인·설치 안내 자리 — 화면은 기존 그대로다. */
@@ -64,5 +66,14 @@ export function zoneOf(
   if (snapshot?.state === 'running' || snapshot?.state === 'permission') return { kind: 'running' }
   const card = questionCardOf(snapshot, projectStatus)
   if (card) return { kind: 'question', card: card.card, messageId: card.messageId }
+  if (snapshot?.state === 'idle') {
+    const messages = snapshot.messages
+    let last = messages.length - 1
+    while (last >= 0 && messages[last].role !== 'assistant') last--
+    if (last >= 0 && !messages.slice(last + 1).some((message) => message.role === 'user')) {
+      const form = parseQuestionForm(messages[last].text)
+      if (form) return { kind: 'form', form, messageId: messages[last].id }
+    }
+  }
   return { kind: 'composer' }
 }

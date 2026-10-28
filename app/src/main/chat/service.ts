@@ -1,10 +1,10 @@
-import { MODEL_SELECTION_COPY } from '../../shared/copy'
+import { CLAUDE_AUTH_COPY, MODEL_SELECTION_COPY } from '../../shared/copy'
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, lstatSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { findExecutable, installSkill, skillState, skillVersion, VERSION_FILE } from '../agent'
 import { readRecoverable, tmpOf, writeFileAtomic, type SafeWriteFs } from '../safeWrite'
-import { ClaudeConnection } from './claude'
+import { ClaudeAuthenticationError, ClaudeConnection } from './claude'
 import { CodexConnection } from './codex'
 import { subscriptionEnv, type AgentConnection, type AgentOptions } from './contracts'
 import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
@@ -23,6 +23,29 @@ export class ChatService {
   private owners = new Set<string>()
   private runs = new Map<string, Promise<void>>()
   private shuttingDown = false
+  private authRequired = new Set<Provider>()
+  private reauthenticating = new Map<Provider, AgentConnection>()
+  private async checkedStatus(provider: Provider, connection: AgentConnection): Promise<ConnectionStatus> {
+    if (!this.authRequired.has(provider)) {
+      const status = await connection.status()
+      if (!this.authRequired.has(provider)) return status
+    }
+    const login = this.reauthenticating.get(provider)
+    if (login && (!(login instanceof ClaudeConnection) || login.loginConfirmed)) {
+      const status = await login.status()
+      if (status.connected && this.reauthenticating.get(provider) === login
+        && (!(login instanceof ClaudeConnection) || login.loginConfirmed)) {
+        this.authRequired.delete(provider)
+        this.reauthenticating.delete(provider)
+        return status
+      }
+    }
+    return { installed: true, connected: false, version: null, probe: 'ok', detail: CLAUDE_AUTH_COPY.required }
+  }
+  private async startLogin(provider: Provider, connection: AgentConnection): Promise<void> {
+    await connection.login()
+    if (this.authRequired.has(provider)) this.reauthenticating.set(provider, connection)
+  }
   /** 종료 시작과 동시에 새 연결·상태 확인을 막는다. 기존 연결은 close()가 정리한다. */
   beginShutdown(): void { this.shuttingDown = true }
   private ensureActive(): void {
@@ -214,9 +237,9 @@ export class ChatService {
   async status(root: string, provider: Provider): Promise<ConnectionStatus> {
     this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
-    return this.connection(root, provider).status()
+    return this.checkedStatus(provider, this.connection(root, provider))
   }
-  async login(root: string, provider: Provider) { await this.connection(root, provider).login() }
+  async login(root: string, provider: Provider) { await this.startLogin(provider, this.connection(root, provider)) }
 
   // ---------------------------------------------------------------- 모델 고르기 (ChatGPT 쪽)
   /**
@@ -335,14 +358,15 @@ export class ChatService {
     this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     try {
-      return await this.globalConnection(provider).status()
+      return await this.checkedStatus(provider, this.globalConnection(provider))
     } catch (e) {
       return { installed: true, connected: false, version: null, probe: 'failed', detail: e instanceof Error ? e.message : '연결 상태를 확인하지 못했어요.' }
     }
   }
-  async globalLogin(provider: Provider): Promise<void> { await this.globalConnection(provider).login() }
+  async globalLogin(provider: Provider): Promise<void> { await this.startLogin(provider, this.globalConnection(provider)) }
   /** 취소 뒤에는 연결을 버린다 — 다음 확인이 새 프로세스로 상태를 다시 묻는다. */
   async cancelLogin(provider: Provider): Promise<void> {
+    this.reauthenticating.delete(provider)
     const c = this.globals.get(provider)
     this.globals.delete(provider)
     if (!c) return
@@ -353,6 +377,7 @@ export class ChatService {
     const c = this.globalConnection(provider)
     if (c.reopenLogin) await c.reopenLogin()
     else await c.login()
+    if (this.authRequired.has(provider)) this.reauthenticating.set(provider, c)
   }
   async send(root: string, provider: Provider, text: string, requestId: string) {
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
@@ -376,11 +401,12 @@ export class ChatService {
         s.messages.push({ id: randomUUID(), role: 'system', text: `규칙집이 갱신됐어요 (이전 ${old} → 현재 ${version})`, at: new Date().toISOString() })
       }
       const connection = this.connection(root, provider)
-      if (!(await connection.status()).connected) throw new Error('AI 계정 연결을 먼저 완료해 주세요.')
+      if (!(await this.checkedStatus(provider, connection)).connected) throw new Error(this.authRequired.has(provider) ? CLAUDE_AUTH_COPY.required : 'AI 계정 연결을 먼저 완료해 주세요.')
       // 전송 전 확인 — 여기서 던지면 보낸 말이 대화에 남지 않고 초안도 그대로다. 예전 모델로
       // 조용히 보내는 대신 학생에게 오류로 알린다(검토 MC1-01).
       await connection.prepare?.(s.sessionId)
       s.skillHash = version; s.skillLoaded = false; s.state = 'running'; s.error = undefined
+      s.authRequired = undefined
       s.messages.push({ id: requestId, role: 'user', text, at: new Date().toISOString(), delivery: 'pending' })
       this.publish(s)
       const run = this.execute(s, connection, text, requestId).finally(release)
@@ -433,6 +459,11 @@ export class ChatService {
       // 학생이 멈춘 것은 실패가 아니다 — 취소로 끝난 턴에 오류 문구를 붙이지 않는다.
       // (중단하면 연결이 끊겨 run 이 예외로 끝나므로 여기로 온다.)
       if (s.state !== 'stopped') {
+        if (s.provider === 'claude' && e instanceof ClaudeAuthenticationError) {
+          this.authRequired.add(s.provider)
+          this.reauthenticating.delete(s.provider)
+          s.authRequired = true
+        }
         if (s.state !== 'interrupted') s.state = 'error'
         s.error = e instanceof Error ? e.message : '작업이 완료되지 않았어요.'
       }
