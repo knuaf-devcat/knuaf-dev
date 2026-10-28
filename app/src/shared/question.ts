@@ -29,8 +29,12 @@ export interface ParsedQuestion {
   use: string
   /** 질문 문장. 제목 줄과 보기 사이가 비어 있으면 제목 줄을 쓴다. */
   text: string
+  /** 물음표로 끝나는 줄이 하나일 때만 나머지 문장을 작은 설명으로 표시한다. */
+  description: string | null
   /** 보기 원문(번호 접두어 없이). ` — ` 뒤 설명은 지우지 않는다 — 나눠 보여 줄 뿐이다. */
   options: string[]
+  /** 화면 정규화 전의 보기 본문 — 전송에 쓴다. */
+  answers: string[]
   /** 원문에 적힌 장(`Ⅲ장`). 없으면 null. 종이 칸의 "이 장에 쓰여요" 한 줄에 쓴다(3단계). */
   chapterHint: string | null
   /** 대화 원문에서 접을 줄 범위(0-based, 양끝 포함). 카드가 떠 있는 동안만 접는다. */
@@ -45,6 +49,8 @@ export interface ParsedQuestion {
 const TITLE = /^\s*\[Q(\d+)-(\d+)(?:\s+([^\]]*\S))?\s*\]\s*(.*)$/
 /** `1) 보기` — 번호와 보기 글이 있어야 한다. */
 const OPTION = /^\s*(\d+)\)\s*(\S.*)$/
+/** 번호·목록 표식만 제거하고 보기 내용의 표기는 그대로 남긴다. */
+const RAW_OPTION = /^\s*(?:#{1,6}\s+|[-*•]\s+)?(?:\*\*|__)?\d+[)）](?:\*\*|__)?\s*(\S.*)$/
 
 /**
  * 한 줄에서 모양만 다른 부분을 걷어 낸다 — 굵은·기울인 표시(`**`·`__`), 머리 표시(`### `), 목록
@@ -61,7 +67,8 @@ function clean(line: string): string {
 const CHAPTER = /[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+장/
 
 export function parseQuestion(text: string): ParsedQuestion | null {
-  const lines = text.split('\n').map(clean)
+  const rawLines = text.split('\n')
+  const lines = rawLines.map(clean)
 
   // ① 마지막 `[Qn-m] 제목` 줄. 한 메시지에 질문이 둘 있으면 뒤엣것이 지금 질문이다.
   let titleAt = -1
@@ -82,6 +89,7 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   }
   if (first < 0) return null
   const options: string[] = []
+  const answers: string[] = []
   let last = first
   for (let i = first; i < lines.length; i++) {
     if (lines[i].trim() === '') {
@@ -93,7 +101,10 @@ export function parseQuestion(text: string): ParsedQuestion | null {
     const found = lines[i].match(OPTION)
     if (!found) break
     if (Number(found[1]) !== options.length + 1) return null
+    const raw = rawLines[i].replace(/\r$/, '').match(RAW_OPTION)
+    if (!raw) return null
     options.push(found[2].trim())
+    answers.push(raw[1].trim())
     last = i
   }
   if (options.length < 2 || options.length > 5) return null
@@ -118,24 +129,32 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   // 같은 문장을 두 줄에 쓰지 않는다.
   const between = lines.slice(titleAt + 1, first).map((l) => l.trim()).filter(Boolean)
   const use = tail && head && !between.length ? tail : head || tail || ''
+  const questions = between.filter((line) => line.endsWith('?'))
+  const question = questions.length === 1 ? questions[0] : null
   return {
     id: `Q${title[1]}-${title[2]}`,
     use,
-    text: between.length ? between.join(' ') : head || use,
+    text: question ?? (between.length ? between.join(' ') : head || use),
+    description: question ? between.filter((line) => line !== question).join(' ') || null : null,
     options,
+    answers,
     chapterHint: lines.join('\n').match(CHAPTER)?.[0] ?? null,
     span: { start: first, end }
   }
 }
 
-/** ` — ` 뒤 설명을 오른쪽 작은 글로 나눈다. 없으면 두 번째 값이 null. */
+/** 구분자가 확실할 때만 화면에서 설명을 나눈다. 콜론 앞은 20자 이하여야 한다. */
 export function splitOption(option: string): { main: string; note: string | null } {
-  const at = option.indexOf(' — ')
-  if (at < 0) return { main: option, note: null }
-  return { main: option.slice(0, at), note: option.slice(at + 3) }
+  const dash = option.indexOf(' — ')
+  if (dash > 0 && dash + 3 < option.length) return { main: option.slice(0, dash), note: option.slice(dash + 3) }
+  const colon = option.indexOf(': ')
+  if (colon > 0 && colon <= 20 && colon === option.lastIndexOf(': ') && colon + 2 < option.length) {
+    return { main: option.slice(0, colon), note: option.slice(colon + 2) }
+  }
+  return { main: option, note: null }
 }
 
 /** 고른 보기를 도우미가 받는 형식으로 되돌린다 — `2) 온라인 직거래`. */
 export function optionAnswer(index: number, option: string): string {
-  return `${index + 1}) ${splitOption(option).main}`
+  return `${index + 1}) ${option}`
 }

@@ -58,7 +58,7 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
   const pick = (index: number): void => {
     if (locked.current) return
     setChosen(index)
-    void send(optionAnswer(index, card.options[index]))
+    void send(optionAnswer(index, card.answers[index]))
   }
 
   const openFree = (): void => {
@@ -82,23 +82,30 @@ export function QuestionCard({ card, draft, onDraft, onSend }: Props) {
     const n = Number(e.key)
     if (Number.isInteger(n) && n >= 1 && n <= card.options.length) { e.preventDefault(); pick(n - 1) }
   }
+  // 제목이 전공 자체를 가리킬 때만 숨긴다. 작목·전공이 함께 언급된 다른 질문은 건드리지 않는다.
+  const majorQuestion = /^전공\s*(?:$|[(:·])/.test(card.use) ||
+    (/^전공(?:이|은|을)\s.*\?$/.test(card.text) && !card.text.includes('작목'))
+
 
   return (
     <div className="qcard" role="group" aria-label={CHAT.questionGroup(card.id)} tabIndex={-1} ref={box} onKeyDown={onKeyDown}>
       <p className="sr-only" aria-live="polite">{CHAT.questionArrived}</p>
       <div className="qcard-use">{card.use}</div>
       <div className="qcard-q">{card.text}</div>
+      {card.description && <div className="qcard-description">{card.description}</div>}
       {/* 보기 1~n은 직접 입력 중에도 그대로 남는다(시안 E). 마지막 줄만 입력 영역으로 펼쳐진다 —
           보기가 사라지면 마음이 바뀌었을 때 되돌아갈 곳이 없어진다(검토 P1-R1-04). */}
       <div className="qcard-opts" role="radiogroup" aria-label={CHAT.questionOptions}>
         {card.options.map((option, i) => {
           const { main, note } = splitOption(option)
+          const recommended = /\s*\(추천\)$/.test(main) && main.replace(/\s*\(추천\)$/, '').trim().length > 0
+          const label = recommended ? main.replace(/\s*\(추천\)$/, '') : main
           return (
             <button key={i} type="button" role="radio" aria-checked={chosen === i}
               className={`qopt${chosen === i ? ' on' : ''}`} onClick={() => pick(i)}>
               <span className="qopt-k">{i + 1}</span>
               <span className="qopt-body">
-                <span className="qopt-t">{main}</span>
+                <span className="qopt-t">{label}{recommended && !majorQuestion && <span className="qopt-recommend">추천</span>}</span>
                 {note && <span className="qopt-x">{note}</span>}
               </span>
             </button>

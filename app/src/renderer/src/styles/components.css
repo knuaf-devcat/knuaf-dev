@@ -571,6 +571,7 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .qcard:focus-visible { outline: none; }
 .qcard-use { display: flex; align-items: baseline; gap: var(--sp-2); padding: 0 10px; font-size: 12.5px; color: var(--muted); }
 .qcard-q { font-size: 18px; font-weight: 650; line-height: 1.45; padding: 4px 10px 10px; letter-spacing: -.012em; text-wrap: balance; }
+.qcard-description { padding: 0 10px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; text-wrap: pretty; }
 .qcard-opts { display: flex; flex-direction: column; }
 .qopt { display: flex; align-items: flex-start; gap: var(--sp-3); width: 100%; min-height: 46px; padding: var(--sp-2) 10px; border: 0; background: none; border-radius: var(--r-lg); font-size: 15px; text-align: left; line-height: 1.4; }
 .qopt:hover { background: var(--hover); }
@@ -579,6 +580,7 @@ button.lk:hover { border-bottom-color: var(--ink); }
 .qopt.on .qopt-k { background: var(--send-bg); color: var(--send-ink); border-color: var(--send-bg); }
 .qopt-body { min-width: 0; display: grid; gap: 1px; padding-top: 2px; }
 .qopt-t { min-width: 0; text-wrap: pretty; font-weight: 550; }
+.qopt-recommend { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 11.5px; font-weight: 650; line-height: 19px; }
 .qopt-x { font-size: 13px; color: var(--muted); text-wrap: pretty; }
 .qopt.free { color: var(--ink-2); }
 .qopt.free .qopt-k { color: var(--muted); }
