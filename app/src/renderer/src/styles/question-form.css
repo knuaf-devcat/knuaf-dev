@@ -8,5 +8,3 @@
 .qform-row input, .qform textarea { min-width: 0; width: 100%; padding: var(--sp-2); color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: inherit; }
 .qform-row input:disabled { background: var(--panel-2); }
 .qform-row button[aria-pressed='true'] { color: var(--btn-ink); background: var(--btn-bg); border-color: var(--btn-border); }
-.qform-preview { padding: var(--sp-3); background: var(--panel-2); border-radius: var(--r-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
-.qform-preview strong { display: block; margin-bottom: var(--sp-1); }
