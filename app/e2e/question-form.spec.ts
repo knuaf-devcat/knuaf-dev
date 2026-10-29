@@ -19,6 +19,28 @@ const Q = `[Q2] 기본 계획
    (확인 후 시범값으로 진행합니다)
 
 각 항목에 값을 적거나 미정이라고 답해주세요.`
+test('윈도우 화면 인용을 참고한 금액 질문 변형과 칸 설명 분리', () => {
+  const money = `[Q2-4] 창업에 사용할 자금은 대략 얼마로 생각하시나요?
+1. 자기자본: 직접 마련할 금액
+2. 융자·정책자금: 빌리거나 신청할 계획 금액
+예: \`자기자본 5천만 원, 융자 1억 원\``
+  expect(parseQuestionForm(money)).toBeNull()
+  const form = parseQuestionForm(`**[Q2] 기본 계획**
+1. 자기자본: 직접 마련할 금액
+2. 융자·정책자금: 빌리거나 신청할 계획 금액`)!
+  expect(form.title).toBe('기본 계획')
+  expect(form.fields.map(f => [f.label, f.description])).toEqual([
+    ['자기자본', '직접 마련할 금액'], ['융자·정책자금', '빌리거나 신청할 계획 금액']
+  ])
+})
+test('맥 저장 대화의 금액 질문은 보통 입력이다', () => {
+  const text = `[Q2-4] 자금 계획 · 재무계획에 사용  
+준비 가능한 자기자본과 융자는 각각 얼마인가요? 가족 지원이 있다면 금액과 증여·대여 여부도 알려주세요.  
+예: 자기자본 1억 원(가족 지원 5천만 원 포함), 융자 3억 원  
+아직 정해지지 않았다면 ‘미정’이라고 답해 주세요.`
+  expect(parseQuestionForm(text)).toBeNull()
+})
+
 
 test('여러 칸과 설명을 보존하고 애매한 번호는 거부한다', () => {
   const form = parseQuestionForm(Q)!
