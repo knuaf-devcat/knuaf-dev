@@ -116,7 +116,7 @@ export class CodexConnection implements AgentConnection {
     rpc.onClose = () => { this.waiter?.reject(new Error('Codex 연결이 종료됐어요. 답변은 자동 재전송하지 않아요.')); this.waiter = undefined }
     let init: { userAgent?: string } | undefined
     try {
-      init = await rpc.request('initialize', { clientInfo: { name: 'knuaf_dev_gui', version: '0.4.0' }, capabilities: { experimentalApi: true } })
+      init = await rpc.request('initialize', { clientInfo: { name: 'knuaf_dev_gui', version: '0.5.0' }, capabilities: { experimentalApi: true } })
     } catch (e) {
       this.rpc = undefined
       await rpc.stop().catch(() => {})
