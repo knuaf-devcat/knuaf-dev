@@ -46,7 +46,7 @@ export interface ParsedQuestion {
  * 읽는다(형님 맥 실사용 2026-10-20 — 도우미가 후보 비교 뒤 되묻는 질문을 이 모양으로 썼고 카드가 뜨지 않았다).
  * 꼬리말이나 괄호 뒤 글 중 하나는 있어야 한다.
  */
-const TITLE = /^\s*\[Q(\d+)-(\d+[a-z]?)(?:\s+([^\]]*\S))?\s*\]\s*(.*)$/
+const TITLE = /^\s*\[Q(\d+)-(\d+(?:[a-z]|-\d+)?)(?:\s+([^\]]*\S))?\s*\]\s*(.*)$/
 /** `1) 보기` — 번호와 보기 글이 있어야 한다. */
 const OPTION = /^\s*(\d+)\)\s*(\S.*)$/
 /** 번호·목록 표식만 제거하고 보기 내용의 표기는 그대로 남긴다. */
@@ -130,11 +130,14 @@ export function parseQuestion(text: string): ParsedQuestion | null {
   const between = lines.slice(titleAt + 1, first).map((l) => l.trim()).filter(Boolean)
   const use = tail && head && !between.length ? tail : head || tail || ''
   const questions = between.filter((line) => line.endsWith('?'))
-  const question = questions.length === 1 ? questions[0] : null
+  const after = lines.slice(last + 1).map((line) => line.trim()).find(Boolean)
+  const trailingQuestion = !between.length && !head.includes('?') && !tail?.includes('?')
+    && after?.match(/^([^?]+\?)(?:\s+.*)?$/)?.[1]
+  const question = questions.length === 1 ? questions[0] : trailingQuestion || null
   return {
     id: `Q${title[1]}-${title[2]}`,
     use,
-    text: question ?? (between.length ? between.join(' ') : head || use),
+    text: question ?? (between.length ? between.join(' ') : head.includes('?') ? head : tail?.includes('?') ? tail : head || use),
     description: question ? between.filter((line) => line !== question).join(' ') || null : null,
     options,
     answers,
