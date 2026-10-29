@@ -1458,8 +1458,6 @@ export const PROJECT_FOLDER = {
 export const QUESTION_FORM = {
   undecided: '미정',
   filled: '채움',
-  preview: '보낼 답',
-  empty: '(비어 있음)',
   keys: 'Tab 다음 칸 · Enter 보내기',
   free: '직접 입력',
   back: '질문창으로 돌아가기',

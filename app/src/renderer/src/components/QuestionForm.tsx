@@ -38,7 +38,6 @@ export function QuestionForm({ form, onFree, onSend, disabled }: Props) {
         <button type="button" aria-pressed={unknown[i]} onClick={() => setUnknown(unknown.map((v, n) => n === i ? !v : v))}>{QUESTION_FORM.undecided}</button></div>
       {unknown[i] && field.undecided && <div className="qform-note">{field.undecided}</div>}
     </div>)}</div>
-    <div className="qform-preview"><strong>{QUESTION_FORM.preview}</strong>{answers.map((answer, i) => <div key={i}>{answer || ''}{!unknown[i] && !values[i].trim() ? QUESTION_FORM.empty : ''}</div>)}</div>
     <div className="qform-foot"><button type="button" onClick={onFree}>{QUESTION_FORM.free}</button><span>{QUESTION_FORM.keys}</span><button type="submit" className="primary" disabled={!complete || disabled || sending}>{QUESTION_FORM.send}</button></div>
   </form>
 }
