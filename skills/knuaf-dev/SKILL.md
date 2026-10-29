@@ -51,7 +51,7 @@ license: MIT
 
 서술 설계·문단 확장·시각자료 판단·확정 계획 취급·지번 처리는 [narrative-expansion](references/narrative-expansion.md)을 따른다. 내용 확장과 사실 대조를 마친 뒤 [한글 윤문 연결](references/korean-polishing.md)에 따라 `im-not-ai`의 `humanize-korean`을 적용한다.
 
-재무는 제공된 학교 양식에서 어느 시트가 입력이고 어느 시트가 자동계산인지 먼저 확인한다 — [excel-template](references/excel-template.md)의 「입력 시트 역할」. 시트 번호·색을 기억으로 단정하지 말고 실제 시트명·탭 색·원본 해시를 본다.
+재무는 학생이 현재 파일로 지정한 양식을 우선하고, 없으면 동봉 `assets/templates/finance-template.xlsx`를 쓴다. `gg_excel_template.py create --out build/검토전_재무.xlsx`로 사본을 만들고, 학생 파일이 있으면 `--source`를 명시한다. 실제 입력은 어느 시트가 입력이고 어느 시트가 자동계산인지 먼저 확인한다 — [excel-template](references/excel-template.md)의 「입력 시트 역할」. 시트 번호·색을 기억으로 단정하지 말고 실제 시트명·탭 색·원본 해시를 본다. 사본 생성은 값 채우기·재계산·제출 승인이 아니다.
 
 ## 필요한 문서
 

@@ -95,7 +95,7 @@ XLSX 생성, 재계산, 원문 추출, 글꼴, 렌더는 각각 작은 로컬 �
 | `gg_school_paper.py` | 학교 Ⅰ–Ⅵ 본문 생성(= `gg.py paper` 가 부르는 것) |
 | `gg_frontmatter.py` · `gg_frontmatter_layout.py` | 겉표지·표제면·제출서·인준서·목차 |
 | `gg_school_excel.py` · `gg_school_verify.py` | 학교 17시트 재무 양식 생성·재계산 검증 |
-| `gg_excel_template.py` · `gg_excel_fill.py` · `gg_excel_formula_patch.py` · `gg_excel_print.py` | 원본 양식 조사 → 빈 사본 → 셀 채우기 → 수식·인쇄 배치 |
+| `gg_excel_template.py` · `gg_excel_fill.py` · `gg_excel_formula_patch.py` · `gg_excel_print.py` | 학생 양식 우선·없으면 동봉 정본으로 `create --out <새.xlsx>` → 입력 셀 조사·검토 → 채우기·수식·인쇄 배치 |
 | `gg_finance.py` | 단일 작목 연간 현금주의 재무 계산 |
 | `gg_guidelines.py` | 학교 작성지침 대조(원문 근거 없으면 확정하지 않음) |
 | `gg_school_format.py` · `lint_format.py` | 서식 검사(신명조·여백·쪽번호 등) |

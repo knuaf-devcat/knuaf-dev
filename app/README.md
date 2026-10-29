@@ -50,6 +50,13 @@
     (`pdfjs-dist`, Electron 37 Chromium과 맞지 않아 `legacy` 빌드)로 그리고, DOCX는 같은 이름의 PDF(같은 폴더 또는
     build/native)가 있을 때만 그 PDF를 보여 주며, 없으면 Office 렌더 버튼과 "원래 앱으로 열기"를 둡니다.
     XLSX는 사이드카가 openpyxl로 읽은 표를 그립니다(재계산 안 된 수식이 과반이면 경고).
+    **재무 엑셀 만들기**는 등록한 학생 재무 파일을 우선 복사하고, 없으면 동봉 기준 양식으로
+    새 파일을 만듭니다. 이름 충돌 때는 새 버전 이름을 쓰며 학생 원본·기존 입력값을 덮어쓰지 않습니다.
+    양식 정본은 `skills/knuaf-dev/assets/templates/finance-template.xlsx`이고,
+    `stage:skill`이 assets까지 패키징합니다. 연도별 교체도 같은 경로의 파일 하나를 교체합니다.
+    프로젝트 로컬 스킬 설치도 assets를 포함하고, 스킬 버전 해시에 XLSX 내용까지 반영합니다.
+    양식 파일만 교체해도 다음 스킬 갱신 때 구버전을 감지합니다.
+    새 사본은 입력값 채우기·실제 Excel 재계산·본문 대조가 끝난 재무 결과가 아닙니다.
 
 스킬(`knuaf-dev`)은 전역이 아니라 프로젝트 로컬(`<프로젝트>/.claude/skills`, `<프로젝트>/.agents/skills`)에 설치됩니다.
 

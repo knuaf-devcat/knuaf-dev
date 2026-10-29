@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import zipfile
 import unicodedata
@@ -27,6 +28,8 @@ NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 NS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships"
 NS_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 ET.register_namespace("", NS_MAIN)
+
+BUNDLED_TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "templates" / "finance-template.xlsx"
 
 CELL_RE = re.compile(r"^([A-Z]+)([1-9][0-9]*)$")
 RANGE_RE = re.compile(r"^([A-Z]+)([1-9][0-9]*)(?::([A-Z]+)([1-9][0-9]*))?$")
@@ -707,17 +710,44 @@ def blank_copy(source: Path, map_path: Path, out: Path, allow_missing: bool = Fa
     return receipt
 
 
+def create_workbook(source: Path, out: Path) -> dict:
+    """Copy the selected student workbook, or the bundled blank, without overwriting.
+
+    Student financial inputs are not erased by a copy operation. Inspect/clear/fill
+    remain separate, explicitly reviewed operations.
+    """
+    source = resolve_source(source).resolve()
+    if out.exists():
+        raise FileExistsError(f"refusing to overwrite output: {out}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as original:
+        target = out.open("xb")
+        try:
+            with target:
+                shutil.copyfileobj(original, target)
+        except Exception:
+            out.unlink()
+            raise
+    return {"status": "template_copy", "path": str(out.resolve()),
+            "source": {"sha256": sha256(source),
+                       "kind": "bundled" if source == BUNDLED_TEMPLATE.resolve() else "student"},
+            "output": {"sha256": sha256(out), "calculationStatus": "not_verified"}}
+
+
 def cli(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description="inspect and create a source-bound reusable XLSX template")
     sp = p.add_subparsers(dest="cmd", required=True)
+    make = sp.add_parser("create", help="copy a student workbook or the bundled neutral blank")
+    make.add_argument("--source", type=Path, default=BUNDLED_TEMPLATE)
+    make.add_argument("--out", required=True, type=Path)
     i = sp.add_parser("inspect")
-    i.add_argument("--source", required=True, type=Path)
+    i.add_argument("--source", type=Path, default=BUNDLED_TEMPLATE)
     i.add_argument("--out-map", required=True, type=Path)
     i.add_argument("--report", type=Path)
     i.add_argument("--legacy-map", action="store_true",
                    help="use the hard-coded legacy 17-sheet map instead of the inventory-derived map")
     c = sp.add_parser("clear")
-    c.add_argument("--source", required=True, type=Path)
+    c.add_argument("--source", type=Path, default=BUNDLED_TEMPLATE)
     c.add_argument("--map", required=True, type=Path)
     c.add_argument("--out", required=True, type=Path)
     c.add_argument("--receipt", type=Path)
@@ -725,7 +755,9 @@ def cli(argv: list[str]) -> int:
                    help="do not fail when a mapped cell has no node in the source; report it in the receipt")
     args = p.parse_args(argv)
     try:
-        if args.cmd == "inspect":
+        if args.cmd == "create":
+            print(json.dumps(create_workbook(args.source, args.out), ensure_ascii=False))
+        elif args.cmd == "inspect":
             r = inspect_source(args.source, args.out_map, args.report, legacy_map=args.legacy_map)
             print(json.dumps({"status": "inspected", "source": r["source"], "entries": len(r["entries"]),
                               "entries_source": r["entriesSource"],

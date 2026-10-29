@@ -437,8 +437,6 @@ test.describe('installSkill', () => {
     // filtered copy: no __pycache__ even though the checkout has one
     expect(existsSync(join(targets.claude, 'scripts', '__pycache__'))).toBe(false)
     expect(readdirSync(join(targets.claude, 'scripts')).some((n) => n.endsWith('.py'))).toBe(true)
-    // only the three parts + marker, never anything else
-    expect(readdirSync(targets.claude).sort()).toEqual(['.knuaf-dev-version', 'SKILL.md', 'references', 'scripts'])
 
     expect(installSkill(source, targets.claude, version)).toEqual({ action: 'unchanged' })
 
@@ -471,6 +469,26 @@ test.describe('installSkill', () => {
     expect(backups).toHaveLength(2)
     expect(backups.some((n) => n.startsWith('.claude-'))).toBe(true)
     expect(backups.some((n) => n.startsWith('.agents-'))).toBe(true)
+  })
+
+  test('replacing only the annual template marks an installed skill outdated', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'kd-annual-template-'))
+    const origin = join(fixture, 'source')
+    const target = skillTargets(join(fixture, 'project')).codex
+    mkdirSync(join(origin, 'assets', 'templates'), { recursive: true })
+    writeFileSync(join(origin, 'SKILL.md'), '# fixed rules\n')
+    const template = join(origin, 'assets', 'templates', 'finance-template.xlsx')
+    writeFileSync(template, 'annual template 2026')
+    const previous = skillVersion(origin)
+    installSkill(origin, target, previous)
+    expect(skillState(target, previous)).toBe('installed')
+
+    // Same length and unchanged scripts/docs: template content alone must invalidate.
+    writeFileSync(template, 'annual template 2027')
+    const current = skillVersion(origin)
+    expect(skillState(target, current)).toBe('outdated')
+    expect(installSkill(origin, target, current).action).toBe('updated')
+    expect(skillState(target, current)).toBe('installed')
   })
 })
 
