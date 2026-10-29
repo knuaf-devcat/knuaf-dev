@@ -70,6 +70,17 @@ test('윈도우 세 단계 농장명 질문은 보기 뒤 질문을 사용한다
   expect(card.options).toHaveLength(4)
   expect(parseQuestion(text.replace('Q2-2-1', 'Q2-2-1-1'))).toBeNull()
 })
+test('제목에 질문이 있으면 보기 뒤 답변 안내보다 우선한다', () => {
+  const text = `[Q2-3] 부지는 어떻게 확보하시나요?
+1) 매입
+2) 임차
+
+번호로 답하거나 직접 적어 주시겠어요?`
+  const card = parseQuestion(text)!
+  expect(card.text).toBe('부지는 어떻게 확보하시나요?')
+  expect(card.answers).toEqual(['매입', '임차'])
+})
+
 
 test('선택형 3~5개를 읽고 제목·질문·보기·장을 꺼낸다', () => {
   const parsed = parseQuestion(Q())
