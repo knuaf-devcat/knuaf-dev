@@ -55,6 +55,22 @@ test('맥 실측 영문 접미 번호의 보기 카드', () => {
 })
 
 
+test('윈도우 세 단계 농장명 질문은 보기 뒤 질문을 사용한다', () => {
+  const text = `[Q2-2-1] 농장명 후보 · 농장 소개에 쓰여요
+
+1) 상주한결딸기 — 꾸준한 품질을 지향한다는 뜻
+2) 봄담딸기농원 — 신선한 딸기를 담는다는 뜻
+3) 들빛딸기농원 — 밝고 건강한 농장을 가꾸겠다는 뜻
+4) 아직 몰라요 — 이름을 보류하고 영농 계획부터 진행할게요
+
+어느 이름이 마음에 드나요? 번호로 답하거나 직접 지은 이름을 알려주세요.`
+  const card = parseQuestion(text)!
+  expect(card.id).toBe('Q2-2-1')
+  expect(card.text).toBe('어느 이름이 마음에 드나요?')
+  expect(card.options).toHaveLength(4)
+  expect(parseQuestion(text.replace('Q2-2-1', 'Q2-2-1-1'))).toBeNull()
+})
+
 test('선택형 3~5개를 읽고 제목·질문·보기·장을 꺼낸다', () => {
   const parsed = parseQuestion(Q())
   expect(parsed).not.toBeNull()

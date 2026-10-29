@@ -29,9 +29,15 @@ export function parseQuestionForm(text: string): ParsedForm | null {
     const numbered = line.match(/^\s*(\d+)([.)])\s*(.*)$/)
     if (numbered) {
       if (ended || numbered[2] !== '.' || Number(numbered[1]) !== fields.length + 1 || fields.length === 6) return null
-      const label = numbered[3].replace(/\*\*|__/g, '').match(/^([^()]+?)(?:\s*\(([^()]*)\)|:\s+(.+))?\s*$/)
-      if (!label || !label[1].trim()) return null
-      fields.push({ label: label[1].trim(), description: (label[2] ?? label[3])?.trim() ?? '', example: '', undecided: '', notes: [] })
+      const content = numbered[3].replace(/\*\*|__/g, '')
+      const variant = content.match(/^([^():—]+?)\s*(?:\(([^()]*)\))?\s+—\s+(.+)$/)
+      const label = variant ? null : content.match(/^([^()]+?)(?:\s*\(([^()]*)\)|:\s+(.+))?\s*$/)
+      if (!variant && (!label || !label[1].trim())) return null
+      const suffix = variant?.[3] ?? ''
+      const exampleAt = suffix.indexOf('예:')
+      const extra = (exampleAt < 0 ? suffix : suffix.slice(0, exampleAt)).trim().replace(/[.。\s]+$/, '')
+      const description = variant ? [variant[2]?.trim(), extra].filter(Boolean).join(' — ') : (label?.[2] ?? label?.[3])?.trim() ?? ''
+      fields.push({ label: (variant?.[1] ?? label![1]).trim(), description, example: exampleAt < 0 ? '' : suffix.slice(exampleAt).trim(), undecided: '', notes: [] })
       afterUndecided = false
       continue
     }

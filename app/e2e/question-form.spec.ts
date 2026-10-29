@@ -19,6 +19,24 @@ const Q = `[Q2] 기본 계획
    (확인 후 시범값으로 진행합니다)
 
 각 항목에 값을 적거나 미정이라고 답해주세요.`
+test('윈도우 기본 계획의 같은 줄 설명과 예시를 분리한다', () => {
+  const text = `**[Q2] 기본 계획**
+다음 세 가지를 번호별로 알려주세요.
+
+1. **전공(학과 소속)** — 예: 채소전공
+2. **창업 예정 지역(시·군)** — 예: 전북 완주군. 미정이면 "미정"
+3. **가용 자금** — 자기자본과 대출 예정액을 나눠 적어주세요. 예: 자기자본 5천만 원, 대출 1억 원. 아직 정하지 않았다면 "미정"
+
+한 줄로 \`채소전공 / 완주군 / 자기자본 5천만 원, 대출 1억 원\`처럼 답해도 됩니다.`
+  const form = parseQuestionForm(text)!
+  expect(form.fields.map(f => f.label)).toEqual(['전공', '창업 예정 지역', '가용 자금'])
+  expect(form.fields[0].description).toBe('학과 소속')
+  expect(form.fields[1].example).toBe('예: 전북 완주군. 미정이면 "미정"')
+  expect(form.fields[2].description).toBe('자기자본과 대출 예정액을 나눠 적어주세요')
+  expect(form.fields[2].example).toContain('예: 자기자본 5천만 원')
+  expect(parseQuestionForm(text.replace('2. **', '2) **'))).toBeNull()
+})
+
 test('윈도우 화면 인용을 참고한 금액 질문 변형과 칸 설명 분리', () => {
   const money = `[Q2-4] 창업에 사용할 자금은 대략 얼마로 생각하시나요?
 1. 자기자본: 직접 마련할 금액
