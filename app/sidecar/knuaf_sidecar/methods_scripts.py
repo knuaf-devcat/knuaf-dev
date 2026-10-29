@@ -115,12 +115,40 @@ def docx_build(ctx, params):
 # --- Excel -------------------------------------------------------------------
 
 
+def _excel_params(ctx, params):
+    """Explicit selection wins; otherwise use the student's registered workbook.
+
+    Only an absent student workbook permits the CLI's bundled default. A missing
+    or unreadable selected file must fail, not silently switch templates.
+    """
+    if params.get("source"):
+        return params
+    from .methods_core import materials_list
+
+    finance = materials_list(ctx, params)["current_finance"]
+    selected = dict(params)
+    selected.pop("source", None)
+    if finance["provided"]:
+        if not finance["path"]:
+            raise RpcError("invalid_params", "선택한 재무 파일 경로가 없음")
+        selected["source"] = finance["path"]
+    return selected
+
+
+def excel_create(ctx, params):
+    params = _excel_params(ctx, params)
+    argv = ["create"] + _flags(params, ("source", "out"))
+    return _run(ctx, params, "gg_excel_template.py", argv)
+
+
 def excel_inspect(ctx, params):
+    params = _excel_params(ctx, params)
     argv = ["inspect"] + _flags(params, ("source", "out_map", "report", "legacy_map"))
     return _run(ctx, params, "gg_excel_template.py", argv)
 
 
 def excel_clear(ctx, params):
+    params = _excel_params(ctx, params)
     argv = ["clear"] + _flags(params, ("source", "map", "out", "receipt", "allow_missing"))
     return _run(ctx, params, "gg_excel_template.py", argv)
 
@@ -216,6 +244,7 @@ def register(server):
     for name, fn, write in (
         ("paper.generate", paper_generate, True),
         ("docx.build", docx_build, False),
+        ("excel.create", excel_create, False),
         ("excel.inspect", excel_inspect, False),
         ("excel.clear", excel_clear, False),
         ("excel.fill", excel_fill, False),

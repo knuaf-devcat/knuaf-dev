@@ -108,19 +108,22 @@ export function OutputsTools() {
       </Disclosure>
 
       <Disclosure label="재무 엑셀" preset="tools:excel">
-        <div className="card-head"><h2>학교 양식으로 재무 엑셀 만들기</h2></div>
-        <p>학교 양식 파일을 복제해 입력 칸만 비우고, 확인된 값을 채워요. 원본의 서식·수식·병합은 그대로 남아요.</p>
+        <div className="card-head"><h2>재무 엑셀 만들기</h2></div>
+        <p>학생 재무 파일이 있으면 그 파일을 우선하고, 없으면 앱에 동봉한 기준 양식을 써요. 사본 만들기는 원본을 바꾸지 않아요. 입력값 채우기와 재계산은 별도예요.</p>
         <ol className="stack" style={{ paddingLeft: 0, listStyle: 'none' }}>
           <li className="item">
             <div className="head"><strong>1. 원본 검사</strong>{done('gg_excel_template.py') && runner.env?.argv.includes('inspect') && <StatusBadge status="pass" label="완료" />}</div>
-            <Field id="xl_source" label={FIELD_LABEL.xl_source} trailing={<button onClick={pick('xl_source', [{ name: 'Excel', extensions: ['xlsx'] }])}>선택…</button>}><input id="xl_source" value={form.xl_source} onChange={set('xl_source')} placeholder="폴더 안 경로 또는 선택" /></Field>
+            <Field id="xl_source" label={FIELD_LABEL.xl_source} help={FIELD_HINT.xl_source} trailing={<button onClick={pick('xl_source', [{ name: 'Excel', extensions: ['xlsx'] }])}>선택…</button>}><input id="xl_source" value={form.xl_source} onChange={set('xl_source')} placeholder="비우면 학생 재무 파일 또는 동봉 기준 양식" /></Field>
             <Disclosure label="고급"><Field id="xl_map" label={FIELD_LABEL.xl_map} help={FIELD_HINT.xl_map}><input id="xl_map" value={form.xl_map} onChange={set('xl_map')} /></Field></Disclosure>
-            <div style={{ marginTop: 'var(--sp-2)' }}><button className="primary" disabled={runner.busy || !form.xl_source} onClick={() => runner.run('excel.inspect', { root, source: form.xl_source, out_map: form.xl_map, report: form.xl_map.replace(/\.json$/, '-report.json') })}>검사</button></div>
+            <div style={{ marginTop: 'var(--sp-2)' }}><button className="primary" disabled={runner.busy} onClick={() => runner.run('excel.inspect', { root, source: form.xl_source, out_map: form.xl_map, report: form.xl_map.replace(/\.json$/, '-report.json') })}>검사</button></div>
           </li>
           <li className="item">
-            <div className="head"><strong>2. 빈 사본 만들기</strong></div>
+            <div className="head"><strong>2. 사본 만들기</strong></div>
             <Field id="xl_blank" label={FIELD_LABEL.xl_blank} invalid={vOut('xl_blank', ['.xlsx'])} trailing={<button onClick={rename('xl_blank')}>다른 이름으로</button>}><input id="xl_blank" value={form.xl_blank} onChange={set('xl_blank')} aria-invalid={!!vOut('xl_blank', ['.xlsx'])} /></Field>
-            <div style={{ marginTop: 'var(--sp-2)' }}><button className="primary" disabled={runner.busy || !form.xl_source || !!vOut('xl_blank', ['.xlsx'])} onClick={() => runner.run('excel.clear', { root, source: form.xl_source, map: form.xl_map, out: form.xl_blank, receipt: form.xl_blank.replace(/\.xlsx$/, '-receipt.json') })}>빈 사본 만들기</button></div>
+            <div className="row" style={{ marginTop: 'var(--sp-2)' }}>
+              <button className="primary" disabled={runner.busy || !!vOut('xl_blank', ['.xlsx'])} onClick={() => runner.run('excel.create', { root, source: form.xl_source, out: form.xl_blank })}>사본 만들기</button>
+              <button disabled={runner.busy || !!vOut('xl_blank', ['.xlsx'])} onClick={() => runner.run('excel.clear', { root, source: form.xl_source, map: form.xl_map, out: form.xl_blank, receipt: form.xl_blank.replace(/\.xlsx$/, '-receipt.json') })}>검토한 셀 지도대로 비우기</button>
+            </div>
           </li>
           <li className="item">
             <div className="head"><strong>3. 값 채우기</strong></div>

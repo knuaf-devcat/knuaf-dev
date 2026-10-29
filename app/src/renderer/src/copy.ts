@@ -783,9 +783,9 @@ export const FIELD_LABEL: Record<string, string> = {
   docx_in: '통합 본문 파일',
   out_path: '저장할 이름',
   font: '글꼴',
-  xl_source: '학교 양식 파일(원본)',
+  xl_source: '재무 양식 파일(선택 사항)',
   xl_map: '원본 셀 지도',
-  xl_blank: '빈 사본 이름',
+  xl_blank: '사본 이름',
   xl_writemap: '채우기 지도 파일',
   xl_values: '값 파일',
   xl_filled: '채운 사본 이름',
@@ -802,9 +802,9 @@ export const FIELD_HINT: Record<string, string> = {
   docx_in: 'gg_school_paper.py가 만든 본문 Markdown(build/검토전_본문.md).',
   out_path: '폴더 안 상대경로. 기존 파일은 덮어쓰지 않아요.',
   font: '기본 신명조. 최종 글꼴 확인은 한글에서 직접 해요.',
-  xl_source: '학교가 준 예시 XLSX. 원본은 읽기만 하고 바꾸지 않아요.',
+  xl_source: '직접 고르면 그 파일, 비우면 등록한 학생 재무 파일, 둘 다 없으면 동봉 기준 양식을 써요. 원본은 바꾸지 않아요.',
   xl_map: 'inspect가 만드는 source-map.json. 어느 셀이 입력칸인지 적혀 있어요.',
-  xl_blank: 'clear가 만드는 사본(blank-v1.xlsx). 수식·병합·서식은 그대로예요.',
+  xl_blank: '사본 만들기는 원본 값을 그대로 복사해요. 입력칸을 비우려면 먼저 셀 지도를 검토해요.',
   xl_writemap: '도우미가 만든 gg-xlsx-fill-map JSON.',
   xl_values: '도우미가 만든 gg-xlsx-fill-values JSON.',
   xl_filled: 'fill이 만드는 사본(filled-v1.xlsx). 채운 뒤 실제 Excel 재계산이 필요해요.',
@@ -1116,14 +1116,10 @@ export const ARTIFACTS = {
     submit: '제출용 후보 만들기',
     submitBody: '학교 제출용 후보를 만들어요 — 누르면 검토 상태를 먼저 알려줘요',
     xlsx: '재무 엑셀 만들기',
-    xlsxBody: '단계가 여럿이라 "설정 > 고급 도구"의 재무 엑셀에서 진행해요',
-    /**
-     * 없는 것은 "재무 값"이 아니라 학교 재무 양식 원본 파일이다. 고급 도구의 재무 엑셀은
-     * 그 파일을 검사해 빈 사본을 뜨는 것으로 시작하므로 원본 없이는 첫 단계가 없다.
-     * 도우미가 값을 안 만들어서라고 하던 때에는, 값을 다 만든 뒤에도 같은 문구가 떠서
-     * 학생이 도우미를 재촉하게 했다(시험주행 발견 18).
-     */
-    xlsxNoInput: '학교 재무 양식 파일이 아직 없어요. 도우미에게 양식 파일 위치를 알려 주면 여기서 이어서 만들어요',
+    xlsxBody: '등록한 재무 파일을 새 사본으로 만들어요. 기존 입력값과 수식을 그대로 보존해요',
+    xlsxBundled: '동봉 기준 양식으로 빈 재무 엑셀을 만들어요. 수식·서식은 보존하고 입력값은 비워 두었어요',
+    xlsxCreated: '재무 엑셀 사본을 만들었어요',
+    xlsxNext: '입력값 채우기와 실제 Excel 재계산·본문 대조는 별도로 필요해요. 제출 완료가 아니에요.',
     gateBlocked: '제출용 후보를 만들 수 없어요. 먼저 필요한 것',
     gateDetails: '자세히',
     firstAction: '먼저 할 일:',

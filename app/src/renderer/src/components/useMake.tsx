@@ -171,7 +171,7 @@ export function useMake(): Make {
     .filter((i) => i.kind === 'md' && REVIEW_MD.test(i.path))
     .sort((a, b) => (b.revision ?? -1) - (a.revision ?? -1) || b.mtime - a.mtime)[0]?.path ?? null, [artifacts])
   const written = (sections ?? []).filter((s) => (s.draft_chars ?? 0) > 0).length
-  const financeReady = !!materials?.current_finance.provided
+  const hasStudentFinance = !!materials?.current_finance.provided
   const taken = (p: string): boolean => !!artifacts?.some((i) => i.path === p)
   const missingReview = !!status?.lanes.content_review.independent_review_missing
 
@@ -185,7 +185,7 @@ export function useMake(): Make {
     },
     // 제출용은 관문이 막혀도 활성 — 누르는 순간이 고지의 자리다(Q1·#4 기각).
     { kind: 'submission_candidate', label: ARTIFACTS.make.submit, body: ARTIFACTS.make.submitBody, enabled: !!status },
-    { kind: 'xlsx', label: ARTIFACTS.make.xlsx, body: financeReady ? ARTIFACTS.make.xlsxBody : ARTIFACTS.make.xlsxNoInput, enabled: financeReady }
+    { kind: 'xlsx', label: ARTIFACTS.make.xlsx, body: hasStudentFinance ? ARTIFACTS.make.xlsxBody : ARTIFACTS.make.xlsxBundled, enabled: !!status }
   ]
 
   // SKILL.md:34 / Q1 — 고지는 시도와 결과 양쪽의 첫 줄이다.
@@ -314,13 +314,45 @@ export function useMake(): Make {
     } finally { patch({ making: null }) }
   }, [root, hasMdInput, st.hasPaperInput, reviewMd, refresh, openSettings])
 
+  const doXlsx = useCallback(async () => {
+    if (!root) return
+    patch({ making: 'xlsx', feedback: null, feedbackKind: null, lastOk: false, lastPath: null, failedTool: 'tools:excel' })
+    try {
+      const out = versioned('build/검토전_재무.xlsx', taken)
+      // The sidecar chooses the registered student workbook before the bundled blank.
+      const env = await runScript('excel.create', { root, out })
+      if (!env?.ok) {
+        if (useMakeState.getState().cancelled) return
+        patch({
+          feedbackKind: 'xlsx',
+          feedback: {
+            kind: 'error', title: ARTIFACTS.make.failTitle,
+            body: env?.block_reason ?? useMakeState.getState().err ?? (env?.stderr.trim() || ARTIFACTS.make.failNoReason),
+            actions: <button onClick={() => openSettings('tools:excel')}>{ARTIFACTS.make.advancedOpen}</button>
+          }
+        })
+        return
+      }
+      const path = env.path ?? out
+      patch({
+        lastOk: true, lastPath: path, feedbackKind: 'xlsx',
+        feedback: {
+          kind: 'completion', title: ARTIFACTS.make.xlsxCreated,
+          body: <><code>{path}</code><br /><span className="caption">{ARTIFACTS.make.xlsxNext}</span></>,
+          actions: <button onClick={() => window.knuaf.reveal(path)}>{ARTIFACTS.reveal}</button>
+        }
+      })
+      await refresh()
+    } finally { patch({ making: null }) }
+  }, [root, artifacts, refresh, openSettings])
+
   const run = useCallback(async (kind: MakeKind): Promise<void> => {
     const s = useMakeState.getState()
     if (s.making || s.busy) return
-    if (kind === 'xlsx') { openSettings('tools:excel'); return }
+    if (kind === 'xlsx') { await doXlsx(); return }
     if (kind === 'docx') { await doDocx(); return }
     await doExport(kind)
-  }, [doExport, doDocx, openSettings])
+  }, [doExport, doDocx, doXlsx])
 
   // 진행·결과 필드는 모듈 상태에서 읽는다(화면이 바뀌어도 같은 값).
   const live: MakeRunner = { ...runner, ...st }

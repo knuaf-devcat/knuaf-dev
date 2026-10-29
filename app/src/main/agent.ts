@@ -272,7 +272,7 @@ export function skillVersion(source: string): string {
   const skillMd = join(source, 'SKILL.md')
   h.update(existsSync(skillMd) ? readFileSync(skillMd) : Buffer.alloc(0))
   const entries: string[] = []
-  for (const dir of ['references', 'scripts']) skillFingerprint(join(source, dir), dir, entries)
+  for (const dir of ['references', 'scripts', 'assets']) skillFingerprint(join(source, dir), dir, entries)
   entries.sort()
   for (const e of entries) h.update('\n' + e)
   return h.digest('hex').slice(0, 12)
@@ -357,7 +357,7 @@ export function retireSupersededSkills(target: string): string[] {
   return moved
 }
 
-/** Copy SKILL.md + references/ + scripts/ into `target` (only ever that directory), leaving a version marker. */
+/** Copy SKILL.md + references/ + scripts/ + assets/ into `target`, leaving a version marker. */
 export function installSkill(source: string, target: string, version: string): InstallResult {
   retireSupersededSkills(target)
   const state = skillState(target, version)
@@ -378,7 +378,7 @@ export function installSkill(source: string, target: string, version: string): I
   const skillMd = join(source, 'SKILL.md')
   if (!existsSync(skillMd)) throw new Error('스킬 원본에 SKILL.md가 없음: ' + source)
   cpSync(skillMd, join(target, 'SKILL.md'))
-  for (const dir of ['references', 'scripts']) {
+  for (const dir of ['references', 'scripts', 'assets']) {
     const from = join(source, dir)
     if (existsSync(from)) cpSync(from, join(target, dir), { recursive: true, filter: copyFilter })
   }
