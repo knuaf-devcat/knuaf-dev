@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "name": "knuaf-dev",
+  "remove": ["tests/", "install-manifest.json"],
+  "append": null
+}
