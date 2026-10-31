@@ -141,8 +141,16 @@ test('connection probe returns pause immediately and preserves later success and
 })
 
 test('app update progress remains reachable after closing the named dialog', async () => {
-  const { electronApp, page } = await launch({ env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '/usr/bin:/bin' } })
+  const { electronApp, page } = await launch({ env: { KNUAF_AGENT_PATH_ONLY: '1', PATH: '/usr/bin:/bin', KNUAF_UPDATE_PUBLIC_KEY: '', KNUAF_UPDATE_CHANNEL_URL: '' } })
   try {
+    // Windows startup recovery is asynchronous. Finish the real check and observe its
+    // fail-closed state before sending any synthetic status on the same IPC channel.
+    const startup = await page.evaluate(() => window.knuaf.appUpdate.check())
+    expect(startup).toMatchObject({ result: { phase: 'unavailable', latest: null } })
+    await navTo(page, '설정')
+    const section = page.getByRole('region', { name: '업데이트' })
+    await expect(section.locator('p.caption', { hasText: '앱 판' })).toContainText('확인할 수 없어요')
+    await page.locator('dialog[data-screen="settings"] > .sheet-head button[aria-label="닫기"]').click()
     await electronApp.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('app-update:cancel')
       ipcMain.handle('app-update:cancel', () => {
@@ -156,8 +164,18 @@ test('app update progress remains reachable after closing the named dialog', asy
         phase, current: '0.5.1', latest: '0.6.0', page: 'https://github.com/knuaf-devcat/knuaf-dev/releases/tag/v0.6.0', received: 30, total: 100
       })
     }, phase)
+    // A later fail-closed event must still remove the button; do not mask real states.
     await emit('available')
     const titleButton = page.locator('.titlebar').getByRole('button', { name: '업데이트', exact: true })
+    await expect(titleButton).toBeVisible()
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('app-update:status', {
+        phase: 'unavailable', current: '0.5.1', latest: null, page: null
+      })
+    })
+    await expect(titleButton).toHaveCount(0)
+    await emit('available')
+    await expect(titleButton).toBeVisible()
     await titleButton.click()
     const dialog = page.getByRole('dialog', { name: '새 앱 0.6.0이 나왔어요' })
     await expect(dialog).toBeVisible()
@@ -171,7 +189,6 @@ test('app update progress remains reachable after closing the named dialog', asy
     expect(await electronApp.evaluate(() => (globalThis as typeof globalThis & { cancelled?: number }).cancelled)).toBe(1)
     await dialog.getByRole('button', { name: '나중에' }).click()
     await navTo(page, '설정')
-    const section = page.getByRole('region', { name: '업데이트' })
     await expect(section).toContainText('앱을 받고 있어요')
     await emit('preparing')
     await expect(section).toContainText('앱 설치를 준비하고 있어요')
