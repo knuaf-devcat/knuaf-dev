@@ -29,7 +29,7 @@ function fake(over: Partial<AgentConnection> = {}): AgentConnection {
 
 function service(conn: AgentConnection, over: { sidecarBusy?: (root: string) => boolean; isTrusted?: (root: string) => boolean } = {}) {
   return new ChatService({
-    skillSource: source,
+    skillSource: () => source,
     userData: mkdtempSync(join(tmpdir(), 'kd-ud-')),
     emit: () => {},
     openExternal: async () => {},

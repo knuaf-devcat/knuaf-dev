@@ -11,7 +11,8 @@ import { accessSync, chmodSync, constants, cpSync, existsSync, mkdirSync, readdi
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { APP_NAME_SHORT } from '../shared/name'
 import { pathKeyOf } from './chat/contracts'
-import { renameWithRetry } from './safeWrite'
+import { renameWithRetry, writeFileAtomic } from './safeWrite'
+import { resolveSkillSource } from './update/source'
 import { winSpawn } from './win'
 
 // ---------------------------------------------------------------- types
@@ -241,7 +242,7 @@ export function probeVersion(path: string): Promise<string | null> {
 
 /** Checkout: `<appRoot>/../skills/knuaf-dev`; packaged: `<resourcesPath>/skill` (see scripts/stage-skill.mjs). */
 export function skillSource(appRoot: string, isPackaged: boolean, resourcesPath: string): string {
-  return isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-dev')
+  return resolveSkillSource(isPackaged ? join(resourcesPath, 'skill') : join(appRoot, '..', 'skills', 'knuaf-dev'))
 }
 
 /** Walk `abs`, collecting "rel/path:sha256(content)" for the files installSkill copies. */
@@ -360,6 +361,14 @@ export function retireSupersededSkills(target: string): string[] {
 /** Copy SKILL.md + references/ + scripts/ + assets/ into `target`, leaving a version marker. */
 export function installSkill(source: string, target: string, version: string): InstallResult {
   retireSupersededSkills(target)
+  const project = dirname(dirname(dirname(target)))
+  const markerDir = join(project, '.knuaf-gui')
+  mkdirSync(markerDir, { recursive: true })
+  const marker = writeFileAtomic(join(markerDir, 'skill-install.json'), JSON.stringify({
+    schema: 'knuaf-gui/skill-install@1',
+    installs: [{ path: '.claude/skills/knuaf-dev' }, { path: '.agents/skills/knuaf-dev' }]
+  }), { mode: 0o600 })
+  if (!marker.ok) throw marker.error
   const state = skillState(target, version)
   if (state === 'installed') return { action: 'unchanged' }
 

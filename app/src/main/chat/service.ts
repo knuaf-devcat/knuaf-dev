@@ -10,6 +10,7 @@ import { subscriptionEnv, type AgentConnection, type AgentOptions } from './cont
 import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
 import { effectiveModelChoice, isCrossProviderModelId } from '../../shared/chat'
 
+import { skillSwitch } from '../update/switch'
 /** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
 function parseChat(text: string, provider: Provider): ChatSnapshot {
   const v = JSON.parse(text) as ChatSnapshot
@@ -65,7 +66,7 @@ export class ChatService {
    */
   private waiting = new Map<string, PermissionRequest[]>()
   constructor(private opts: {
-    skillSource: string; userData: string; env?: NodeJS.ProcessEnv
+    skillSource: () => string; userData: string; env?: NodeJS.ProcessEnv
     emit: (s: ChatSnapshot) => void; openExternal: (url: string) => Promise<void>
     /** Test seam: build connections without spawning real agent processes (e2e/chat.spec.ts). */
     connectionFactory?: (provider: Provider, options: AgentOptions) => AgentConnection
@@ -206,8 +207,9 @@ export class ChatService {
   acquire(root: string): () => void {
     root = realpathSync(root)
     if (this.owners.has(root)) throw new Error('현재 작업이 끝나거나 중단된 뒤 다시 실행해 주세요.')
+    const releaseSwitch = skillSwitch.enter()
     this.owners.add(root)
-    return () => { this.owners.delete(root) }
+    return () => { this.owners.delete(root); releaseSwitch() }
   }
   private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-dev') }
   private connection(root: string, provider: Provider): AgentConnection {
@@ -390,14 +392,15 @@ export class ChatService {
     const release = this.acquire(root)
     try {
       const skill = this.skillDir(root, provider)
-      const version = skillVersion(this.opts.skillSource)
+      const source = this.opts.skillSource()
+      const version = skillVersion(source)
       const state = skillState(skill, version)
-      if (state === 'missing') installSkill(this.opts.skillSource, skill, version)
+      if (state === 'missing') installSkill(source, skill, version)
       else if (state === 'outdated' || (s.skillHash && s.skillHash !== version)) {
         // A changed skill is never a send-blocker: reinstall (with backup) and note it in the transcript.
         const marker = join(skill, VERSION_FILE)
         const old = s.skillHash && s.skillHash !== version ? s.skillHash : existsSync(marker) ? readFileSync(marker, 'utf-8').trim() : '이전 버전'
-        installSkill(this.opts.skillSource, skill, version)
+        installSkill(source, skill, version)
         s.messages.push({ id: randomUUID(), role: 'system', text: `규칙집이 갱신됐어요 (이전 ${old} → 현재 ${version})`, at: new Date().toISOString() })
       }
       const connection = this.connection(root, provider)

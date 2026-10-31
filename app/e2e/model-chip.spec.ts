@@ -343,7 +343,7 @@ function serviceWith(
     models: over.models ?? (async () => list.current)
   }
   const svc = new ChatService({
-    skillSource: source,
+    skillSource: () => source,
     userData: mkdtempSync(join(tmpdir(), 'kd-model-ud-')),
     emit: () => {},
     openExternal: async () => {},
@@ -509,7 +509,7 @@ test('전송 전 확인이 실패하면 보낸 말이 대화에 남지 않는다
     prepare: async () => { throw new Error('Codex 기본 모델을 확인하지 못해 이전 모델 설정을 되돌리지 못했어요.') }
   }
   const svc = new ChatService({
-    skillSource: source,
+    skillSource: () => source,
     userData: mkdtempSync(join(tmpdir(), 'kd-model-ud-')),
     emit: () => {},
     openExternal: async () => {},
@@ -545,7 +545,7 @@ test('모델 목록 통로가 없는 공급자(이번 판의 Claude)는 supporte
     stop: async () => {}
   }
   const svc = new ChatService({
-    skillSource: source,
+    skillSource: () => source,
     userData: mkdtempSync(join(tmpdir(), 'kd-model-ud-')),
     emit: () => {},
     openExternal: async () => {},

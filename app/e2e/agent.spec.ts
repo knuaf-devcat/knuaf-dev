@@ -235,7 +235,7 @@ test.describe('findExecutable / probeVersion', () => {
     }
     const chatFor = (dir: string, env: Record<string, string | undefined>): ChatService =>
       new ChatService({
-        skillSource: join(dir, 'skill'), userData: join(dir, 'userData'),
+        skillSource: () => join(dir, 'skill'), userData: join(dir, 'userData'),
         emit: () => {}, openExternal: async () => {}, sidecarBusy: () => false,
         venvPython: () => null, bundledPython: () => null, isTrusted: () => false, env
       })

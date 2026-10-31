@@ -202,7 +202,7 @@ function project(): { root: string; dir: string; file: string; draft: string } {
 }
 
 const service = (emit: (s: ChatSnapshot) => void, fs?: SafeWriteFs): ChatService =>
-  new ChatService({ skillSource: source, userData: mkdtempSync(join(tmpdir(), 'kd-win-ud-')), emit, openExternal: async () => {}, fs })
+  new ChatService({ skillSource: () => source, userData: mkdtempSync(join(tmpdir(), 'kd-win-ud-')), emit, openExternal: async () => {}, fs })
 
 /** 앱이 작업 중 종료된 기록 — snapshot() 이 복구 상태를 곧바로 publish 한다(실제 호출 경로). */
 const RUNNING = (root: string): string => JSON.stringify({ root, provider: 'codex', state: 'running', messages: [

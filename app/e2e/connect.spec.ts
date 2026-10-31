@@ -174,7 +174,7 @@ function fake(over: Partial<AgentConnection> = {}): AgentConnection {
 function service(factory?: (provider: 'codex' | 'claude', options: AgentOptions) => AgentConnection) {
   const userData = mkdtempSync(join(tmpdir(), 'kd-ud-'))
   const svc = new ChatService({
-    skillSource: source, userData, emit: () => {}, openExternal: async () => {},
+    skillSource: () => source, userData, emit: () => {}, openExternal: async () => {},
     connectionFactory: factory ?? ((_p, options) => fake({ status: async () => ({ installed: true, connected: options.root.includes('connect-probe'), version: null, detail: '' }) }))
   })
   return { svc, userData }
