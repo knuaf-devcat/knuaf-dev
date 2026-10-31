@@ -51,7 +51,7 @@ function rig(extra: Record<string, string> = {}) {
   const env = { ...process.env, W1_QUERY_LOG: log, W1_AUTH_STATE: state, W1_LOGIN_COMPLETE: complete, ...extra }
   const snapshots: ChatSnapshot[] = []
   const opened: string[] = []
-  const svc = new ChatService({ skillSource: skillSource(resolve(__dirname, '..'), false, ''),
+  const svc = new ChatService({ skillSource: () => skillSource(resolve(__dirname, '..'), false, ''),
     userData: join(root, 'userdata'),
     emit: s => { snapshots.push(s); useChat.getState().onSnapshot(s) },
     openExternal: async url => { opened.push(url) },

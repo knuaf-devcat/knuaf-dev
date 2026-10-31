@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app } from 'electron'
 import { managedPython } from './runtime'
+import { skillSource } from './agent'
 
 /** app/ in a checkout (out/main → ../..); resources live next to it when packaged. */
 export const APP_ROOT = resolve(__dirname, '..', '..')
@@ -9,9 +10,8 @@ import type { SidecarInfo } from '../shared/types'
 
 /** Where the skill scripts live: repo checkout in dev, resources/skill in a packaged app. */
 export function scriptsDir(): string {
-  if (process.env.KNUAF_SCRIPTS_DIR) return process.env.KNUAF_SCRIPTS_DIR
-  if (app.isPackaged) return join(process.resourcesPath, 'skill', 'scripts')
-  return join(APP_ROOT, '..', 'skills', 'knuaf-dev', 'scripts')
+  if (!app.isPackaged && process.env.KNUAF_SCRIPTS_DIR) return process.env.KNUAF_SCRIPTS_DIR
+  return join(skillSource(APP_ROOT, app.isPackaged, process.resourcesPath), 'scripts')
 }
 
 export function sidecarDir(): string {

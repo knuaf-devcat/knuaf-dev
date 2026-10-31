@@ -10,6 +10,8 @@ import { subscriptionEnv, type AgentConnection, type AgentOptions } from './cont
 import type { ChatModels, ChatModelInfo, ChatSnapshot, ModelChoice, PermissionRequest, Provider, ConnectionStatus } from '../../shared/chat'
 import { effectiveModelChoice, isCrossProviderModelId } from '../../shared/chat'
 
+import { skillSwitch } from '../update/switch'
+import { agentActivity } from '../update/activity'
 /** 저장된 대화 기록을 읽고 모양을 확인한다 — 망가졌으면 던진다. */
 function parseChat(text: string, provider: Provider): ChatSnapshot {
   const v = JSON.parse(text) as ChatSnapshot
@@ -25,9 +27,15 @@ export class ChatService {
   private shuttingDown = false
   private authRequired = new Set<Provider>()
   private reauthenticating = new Map<Provider, AgentConnection>()
+  private pendingLogins = new Set<Provider>()
+  private closingConnections = new Set<AgentConnection>()
+  hasPendingLogin(): boolean { return this.pendingLogins.size > 0 }
+  suspend(): void { agentActivity.suspend() }
+  resume(): void { agentActivity.resume() }
   private async checkedStatus(provider: Provider, connection: AgentConnection): Promise<ConnectionStatus> {
     if (!this.authRequired.has(provider)) {
       const status = await connection.status()
+      if (status.connected) this.pendingLogins.delete(provider)
       if (!this.authRequired.has(provider)) return status
     }
     const login = this.reauthenticating.get(provider)
@@ -35,6 +43,7 @@ export class ChatService {
       const status = await login.status()
       if (status.connected && this.reauthenticating.get(provider) === login
         && (!(login instanceof ClaudeConnection) || login.loginConfirmed)) {
+        this.pendingLogins.delete(provider)
         this.authRequired.delete(provider)
         this.reauthenticating.delete(provider)
         return status
@@ -43,8 +52,11 @@ export class ChatService {
     return { installed: true, connected: false, version: null, probe: 'ok', detail: CLAUDE_AUTH_COPY.required }
   }
   private async startLogin(provider: Provider, connection: AgentConnection): Promise<void> {
-    await connection.login()
-    if (this.authRequired.has(provider)) this.reauthenticating.set(provider, connection)
+    this.pendingLogins.add(provider)
+    try {
+      await connection.login()
+      if (this.authRequired.has(provider)) this.reauthenticating.set(provider, connection)
+    } catch (error) { this.pendingLogins.delete(provider); throw error }
   }
   /** 종료 시작과 동시에 새 연결·상태 확인을 막는다. 기존 연결은 close()가 정리한다. */
   beginShutdown(): void { this.shuttingDown = true }
@@ -65,7 +77,7 @@ export class ChatService {
    */
   private waiting = new Map<string, PermissionRequest[]>()
   constructor(private opts: {
-    skillSource: string; userData: string; env?: NodeJS.ProcessEnv
+    skillSource: () => string; userData: string; env?: NodeJS.ProcessEnv
     emit: (s: ChatSnapshot) => void; openExternal: (url: string) => Promise<void>
     /** Test seam: build connections without spawning real agent processes (e2e/chat.spec.ts). */
     connectionFactory?: (provider: Provider, options: AgentOptions) => AgentConnection
@@ -206,8 +218,11 @@ export class ChatService {
   acquire(root: string): () => void {
     root = realpathSync(root)
     if (this.owners.has(root)) throw new Error('현재 작업이 끝나거나 중단된 뒤 다시 실행해 주세요.')
+    const releaseActivity = agentActivity.enter()
+    let releaseSwitch: () => void
+    try { releaseSwitch = skillSwitch.enter() } catch (error) { releaseActivity(); throw error }
     this.owners.add(root)
-    return () => { this.owners.delete(root) }
+    return () => { this.owners.delete(root); releaseSwitch(); releaseActivity() }
   }
   private skillDir(root: string, provider: Provider) { return join(root, provider === 'codex' ? '.agents' : '.claude', 'skills', 'knuaf-dev') }
   private connection(root: string, provider: Provider): AgentConnection {
@@ -235,11 +250,13 @@ export class ChatService {
     return c
   }
   async status(root: string, provider: Provider): Promise<ConnectionStatus> {
+    return agentActivity.run(async () => {
     this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     return this.checkedStatus(provider, this.connection(root, provider))
+    })
   }
-  async login(root: string, provider: Provider) { await this.startLogin(provider, this.connection(root, provider)) }
+  async login(root: string, provider: Provider) { return agentActivity.run(() => this.startLogin(provider, this.connection(root, provider))) }
 
   // ---------------------------------------------------------------- 모델 고르기 (ChatGPT 쪽)
   /**
@@ -264,6 +281,7 @@ export class ChatService {
    * 답한다 — 화면은 추천도 칩도 띄우지 않고 지금처럼 기본값으로 둔다.
    */
   async models(root: string | null, provider: Provider): Promise<ChatModels> {
+    return agentActivity.run(async () => {
     // 폴더를 정하기 전에도 계정 목록은 고를 수 있다. 전역 연결로는 턴을 보내지 않는다.
     const connection = root ? this.connection(root, provider) : this.globalConnection(provider)
     if (!connection.models) return { provider, supported: false, models: [], selected: null }
@@ -280,6 +298,7 @@ export class ChatService {
         error: e instanceof Error ? e.message : '모델 목록을 받지 못했어요.'
       }
     }
+    })
   }
   /**
    * 고른 모델·생각 깊이를 이 계정 목록으로 검증해 **설정에 남긴다**. `null` 은 "안 골름".
@@ -289,6 +308,7 @@ export class ChatService {
    * 느린 선택 검증이 그 뒤에 끝나도 해제를 되살리지 못한다(검토 MC1-03).
    */
   async setModel(root: string | null, provider: Provider, choice: ModelChoice | null): Promise<ModelChoice | null> {
+    return agentActivity.run(async () => {
     const seq = (this.selectionSeq.get(provider) ?? 0) + 1
     this.selectionSeq.set(provider, seq)
     if (!choice || typeof choice.model !== 'string' || !choice.model.trim()) {
@@ -306,6 +326,7 @@ export class ChatService {
     if (choice.effort && !picked.effort) throw new Error('이 모델은 그 생각 깊이를 지원하지 않아요.')
     this.opts.storeModelChoice?.(provider, picked)
     return picked
+    })
   }
 
   // ---------------------------------------------------------------- 전역 연결 (폴더 없이)
@@ -355,6 +376,7 @@ export class ChatService {
    * 조회가 실패하면(`probe:'failed'`) — 확인하지 못한 것을 "로그인 필요"로 꾸미지 않는다.
    */
   async globalStatus(provider: Provider): Promise<ConnectionStatus> {
+    return agentActivity.run(async () => {
     this.ensureActive()
     if (!this.opts.connectionFactory && !findExecutable(provider)) return { installed: false, connected: false, version: null, detail: '설치 안내를 열어 준비한 뒤 다시 확인해 주세요.' }
     try {
@@ -362,10 +384,12 @@ export class ChatService {
     } catch (e) {
       return { installed: true, connected: false, version: null, probe: 'failed', detail: e instanceof Error ? e.message : '연결 상태를 확인하지 못했어요.' }
     }
+    })
   }
-  async globalLogin(provider: Provider): Promise<void> { await this.startLogin(provider, this.globalConnection(provider)) }
+  async globalLogin(provider: Provider): Promise<void> { return agentActivity.run(() => this.startLogin(provider, this.globalConnection(provider))) }
   /** 취소 뒤에는 연결을 버린다 — 다음 확인이 새 프로세스로 상태를 다시 묻는다. */
   async cancelLogin(provider: Provider): Promise<void> {
+    this.pendingLogins.delete(provider)
     this.reauthenticating.delete(provider)
     const c = this.globals.get(provider)
     this.globals.delete(provider)
@@ -374,12 +398,18 @@ export class ChatService {
     else await c.stop()
   }
   async reopenLogin(provider: Provider): Promise<void> {
-    const c = this.globalConnection(provider)
-    if (c.reopenLogin) await c.reopenLogin()
-    else await c.login()
-    if (this.authRequired.has(provider)) this.reauthenticating.set(provider, c)
+    return agentActivity.run(async () => {
+      this.pendingLogins.add(provider)
+      try {
+        const c = this.globalConnection(provider)
+        if (c.reopenLogin) await c.reopenLogin()
+        else await c.login()
+        if (this.authRequired.has(provider)) this.reauthenticating.set(provider, c)
+      } catch (error) { this.pendingLogins.delete(provider); throw error }
+    })
   }
   async send(root: string, provider: Provider, text: string, requestId: string) {
+    agentActivity.ensureActive()
     if (!text.trim() || text.length > 100_000) throw new Error('답변을 입력해 주세요. 한 번에 100,000자까지 보낼 수 있어요.')
     this.effectiveChoice(provider)
     this.snapshot(root, provider)
@@ -390,14 +420,15 @@ export class ChatService {
     const release = this.acquire(root)
     try {
       const skill = this.skillDir(root, provider)
-      const version = skillVersion(this.opts.skillSource)
+      const source = this.opts.skillSource()
+      const version = skillVersion(source)
       const state = skillState(skill, version)
-      if (state === 'missing') installSkill(this.opts.skillSource, skill, version)
+      if (state === 'missing') installSkill(source, skill, version)
       else if (state === 'outdated' || (s.skillHash && s.skillHash !== version)) {
         // A changed skill is never a send-blocker: reinstall (with backup) and note it in the transcript.
         const marker = join(skill, VERSION_FILE)
         const old = s.skillHash && s.skillHash !== version ? s.skillHash : existsSync(marker) ? readFileSync(marker, 'utf-8').trim() : '이전 버전'
-        installSkill(this.opts.skillSource, skill, version)
+        installSkill(source, skill, version)
         s.messages.push({ id: randomUUID(), role: 'system', text: `규칙집이 갱신됐어요 (이전 ${old} → 현재 ${version})`, at: new Date().toISOString() })
       }
       const connection = this.connection(root, provider)
@@ -501,11 +532,28 @@ export class ChatService {
     await this.connections.get(key)?.stop(); this.connections.delete(key)
     await this.runs.get(key)
   }
+  /** Reversible handoff teardown: never sets shuttingDown; dead connection objects are not reused. */
+  async closeForUpdate(confirmStopped: () => Promise<void>): Promise<void> {
+    for (const connection of [...this.connections.values(), ...this.globals.values()]) this.closingConnections.add(connection)
+    this.connections.clear()
+    this.globals.clear()
+    this.reauthenticating.clear()
+    const results = await Promise.allSettled([...this.closingConnections].map(connection => connection.stop()))
+    await confirmStopped()
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failed) throw failed.reason
+    this.closingConnections.clear()
+  }
   async close() {
     this.beginShutdown()
-    await Promise.all([...this.connections.entries()].map(async ([key, c]) => { await c.stop(); await this.runs.get(key) }))
-    await Promise.all([...this.globals.values()].map((c) => c.stop()))
+    const connections = new Set([...this.connections.values(), ...this.globals.values(), ...this.closingConnections])
+    const results = await Promise.allSettled([...connections].map(connection => connection.stop()))
+    await Promise.all(this.runs.values())
+    this.connections.clear()
     this.globals.clear()
+    this.closingConnections.clear()
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failed) throw failed.reason
   }
 }
 

@@ -192,12 +192,18 @@ test.describe('findExecutable / probeVersion', () => {
     expect(findExecutable(name, { Path: plainOnly, USERPROFILE: plainOnly, KNUAF_AGENT_PATH_ONLY: '1' }, { platform: 'win32' })).toBeNull()
   })
 
-  test('bundledAgentDirs — 윈도우에서만, 패키지·개발 트리 각각의 자리', () => {
+  test('bundledAgentDirs — Claude는 맥·윈도우, Codex는 윈도우만이며 패키지·개발 자리 일치', () => {
     const dev = { appRoot: '/tmp/app-root', isPackaged: false, resourcesPath: '/nonexistent' }
-    expect(bundledAgentDirs(dev, 'darwin')).toEqual([])
-    expect(bundledAgentDirs(dev, 'win32')).toEqual([join('/tmp/app-root', 'resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
-    expect(bundledAgentDirs({ ...dev, isPackaged: true, resourcesPath: '/app/Contents/Resources' }, 'win32'))
-      .toEqual([join('/app/Contents/Resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')])
+    const claude = (base: string, platform: string) => join(base, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${platform}-${process.arch}`)
+    expect(bundledAgentDirs(dev, 'darwin')).toEqual([claude(join(dev.appRoot, 'resources'), 'darwin')])
+    expect(bundledAgentDirs(dev, 'win32')).toEqual([
+      claude(join(dev.appRoot, 'resources'), 'win32'), join(dev.appRoot, 'resources', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')
+    ])
+    const packaged = { ...dev, isPackaged: true, resourcesPath: '/app/Contents/Resources' }
+    expect(bundledAgentDirs(packaged, 'darwin')).toEqual([claude(packaged.resourcesPath, 'darwin')])
+    expect(bundledAgentDirs(packaged, 'win32')).toEqual([
+      claude(packaged.resourcesPath, 'win32'), join(packaged.resourcesPath, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')
+    ])
   })
 
   /**
@@ -235,7 +241,7 @@ test.describe('findExecutable / probeVersion', () => {
     }
     const chatFor = (dir: string, env: Record<string, string | undefined>): ChatService =>
       new ChatService({
-        skillSource: join(dir, 'skill'), userData: join(dir, 'userData'),
+        skillSource: () => join(dir, 'skill'), userData: join(dir, 'userData'),
         emit: () => {}, openExternal: async () => {}, sidecarBusy: () => false,
         venvPython: () => null, bundledPython: () => null, isTrusted: () => false, env
       })
@@ -284,14 +290,11 @@ test.describe('findExecutable / probeVersion', () => {
       }, { KNUAF_AGENT_PATH_ONLY: '1' })
     })
 
-    test('맥에서는 동봉 자리를 아예 보지 않는다 — 종전 그대로', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'kd-mac-'))
-      fakeExe(dir, 'knuaf-bundle-probe')  // 맥 이름 규칙: `.exe` 는 후보가 아니다
-      expect(bundledDirs('darwin')).toEqual([])
-      const prevDirs = setBundledDirsProvider(() => [dir])
-      try {
-        expect(findExecutable('knuaf-bundle-probe', { PATH: '', HOME: dir }, { platform: 'darwin' })).toBe(join(dir, 'knuaf-bundle-probe'))
-      } finally { setBundledDirsProvider(prevDirs) }
+    test('맥 기본 동봉 자리는 Claude SDK이며 codex 동봉 자리는 포함하지 않는다', () => {
+      const resources = (process as { resourcesPath?: string }).resourcesPath ?? join(appRoot, 'resources')
+      expect(bundledDirs('darwin')).toEqual([
+        join(resources, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-darwin-${process.arch}`)
+      ])
     })
 
     /**

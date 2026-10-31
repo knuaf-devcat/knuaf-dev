@@ -4,6 +4,8 @@ import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import type { RpcError, SidecarInfo } from '../shared/types'
 import { choosePython, scriptsDir, sidecarDir } from './python'
+import { skillSwitch } from './update/switch'
+import { agentActivity } from './update/activity'
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: RpcError) => void; onEvent?: (event: string, data: unknown) => void }
 type OwnedProcess = {
@@ -46,7 +48,7 @@ export class Sidecar extends EventEmitter {
 
   configure(projectRoot: string | null, override: string | null): Promise<SidecarInfo> {
     const version = this.stopVersion
-    return this.enqueue(() => this.configureNow(projectRoot, override, version))
+    return agentActivity.run(() => skillSwitch.run(() => this.enqueue(() => this.configureNow(projectRoot, override, version))))
   }
 
   restart(): Promise<SidecarInfo> {
@@ -71,10 +73,11 @@ export class Sidecar extends EventEmitter {
     this.override = override
     if (this.owner?.failure) throw this.stopFailure(this.owner)
     const pick = choosePython(projectRoot, override)
-    if (this.status().running && pick.python === this.info.python) return this.status()
+    const scripts = scriptsDir()
+    if (this.status().running && pick.python === this.info.python && scripts === this.info.scriptsDir) return this.status()
     await this.stopNow()
     if (version !== this.stopVersion) throw START_CANCELLED
-    this.info = { ...pick, scriptsDir: scriptsDir(), running: false }
+    this.info = { ...pick, scriptsDir: scripts, running: false }
     const interrupted = Promise.withResolvers<never>()
     let startupError: RpcError | null = null
     const abort = (error: RpcError): void => { startupError = error; interrupted.reject(error) }
@@ -175,8 +178,10 @@ export class Sidecar extends EventEmitter {
 
   /** `onId` receives the request id right after it is minted, for cancellation. */
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent'], onId?: (id: string) => void): Promise<T> {
-    await this.lifecycle
-    return this.sendCall<T>(method, params, onEvent, onId)
+    return agentActivity.run(() => skillSwitch.run(async () => {
+      await this.lifecycle
+      return this.sendCall<T>(method, params, onEvent, onId)
+    }))
   }
 
   private async sendCall<T>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent'], onId?: (id: string) => void): Promise<T> {

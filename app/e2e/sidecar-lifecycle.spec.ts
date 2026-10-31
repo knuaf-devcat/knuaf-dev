@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { transpileModule, ModuleKind, ScriptTarget } from 'typescript'
 import type { Sidecar } from '../src/main/sidecar'
+import { skillSwitch } from '../src/main/update/switch'
+import { agentActivity } from '../src/main/update/activity'
 
 const source = transpileModule(readFileSync(join(__dirname, '../src/main/sidecar.ts'), 'utf8'), {
   compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 }
@@ -62,6 +64,8 @@ function harness(platform = 'darwin') {
   const children: Child[] = []
   const killers: Child[] = []
   const kills: { command: string; args: string[]; options: object }[] = []
+  let scripts = '/scripts/S0'
+  const spawnArgs: string[][] = []
   let automaticReady = true
   let failSpawn = false
   const exported: { exports: { Sidecar?: new () => Sidecar } } = { exports: {} }
@@ -71,11 +75,14 @@ function harness(platform = 'darwin') {
     setTimeout: (fn: () => void, ms: number) => { const id = ++serial; timers.set(id, { at: now + ms, fn }); return id },
     clearTimeout: (id: number) => timers.delete(id),
     require: (name: string) => {
+      if (name === './update/switch') return { skillSwitch }
+      if (name === './update/activity') return { agentActivity }
       if (name === './python') return {
         choosePython: (_root: string | null, override: string | null) => ({ python: override ?? 'base', kind: 'env' }),
-        scriptsDir: () => '/scripts', sidecarDir: () => '/sidecar'
+        scriptsDir: () => scripts, sidecarDir: () => '/sidecar'
       }
       if (name === 'node:child_process') return { spawn: (command: string, args: string[], options: object) => {
+        spawnArgs.push(args)
         const child = new Child(1000 + children.length + killers.length)
         if (command.endsWith('taskkill.exe')) {
           killers.push(child); kills.push({ command, args, options }); return child
@@ -93,6 +100,7 @@ function harness(platform = 'darwin') {
   const sidecar = new exported.exports.Sidecar!()
   return {
     sidecar, children, killers, kills,
+    spawnArgs, setScripts: (path: string) => { scripts = path },
     manualReady: () => { automaticReady = false },
     failNextSpawn: () => { failSpawn = true },
     async advance(ms: number) {
@@ -315,4 +323,31 @@ test('F-IMPL-01 시작 중 stop 실패는 6초에 격리하고 자동 재종료�
   await expect(h.sidecar.configure('/other', 'venv')).rejects.toMatchObject({ code: 'sidecar_stop_timeout' })
   expect(h.children).toHaveLength(1)
   child.close()
+})
+
+test('skill switch drains read RPCs, rejects every new call, and restarts with a new scripts directory', async () => {
+  const h = harness()
+  await h.sidecar.configure(null, 'base')
+  const running = h.sidecar.call<{ value: string }>('hold')
+  await flush()
+  let switched = false
+  const switching = skillSwitch.switch(async () => {
+    h.setScripts('/scripts/S1')
+    await h.sidecar.restart()
+    switched = true
+  })
+  await expect(Promise.resolve(h.sidecar.call('project.status'))).rejects.toMatchObject({ message: expect.stringContaining('규칙집') })
+  expect(switched).toBe(false)
+  const old = h.children[0], held = old.requests.find(r => r.method === 'hold')!
+  old.line({ id: held.id, result: { value: 'S0' } })
+  expect(await running).toEqual({ value: 'S0' })
+  await switching
+  expect(old.exitCode).toBe(0)
+  expect(h.sidecar.status().scriptsDir).toBe('/scripts/S1')
+  expect(h.spawnArgs[1]).toContain('/scripts/S1')
+  h.setScripts('/scripts/S0')
+  await h.sidecar.configure(null, 'base')
+  expect(h.children[1].exitCode).toBe(0)
+  expect(h.spawnArgs[2]).toContain('/scripts/S0')
+  await h.sidecar.stop()
 })
