@@ -14,6 +14,44 @@ import { fileStateOf, isReviewExport, reviewBasisOf, type LoadLike } from '../..
  * No React, no imports from rpc.ts: errors are duck-typed `{ code, message }` so this
  * module can be used from the store, the screens and tests alike.
  */
+export const UPDATE = {
+  newAvailable: '새 업데이트가 있어요',
+  title: '업데이트',
+  checking: '확인하고 있어요.',
+  unavailable: '업데이트를 확인할 수 없어요. 지금 규칙집은 그대로 쓸 수 있어요.',
+  current: (version: string, bundled: boolean) => `현재 규칙집 ${version}${bundled ? ' (앱에 들어 있던 판)' : ''}`,
+  available: (version: string) => `새 규칙집 ${version}이 있어요.`,
+  repair: '규칙집을 다시 받을 수 있어요.',
+  ready: '규칙집을 사용하고 있어요.',
+  needsApp: '이 규칙집은 앱 새 판이 필요해요.',
+  needsAppWait: '지금 규칙집은 그대로 쓸 수 있어요. 앱 새 판이 나오면 위쪽에 알려 드릴게요.',
+  downloading: '규칙집을 받고 있어요.',
+  switching: '규칙집을 바꾸고 있어요. 진행 중인 작업이 끝날 때까지 기다려 주세요.',
+  failed: '규칙집을 업데이트하지 못했어요. 다시 시도해 주세요.',
+  check: '지금 확인',
+  install: '업데이트',
+  retry: '다시 시도',
+  cancel: '취소',
+  rollback: '이전 규칙집으로',
+  select: (version: string) => `${version} 사용`,
+  app: (version: string, status: string) => `앱 판 ${version} · ${status}`,
+  appAvailable: '새 판이 있어요',
+  appLatest: '최신이에요',
+  appUnknown: '확인할 수 없어요',
+  appChecking: '확인 중이에요',
+  appButton: '앱 업데이트',
+  appTitle: (version: string) => `새 앱 ${version}이 나왔어요`,
+  appMac: '내려받기 페이지를 열어 새 앱을 설치할 수 있어요.',
+  appWindows: '앱이 닫혔다가 다시 열려요. 관리자 확인 창이 뜨면 ‘예’를 눌러 주세요.',
+  appOpen: '내려받기 페이지 열기',
+  appInstall: '지금 설치',
+  later: '나중에',
+  appDownloading: '앱을 받고 있어요',
+  appPreparing: '앱 설치를 준비하고 있어요',
+  appLaunching: '앱 설치를 시작하고 있어요',
+  appFailed: '앱 업데이트를 마치지 못했어요. 다시 시도해 주세요.'
+} as const
+
 
 // ---------------------------------------------------------------------------
 // Errors

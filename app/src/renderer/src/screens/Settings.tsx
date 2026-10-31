@@ -12,6 +12,7 @@ import { TroubleshootSections } from './Troubleshoot'
 import { CREDIT, HELPER, PRIVACY_NOTE, SETTINGS, describeError, type DescribedError } from '../copy'
 import { useShallow } from 'zustand/react/shallow'
 import { APP_NAME } from '../../../shared/name'
+import { UpdateSettings } from '../components/Updates'
 
 export function SettingsScreen() {
   const { root, settings, loadSettings, sidecar, refreshSidecar, logs, clearLogs, openHelper, open, loading, settingsFocus, clearSettingsFocus } = useProject(useShallow((s) => ({ root: s.root, settings: s.settings, loadSettings: s.loadSettings, sidecar: s.sidecar, refreshSidecar: s.refreshSidecar, logs: s.logs, clearLogs: s.clearLogs, openHelper: s.openHelper, open: s.open, loading: s.loading, settingsFocus: s.settingsFocus, clearSettingsFocus: s.clearSettingsFocus })))
@@ -169,6 +170,7 @@ export function SettingsScreen() {
 
       <section className="card">
         <div className="card-head"><h2>{SETTINGS.appInfoTitle}</h2>{info && <Badge label={`버전 ${info.version}`} />}</div>
+        <UpdateSettings />
         <div className="caption">{APP_NAME} · 초기 베타{info ? ` · Electron ${info.electron} · ${info.packaged ? '설치판' : '개발 모드'}` : ''}</div>
         <p className="caption">{CREDIT.line2}<br />{CREDIT.gui}</p>
         {info && <div className="row app-build-info" style={{ marginTop: 'var(--sp-2)' }}>

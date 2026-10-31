@@ -1,6 +1,30 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ChatModels, ChatSnapshot, ModelChoice, Provider } from '../shared/chat'
 import type { AppInfo, OpenProjectReply, RpcResult, RuntimeInstallReply, RuntimeStatus } from '../shared/types'
+import { UPDATE_RECOVERY_COPY } from '../shared/copy'
+export interface UpdateStatus {
+  phase: 'idle' | 'checking' | 'available' | 'repair' | 'ready' | 'needs-app' | 'downloading' | 'switching' | 'error' | 'unavailable'
+  current: string; bundled: boolean; highest: string | null; available: string | null
+  kept: string[]; received?: number; total?: number; message?: string
+}
+export interface AppUpdateStatus {
+  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'preparing' | 'launching' | 'interrupted' | 'error' | 'unavailable'
+  current: string; latest: string | null; page: string | null; message?: string; received?: number; total?: number
+}
+
+type UpdateReply<T> = { result: T } | { error: { code: string; message: string } }
+const subscribe = <T>(channel: string, fn: (status: T) => void): (() => void) => {
+  const listener = (_event: unknown, status: T): void => fn(status)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+// Preserve the pause code; the owning screen or poll controls any subsequent probe.
+async function statusOnce(channel: string, ...args: unknown[]): Promise<unknown> {
+  const reply = await ipcRenderer.invoke(channel, ...args)
+  return reply?.error?.code === 'update_suspended'
+    ? { error: { ...reply.error, message: UPDATE_RECOVERY_COPY } }
+    : reply
+}
 
 type EventHandler = (event: string, data: unknown) => void
 const handlers = new Map<string, EventHandler>()
@@ -44,6 +68,23 @@ const api = {
   setSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
   sidecarInfo: () => ipcRenderer.invoke('sidecar:info'),
   sidecarRestart: () => ipcRenderer.invoke('sidecar:restart'),
+  update: {
+    status: (): Promise<UpdateReply<UpdateStatus>> => ipcRenderer.invoke('update:status'),
+    check: (): Promise<UpdateReply<UpdateStatus>> => ipcRenderer.invoke('update:check'),
+    install: (): Promise<UpdateReply<UpdateStatus>> => ipcRenderer.invoke('update:install'),
+    select: (version: string | null): Promise<UpdateReply<UpdateStatus>> => ipcRenderer.invoke('update:select', version),
+    rollback: (): Promise<UpdateReply<UpdateStatus>> => ipcRenderer.invoke('update:rollback'),
+    cancel: (): Promise<UpdateReply<boolean>> => ipcRenderer.invoke('update:cancel'),
+    onStatus: (fn: (status: UpdateStatus) => void) => subscribe('update:status', fn)
+  },
+  appUpdate: {
+    status: (): Promise<UpdateReply<AppUpdateStatus>> => ipcRenderer.invoke('app-update:status'),
+    check: (): Promise<UpdateReply<AppUpdateStatus>> => ipcRenderer.invoke('app-update:check'),
+    install: (): Promise<UpdateReply<AppUpdateStatus>> => ipcRenderer.invoke('app-update:install'),
+    openPage: (): Promise<UpdateReply<boolean>> => ipcRenderer.invoke('app-update:open-page'),
+    cancel: (): Promise<UpdateReply<boolean>> => ipcRenderer.invoke('app-update:cancel'),
+    onStatus: (fn: (status: AppUpdateStatus) => void) => subscribe('app-update:status', fn)
+  },
   /** 앱 전용 Python 런타임(D7) — 상태·설치(진행 이벤트)·취소. */
   runtime: {
     status: (): Promise<{ result: RuntimeStatus }> => ipcRenderer.invoke('runtime:status'),
@@ -77,7 +118,7 @@ const api = {
   /** Structured agent chat (Codex app-server). Every call resolves { result } or { error: {code,message} }. */
   chat: {
     snapshot: (root: string, provider: Provider) => ipcRenderer.invoke('chat:snapshot', root, provider),
-    status: (root: string, provider: Provider) => ipcRenderer.invoke('chat:status', root, provider),
+    status: (root: string, provider: Provider) => statusOnce('chat:status', root, provider),
     draft: (root: string) => ipcRenderer.invoke('chat:draft', root),
     setDraft: (root: string, text: string, expected?: string) => ipcRenderer.invoke('chat:set-draft', root, text, expected),
     login: (root: string, provider: Provider) => ipcRenderer.invoke('chat:login', root, provider),
@@ -96,7 +137,7 @@ const api = {
    * root 인자가 없다. 로그인 창을 다시 열거나 그만두는 경로도 여기에만 있다.
    */
   connect: {
-    status: (provider: Provider) => ipcRenderer.invoke('connect:status', provider),
+    status: (provider: Provider) => statusOnce('connect:status', provider),
     login: (provider: Provider) => ipcRenderer.invoke('connect:login', provider),
     cancel: (provider: Provider) => ipcRenderer.invoke('connect:cancel', provider),
     reopen: (provider: Provider) => ipcRenderer.invoke('connect:reopen', provider)
