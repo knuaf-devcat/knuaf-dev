@@ -3,7 +3,7 @@
  * 실제 Electron 앱으로 밟는다. 도우미는 가짜 `codex app-server`.
  */
 import { expect, test } from '@playwright/test'
-import { launch, openProject, PROGRESS, synthProject } from './helpers'
+import { launch, openProject, PROGRESS, splitReady, synthProject } from './helpers'
 import { CHAT } from '../src/renderer/src/copy'
 import { fakeCodexEnv, scratch, seedChat } from './fixtures/fake-codex'
 
@@ -147,7 +147,16 @@ test('스크롤 칸은 굴릴 때만 표시를 받고 1초 뒤 뗀다, 표준 �
   }
 })
 
-/** main 이 화면으로 보내는 대화 스냅샷을 시험에서 직접 보낸다(`chat:snapshot` 이벤트). */
+/**
+ * main 이 화면으로 보내는 대화 스냅샷을 시험에서 직접 보낸다(`chat:snapshot` 이벤트). main 의 ChatService 는
+ * 이 값을 모르므로, 폴더 열기의 마지막 `load()`(`refresh()` 뒤)가 push 뒤에 시작되면 main 의 값(빈 대화)으로
+ * 덮인다 — PR #43 macOS CI 에서 오류 줄이 보였다가 닫기 직전에 사라졌다.
+ *
+ * 그래서 push 하는 시험은 `openProject(page, root, splitReady)` 로 연다. 이것이 닫는 것은 **확인한 경합 하나**,
+ * 즉 sidecar `project.status` 응답이 늦어 그 `load()` 가 push 뒤로 밀리는 순서다(두 칸 배치는 그 응답 뒤의
+ * 절 목록이 와야 선다). 모든 늦은 채팅 조회가 끝났다는 보장은 아니다 — 주기 감시(`watchCanon`)가 먼저 절 목록을
+ * 채우면 배치가 열기보다 먼저 설 수 있다(검토 CI43-R1-02). 같은 대기를 쓰는 근거: chat-ui-4fix.spec.ts 의 push 주석.
+ */
 async function push(electronApp: import('@playwright/test').ElectronApplication, snap: Record<string, unknown>): Promise<void> {
   await electronApp.evaluate(({ BrowserWindow }, snap) => { BrowserWindow.getAllWindows()[0].webContents.send('chat:snapshot', snap) }, snap)
 }
@@ -159,7 +168,7 @@ test('닫은 오류는 그 건만 숨는다 — 다음 턴의 같은 오류는 �
   const u2 = { id: 'u2', role: 'user', text: '두 번째 질문', at: at(1), delivery: 'sent' }
   const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)   // push 가 열기 뒤 load() 에 덮이지 않게 — push() 주석
     await expect(page.locator(COMPOSER)).toBeVisible({ timeout: 30_000 })
     const bad = page.locator('.chat-zone .zline.bad')
     await push(electronApp, { root, provider: 'codex', state: 'error', error: '연결 종료', messages: [u1] })
@@ -186,7 +195,7 @@ test('중단·멈춤 안내도 ✕ 로 그 건만 닫힌다 (검토 RETAKE-UI-R1
   seedChat(root, [u1], 'interrupted')
   const { electronApp, page } = await launch({ env: fakeCodexEnv(`${dir}/bin`, { FAKE_CODEX_MODE: 'logged-in' }) })
   try {
-    await openProject(page, root)
+    await openProject(page, root, splitReady)   // push 가 열기 뒤 load() 에 덮이지 않게 — push() 주석
     const halt = page.locator('.chat-zone .zline.attn')
     await expect(halt).toContainText(CHAT.interruptedTitle, { timeout: 30_000 })
     await expect(halt.getByRole('button', { name: CHAT.resend })).toBeVisible()

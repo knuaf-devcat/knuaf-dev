@@ -10,7 +10,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { join } from 'node:path'
-import { launch, navTo, openProject, synthProject } from './helpers'
+import { launch, navTo, openProject, splitReady, synthProject } from './helpers'
 import { fakeCodexEnv, scratch } from './fixtures/fake-codex'
 import { CHAT } from '../src/renderer/src/copy'
 
@@ -22,7 +22,9 @@ test('허락 카드 뒤 돌아온 입력칸도 5줄 초안 높이를 지킨다 (
   const root = synthProject()
   const { electronApp, page } = await launch({ env })
   try {
-    await openProject(page, root)
+    // 아래에서 스냅샷을 push 한다 — sidecar `project.status` 가 늦어 열기 뒤 load() 가 push 뒤로 밀리는 경합을 닫으려
+    // 두 칸 배치까지 기다린다. 모든 늦은 채팅 조회의 완료 보장은 아니다(retake-ui.spec.ts push 주석, 검토 CI43-R1-02).
+    await openProject(page, root, splitReady)
     const ta = page.locator(COMPOSER)
     await expect(ta).toBeVisible({ timeout: 30_000 })
     const draft = ['첫 줄', '둘째 줄', '셋째 줄', '넷째 줄', '다섯째 줄'].join('\n')
