@@ -26,7 +26,8 @@ export function TitleBar() {
   const skillUpdate = useUpdates(s => s.skill)
   const appUpdate = useUpdates(s => s.app)
   const showUpdate = useUpdates(s => s.setDialog)
-  const appAvailable = !!appUpdate?.latest && ['available', 'interrupted', 'error', 'downloading', 'preparing', 'launching'].includes(appUpdate.phase)
+  const blocked = appUpdate?.phase === 'blocked'
+  const appAvailable = blocked || !!appUpdate?.latest && ['available', 'interrupted', 'error', 'downloading', 'preparing', 'launching'].includes(appUpdate.phase)
   const hasUpdate = skillUpdate?.phase === 'available' || appAvailable
   const { root, settings, open, setPaperClosed, paperClosed, paneView, setPaneView, openSheet } = useProject(useShallow((s) => ({
     root: s.root, settings: s.settings, open: s.open, setPaperClosed: s.setPaperClosed, paperClosed: s.paperClosed,
@@ -85,11 +86,11 @@ export function TitleBar() {
       {layout.kind === 'solo' && <span className="tbtn quiet">{TITLEBAR.paperLater}</span>}
 
 
-      <button className="tbtn icon" style={{ position: 'relative' }} title={TITLEBAR.settingsTitle} aria-label={hasUpdate ? `${TITLEBAR.settingsTitle} · ${UPDATE.newAvailable}` : TITLEBAR.settingsTitle} onClick={() => openSheet('settings')}>
+      <button className="tbtn icon" style={{ position: 'relative' }} title={TITLEBAR.settingsTitle} aria-label={hasUpdate ? `${TITLEBAR.settingsTitle} · ${blocked ? UPDATE.appBlockedTitle : UPDATE.newAvailable}` : TITLEBAR.settingsTitle} onClick={() => openSheet('settings')}>
         <Icon name="gear" size={17} />
         {hasUpdate && <span aria-hidden="true" style={{ position: 'absolute', right: 3, top: 3, width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />}
       </button>
-      {appAvailable && <button className="tbtn" style={{ borderRadius: 5, background: 'var(--btn-bg)', color: 'var(--btn-ink)', border: '1px solid var(--btn-border)' }} onClick={() => showUpdate(true)}>{UPDATE.title}</button>}
+      {appAvailable && <button className="tbtn" style={{ borderRadius: 5, background: 'var(--btn-bg)', color: 'var(--btn-ink)', border: '1px solid var(--btn-border)' }} onClick={() => showUpdate(true)}>{blocked ? UPDATE.appBlockedTitle : UPDATE.title}</button>}
       <AppUpdateDialog />
     </header>
   )

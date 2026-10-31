@@ -49,6 +49,12 @@ export const UPDATE = {
   appDownloading: '앱을 받고 있어요',
   appPreparing: '앱 설치를 준비하고 있어요',
   appLaunching: '앱 설치를 시작하고 있어요',
+  appBlockedTitle: '앱 업데이트 안내',
+  appBlockedStatus: '자동 업데이트를 사용할 수 없어요',
+  appOwnerBlocked: '앱을 관리자 권한으로 실행했거나 보관 공간의 사용자가 달라 자동 업데이트를 쓸 수 없어요. 앱을 설치할 때는 내려받기 페이지를 이용해 주세요. 다음 업데이트도 같은 방법으로 설치해야 해요.',
+  appBlockedOther: '앱을 자동으로 업데이트할 수 없어요.',
+  appGuide: '설치 안내 보기',
+  appPageFailed: '내려받기 페이지를 열지 못했어요. 다시 눌러 주세요.',
   appFailed: '앱 업데이트를 마치지 못했어요. 다시 시도해 주세요.'
 } as const
 
