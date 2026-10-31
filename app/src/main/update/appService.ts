@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { openStore, withStore, type OpenStore, type StoreSession } from './appStore'
+import { openStore, StoreBrokerError, withStore, type OpenStore, type StoreSession } from './appStore'
 import type { InstallerLaunch } from './nativeInstaller'
 import { downloadToFile } from '../runtimeDownload'
 import { compare, exact, object, version, type Envelope } from './manifest'
@@ -8,15 +8,22 @@ import { boundedFetch, readChannelDocument, type Transport } from './network'
 import type { UpdateConfig } from './keys'
 import type { AppHandoff } from './handoff'
 export interface AppUpdateStatus {
-  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'preparing' | 'launching' | 'interrupted' | 'error' | 'unavailable'
-  current: string; latest: string | null; page: string | null; message?: string; received?: number; total?: number
+  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'preparing' | 'launching' | 'interrupted' | 'error' | 'unavailable' | 'blocked'
+  current: string; latest: string | null; page: string | null; reason?: 'store_owner'; message?: string; received?: number; total?: number
 }
 interface Pending { from: string; to: string; installer: string; at: string }
+const RELEASES_PAGE = 'https://github.com/knuaf-devcat/knuaf-dev/releases'
+const OWNER_FAILURES = new Set([
+  'user_data_owner_mismatch', 'user_data_owner_administrators',
+  'pinned_owner_mismatch', 'pinned_owner_administrators',
+  'entry_owner_mismatch', 'entry_owner_administrators'
+])
 export class AppUpdates {
   private candidate: VerifiedApp | null = null
   private controller: AbortController | null = null
   private checking: Promise<AppUpdateStatus> | null = null
   private statusValue: AppUpdateStatus
+  private storeOwnerBlocked = false
   readonly root: string
   readonly ready: Promise<void>
   constructor(private opts: {
@@ -31,12 +38,23 @@ export class AppUpdates {
   }
   status(): AppUpdateStatus { return { ...this.statusValue } }
   private set(patch: Partial<AppUpdateStatus>): AppUpdateStatus {
-    this.statusValue = { ...this.statusValue, message: undefined, received: undefined, total: undefined, ...patch }
+    const latest = this.storeOwnerBlocked && this.candidate && compare(this.candidate.manifest.version, this.opts.current) > 0 ? this.candidate.manifest.version : null
+    this.statusValue = { ...this.statusValue, reason: undefined, message: undefined, received: undefined, total: undefined, ...patch,
+      ...(this.storeOwnerBlocked ? { phase: 'blocked', reason: 'store_owner', latest, page: latest ? releasePage(latest) : RELEASES_PAGE } as const : {}) }
     this.opts.emit?.(this.status()); return this.status()
   }
   private installer(v: string): string { version(v); return join(this.root, v, 'installer.exe') }
-  private inStore<T>(create: boolean, action: (store: StoreSession) => Promise<T>): Promise<T> {
-    return withStore(this.opts.openStore ?? openStore, this.opts.userData, create, action)
+  private async inStore<T>(create: boolean, action: (store: StoreSession) => Promise<T>): Promise<T> {
+    try {
+      return await withStore(this.opts.openStore ?? openStore, this.opts.userData, create, async store => {
+        // Only a successful native boundary open clears a previously observed owner block.
+        this.storeOwnerBlocked = false
+        return action(store)
+      })
+    } catch (error) {
+      if (error instanceof StoreBrokerError && error.diagnostic.reason === 'native' && OWNER_FAILURES.has(error.diagnostic.nativeFailure ?? '')) this.storeOwnerBlocked = true
+      throw error
+    }
   }
   private async recover(): Promise<void> {
     if (this.opts.platform !== 'win32') return
@@ -88,6 +106,12 @@ export class AppUpdates {
     }
   }
   async openPage(): Promise<void> {
+    await this.ready
+    if (this.opts.platform === 'win32' && this.storeOwnerBlocked) {
+      const latest = this.candidate && compare(this.candidate.manifest.version, this.opts.current) > 0 ? this.candidate.manifest.version : null
+      await this.opts.openExternal(latest ? releasePage(latest) : RELEASES_PAGE)
+      return
+    }
     if (this.opts.platform !== 'darwin' || !this.statusValue.latest || !this.statusValue.page) throw new Error('먼저 앱 업데이트를 확인해 주세요.')
     const page = releasePage(this.statusValue.latest)
     if (page !== this.statusValue.page || compare(this.statusValue.latest, this.opts.current) <= 0) throw new Error('앱 내려받기 페이지가 잘못됐어요.')
