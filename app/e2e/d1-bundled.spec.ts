@@ -3,8 +3,7 @@ import { mock } from 'node:test'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { agentApi, bundledAgentDirs, bundledDirs, findExecutable, setAgentPlatformForTest } from '../src/main/agent'
 import { ChatService } from '../src/main/chat/service'
 import { ClaudeConnection } from '../src/main/chat/claude'
@@ -13,11 +12,14 @@ import { agentActivity } from '../src/main/update/activity'
 
 for (const platform of ['darwin', 'win32'] as const) for (const alsoOnPath of [false, true]) {
   test(`R8-01 ${platform}-${platform === 'win32' ? 'x64' : process.arch} packaged actual layout, competing PATH=${alsoOnPath}: all Claude consumers agree`, async () => {
-    const root = mkdtempSync(join(tmpdir(), 'knuaf-d1-')), resources = join(root, 'resources'), project = join(root, 'project'), skill = join(root, 'skill'), onPath = join(root, 'other-bin')
+    // Keep the fixture on cwd's drive so Darwin PATH can use a drive-free rooted
+    // Windows path: a literal C: entry would be split at ':' by the simulated OS.
+    const root = mkdtempSync(join(process.cwd(), '.knuaf-d1-')), resources = join(root, 'resources'), project = join(root, 'project'), skill = join(root, 'skill'), onPath = join(root, 'other-bin')
     const arch = platform === 'win32' ? 'x64' : process.arch
     const bundled = join(resources, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${platform}-${arch}`)
     mkdirSync(bundled, { recursive: true }); mkdirSync(project); mkdirSync(skill); mkdirSync(onPath)
     const name = platform === 'win32' ? 'claude.exe' : 'claude', binary = join(bundled, name), other = join(onPath, name)
+    const pathEntry = process.platform === 'win32' && platform === 'darwin' ? onPath.replace(/^[A-Za-z]:/, '') : onPath
     writeFileSync(binary, 'fake bundled executable', { mode: 0o755 })
     if (alsoOnPath) writeFileSync(other, 'fake PATH executable', { mode: 0o755 })
     writeFileSync(join(skill, 'SKILL.md'), '# test')
@@ -48,7 +50,7 @@ for (const platform of ['darwin', 'win32'] as const) for (const alsoOnPath of [f
       Object.defineProperty(process, 'arch', { value: arch, configurable: true })
       Object.defineProperty(process, 'resourcesPath', { value: resources, configurable: true })
       Object.defineProperty(process, 'defaultApp', { value: false, configurable: true })
-      process.env[pathKeyOf(process.env)] = alsoOnPath ? onPath : ''
+      process.env[pathKeyOf(process.env)] = alsoOnPath ? pathEntry : ''
       process.env.HOME = root; process.env.USERPROFILE = root; delete process.env.KNUAF_AGENT_PATH_ONLY
       const ctx = { home: root, appRoot: join(root, 'app'), isPackaged: true, resourcesPath: resources, supportDir: join(root, 'launch'), dryRun: false, env: process.env, venvPython: () => null, open: async (path: string) => { terminalScripts.push(readFileSync(path, 'utf8')); return '' } }
       // Neither bundled provider nor directory calculation is replaced by a test stub.
@@ -68,8 +70,9 @@ for (const platform of ['darwin', 'win32'] as const) for (const alsoOnPath of [f
       expect(terminalScripts[0]).toContain(binary)
       expect(terminalScripts[0]).not.toContain(other)
       process.env.KNUAF_AGENT_PATH_ONLY = '1'
-      expect(findExecutable('claude')).toBe(alsoOnPath ? other : null)
-      expect((await agentApi.status(ctx, project)).claude.path).toBe(alsoOnPath ? other : null)
+      const pathOnly = findExecutable('claude'), statusPath = (await agentApi.status(ctx, project)).claude.path
+      expect(pathOnly && resolve(pathOnly)).toBe(alsoOnPath ? other : null)
+      expect(statusPath && resolve(statusPath)).toBe(alsoOnPath ? other : null)
     } finally {
       await chat.close()
       exec.mock.restore(); spawned.mock.restore(); turn.mock.restore(); promisified.mock.restore(); agentActivity.resume()
