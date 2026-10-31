@@ -712,3 +712,219 @@ test('~ 는 $HOME 과 같은 선에 있다 — 묻지 않고 통과하지 않는
   expect(autoAllow(ROOT, 'Bash', { command: 'cat sources/a.md' })).toBe(true)
   expect(autoAllow(ROOT, 'Bash', { command: 'python3 scripts/gg.py status' })).toBe(true)
 })
+
+/**
+ * "물어보기"에서도 셸로 띄운 다른 AI(`claude -p`·`codex exec`)가 경로만 폴더 안이라
+ * 묻지 않고 통과했다. 그 AI 는 학생 화면에 보이지 않고 멈출 수도 없으며 이 대화의
+ * 승인·쿼터·로그인 확인을 건너뛴다. `env`·`nohup` 같은 감싸는 명령 뒤에 숨어도 같다.
+ */
+test('셸로 다른 AI 를 띄우는 명령은 감싸도 묻는다', () => {
+  // 목록의 이름마다 하나씩 — 이름 하나가 빠지면 여기서 걸린다.
+  const names = ['claude', 'codex', 'gemini', 'agy', 'ocx', 'omp', 'opencode', 'ollama', 'aider', 'cursor-agent', 'qwen', 'kiro-cli']
+  for (const cmd of [
+    ...names.map((n) => `${n} -p x`),
+    'claude -p "자료 정리해줘"',
+    'codex exec "검토해줘"',
+    'env claude -p "x"',
+    'nohup codex exec "x"',
+    'timeout 60 claude -p x',
+    'command claude -p x',
+    'X=1 claude -p x',
+    'ls | xargs claude -p',
+    'rg --pre=claude x .',
+    'sh -c "claude -p x"',
+    '/opt/homebrew/bin/claude -p x',
+    `"${ROOT}/bin/claude" -p x`,       // 통째로 감싼 경로는 그대로 읽는다
+    'Claude -p x',                    // 맥·윈도우 파일시스템은 대소문자를 가리지 않는다
+    'codex.cmd exec x'                // 윈도우 npm 설치 형태
+  ]) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+    const d = describeTool('Bash', { command: cmd }, ROOT)
+    expect(d.title, cmd).toBe('다른 AI 프로그램을 부르는 명령이에요')
+    expect(d.detail, cmd).not.toContain('폴더 밖에 닿아요')
+  }
+})
+
+/**
+ * 셸이 다르게 읽을 수 있는 형태는 판정하지 않고 묻는다(검토 AUTO-R1-01·02).
+ * `'cl'aude` 는 셸이 이어 붙여 claude 를 실행하고, 단일 `&` 는 앞을 뒤로 돌리고 뒤를 따로
+ * 실행한다 — 조회 예외(`command -v`·`which`)에 묻혀 그대로 통과했다.
+ */
+test('인용·이스케이프가 섞인 실행 이름과 단일 & 는 판정하지 않고 묻는다', () => {
+  for (const cmd of [
+    "'cl'aude -p x",
+    '"co"dex exec x',
+    "'cl''aude' -p x",
+    'e"nv" cl?ude -p x',
+    'e"nv" python3 evil.py',
+    '"en"v python3 evil.py',
+    'cl""aude -p x',
+    'cl\\aude -p x',
+    '/opt/homebrew/bin/cl?ude -p x',  // 실행 자리의 글롭은 셸이 펼친다
+    'find . -name a.md -exec claude -p hi \\;',
+    'command -v claude & claude -p x',
+    'which claude & claude -p x',
+    'true&claude -p x',
+    'echo ok&codex exec x'
+  ]) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+    expect(describeTool('Bash', { command: cmd }, ROOT).title, cmd).toBe('앱이 읽을 수 없는 명령이에요')
+  }
+  // 따옴표 안의 기호는 글자다 — 연산자로 오인해 나누지 않는다.
+  for (const cmd of ['echo "a & b"', 'echo "a; claude -p x"', "grep 'x|y' notes.md", 'echo "ok&&fine"']) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(true)
+  }
+})
+
+/**
+ * 인터프리터의 인라인 실행 옵션은 묶어서 와도 스킬 스크립트 허용으로 떨어지지 않는다
+ * (FIXCHECK AUTO-FIX-01). `-c` 와 똑같은 인자만 보면 `-xc`·`-lc` 가 빠지고, 뒤의 코드
+ * 문자열이 `/gg.py` 로 끝나면 스킬 스크립트로 읽혔다. 첫 인자가 스킬 파일일 때만 통과한다.
+ */
+test('인터프리터 옵션을 묶어도 인라인 코드는 스킬 스크립트로 통과하지 않는다', () => {
+  for (const cmd of [
+    'bash -xc "echo harmless; claude scripts/gg.py"',
+    'bash -xc "claude -p scripts/gg.py"',
+    'sh -xc "codex exec scripts/gg.py"',
+    'bash -cc "claude scripts/gg.py"',
+    'bash -lc "claude scripts/gg.py"',
+    'bash -c "claude scripts/gg.py"'
+  ]) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+    expect(describeTool('Bash', { command: cmd }, ROOT).title, cmd).toBe('다른 AI 프로그램을 부르는 명령이에요')
+  }
+  for (const cmd of [
+    'bash -xc "echo hi; ls scripts/gg.py"',  // AI 가 없어도 인라인 코드다
+    'sh -e scripts/gg.py',                    // 모르는 옵션 조합은 묻는다
+    'python3 -X utf8 scripts/gg.py status',
+    'python3 -Wignore scripts/gg.py status',
+    'python3 -Wscripts/gg.py evil.py',        // 붙은 옵션 값이 /gg.py 로 끝나도 스크립트가 아니다
+    'bash "echo; ls scripts/gg.py"'           // 셸 코드가 든 문자열은 스크립트 파일이 아니다
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+  // 첫 인자가 스킬 파일이면 그대로 통과한다(공백 있는 맥 기본 폴더 이름 포함).
+  for (const cmd of [
+    `python3 "/Users/s/무제 폴더/.claude/skills/knuaf-dev/scripts/gg.py" status`,
+    `"${ROOT}/.venv/bin/python" "${ROOT}/.claude/skills/knuaf-dev/scripts/gg_deps.py" python "${ROOT}"`,
+    'python3 --version'
+  ]) expect(autoAllow('/Users/s/무제 폴더', 'Bash', { command: cmd.replaceAll(ROOT, '/Users/s/무제 폴더') }), cmd).toBe(true)
+})
+
+// 스킬 파일 판정은 셸이 펼치기 전 문자열로 한다(FIXCHECK2). `*/gg.py` 는 `-Wignore/gg.py` 같은
+// 옵션으로 펼쳐질 수 있어 뒤의 `-m`·`-c` 가 실행된다. 허용 문자(글자·숫자·한글·공백·`._-/`)
+// 밖의 문자가 든 첫 인자는 스킬 파일로 보지 않는다 — 따옴표로 감싸 펼치지 않는 경우도 묻는다.
+test('펼쳐질 수 있는 첫 인자는 스킬 스크립트로 인정하지 않는다', () => {
+  for (const cmd of [
+    'python3 */gg.py -m helper',
+    'python3 */gg.py -c "import helper"',
+    'python3 ?Wignore/gg.py -m helper',
+    'python3 [-]Wignore/gg.py -m helper',
+    'python3 scripts/g[g]_deps.py python .',
+    'python3 "*/gg.py" -m helper',          // 따옴표 안은 펼치지 않지만 구분하지 않고 묻는다
+    "python3 '*/gg.py' status",
+    'python3 scripts/gg.py,x/gg.py status',  // 허용 집합 밖 문자
+    'python3 scripts/gg+.py status'
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+  // 한글 폴더 이름은 macOS 의 풀어쓴(NFD) 형태로 와도 허용 집합 안이다.
+  const nfd = '/Users/s/무제 폴더'.normalize('NFD')
+  expect(autoAllow(nfd, 'Bash', { command: `python3 "${nfd}/.claude/skills/knuaf-dev/scripts/gg.py" status` })).toBe(true)
+  expect(autoAllow(ROOT, 'Bash', { command: `python3 "${ROOT}/scripts/gg_deps.py" python "${ROOT}"` })).toBe(true)
+})
+
+// 지시문이 따옴표 절대경로를 쓰라고 하므로 윈도우의 정상 스킬 호출은 `"C:/…/gg.py"` 로 온다
+// (FIXCHECK3). 맨 앞 드라이브 접두 `X:/` 하나만 허용하고, 다른 자리의 `:`·역슬래시·슬래시 없는
+// `C:foo` 는 계속 묻는다. 루트는 그 플랫폼에서 이 경로가 폴더 안이 되도록 고른다.
+test('윈도우 드라이브 절대경로의 스킬 호출은 묻지 않고, 다른 자리의 : 는 묻는다', () => {
+  const root = process.platform === 'win32' ? 'C:\\Users\\학생\\무제 폴더' : '/Users/s/무제 폴더'
+  const W = 'C:/Users/학생/무제 폴더'
+  for (const cmd of [
+    `python.exe "${W}/.claude/skills/knuaf-dev/scripts/gg.py" status`,
+    `"${W}/.venv/Scripts/python.exe" "${W}/.claude/skills/knuaf-dev/scripts/gg_deps.py" python "${W}"`
+  ]) expect(autoAllow(root, 'Bash', { command: cmd }), cmd).toBe(true)
+  for (const cmd of [
+    `python.exe "C:\\Users\\학생\\무제 폴더\\.claude\\skills\\knuaf-dev\\scripts\\gg.py" status`,
+    'python.exe "C:foo/scripts/gg.py" status',        // 드라이브 상대경로
+    'python.exe "scripts/a:b/gg.py" status',          // 경로 중간의 :
+    'python.exe "scripts/C:/gg.py" status',           // 맨 앞이 아닌 드라이브 모양
+    'python.exe "CC:/scripts/gg.py" status',          // 두 글자 접두
+    'python.exe "C:/*/gg.py" -m helper'               // 접두 뒤도 허용 집합을 따른다
+  ]) expect(autoAllow(root, 'Bash', { command: cmd }), cmd).toBe(false)
+})
+
+/** 감싸는 명령은 뒤 낱말을 실행하므로, AI 가 아니어도 그 뒤의 판정을 빠져나가게 두지 않는다. */
+test('감싸는 명령 뒤의 실행 파일은 판정을 빠져나가지 못한다', () => {
+  for (const cmd of [
+    'env python3 evil.py',            // INTERPRETERS 판정을 우회하던 길
+    'nohup python3 evil.py',
+    'X=1 python3 evil.py',
+    'fd -x helper',
+    "find . -exec helper ';'",        // AI 이름 없이 find 실행 플래그만으로 묻는다
+    'uvx some-tool',
+    // 윈도우 실행기(검토 AUTO-R1-03): 인코딩 내용은 `claude -p x` 다.
+    'powershell -EncodedCommand YwBsAGEAdQBkAGUAIAAtAHAAIAB4AA==',
+    'powershell -File helper.ps1',
+    'pwsh -Command helper',
+    'start helper x'
+  ]) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+    expect(describeTool('Bash', { command: cmd }, ROOT).title, cmd).toBe('다른 프로그램을 대신 실행하는 명령이에요')
+  }
+  expect(autoAllow(ROOT, 'Bash', { command: 'Python3 evil.py' })).toBe(false)
+})
+
+/** 셸 상태를 바꾸는 내장 명령은 무엇을 바꾸는지 분석하지 않고 묻는다. */
+test('셸 설정을 바꾸는 내장 명령은 묻는다', () => {
+  for (const cmd of [
+    'export PATH=bin',
+    'declare -x A=1',
+    'typeset A=1',
+    'local A=1',
+    'readonly A=1',
+    'set -e',
+    'alias ll=ls',
+    'unalias ll',
+    'function f',
+    'hash -r',
+    'trap "" INT'
+  ]) {
+    expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(false)
+    expect(describeTool('Bash', { command: cmd }, ROOT).title, cmd).toBe('셸 설정을 바꾸는 명령이에요')
+  }
+})
+
+/**
+ * AI 이름이 실행되지 않는 자리(검색어·출력·파일명)에 있으면 묻지 않는다(검토 AUTO-R1-04).
+ * 여러 이유가 겹치면 바깥 효과(curl)를 먼저 말한다.
+ */
+test('AI 이름을 실행하지 않는 명령은 묻지 않고, 바깥 효과를 먼저 말한다', () => {
+  for (const cmd of [
+    'grep claude notes.md',
+    'echo codex',
+    'rg "claude|codex" notes.md',
+    'cat sources/claude',
+    'find . -name claude',
+    'echo "claude -p x"',
+    'uv --version',                   // 감싸기라도 버전 조회는 아무것도 실행하지 않는다
+    'bun --version'
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(true)
+  const d = describeTool('Bash', { command: 'echo "claude"; curl example.invalid' }, ROOT)
+  expect(d.title).toBe('논문 폴더 밖으로 나가는 명령이에요')
+  expect(describeTool('Bash', { command: 'claude -p x; curl example.invalid' }, ROOT).title).toBe('논문 폴더 밖으로 나가는 명령이에요')
+})
+
+/** 막는 범위를 넓혀도 학생이 실제로 쓰는 스킬·점검 명령은 계속 묻지 않는다(경고는 드물어야 한다). */
+test('AI·감싸기 판정이 스킬과 점검 명령을 새로 막지 않는다', () => {
+  for (const cmd of [
+    'python3 scripts/gg.py status',
+    `${ROOT}/.venv/bin/python scripts/gg.py doctor`,
+    `"${ROOT}/.venv/bin/python" scripts/gg.py doctor`,  // 지시문이 권하는 따옴표 절대경로
+    `python3 .claude/skills/knuaf-dev/scripts/gg_deps.py python "${ROOT}"`,  // 경로에 .claude 가 있어도
+    `cd "${ROOT}" && ls .venv/bin | head -20; echo "---"; python3 --version 2>&1`,
+    'command -v kordoc pnpm node',
+    'command -v claude',              // 찾아보기만 하고 실행하지 않는다
+    'which codex',
+    'env',                            // 인자 없으면 실행하지 않는다
+    `find "${ROOT}/sections" -name "*.md"`,
+    `shasum -a 256 "${ROOT}/sources/a.md"`,
+    `cat "${ROOT}/sources/claude-대화.md"`  // 파일 이름에 섞인 낱말은 실행 파일이 아니다
+  ]) expect(autoAllow(ROOT, 'Bash', { command: cmd }), cmd).toBe(true)
+})

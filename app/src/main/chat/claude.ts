@@ -88,14 +88,157 @@ const OUTSIDE_REACH = new Set([
 const INTERPRETERS = /^(python3?(\.\d+)?|sh|bash|zsh|node|perl|ruby)$/
 /** 스킬이 실제로 돌리는 스크립트들. */
 const SKILL_SCRIPT = /(^|\/)(gg|gg_[a-z_]+|build_docx|show_research|merge_sections|build_status|lint_[a-z_]+)\.py$/
+/**
+ * 스킬 스크립트로 인정하는 경로의 문자 집합: 영문자·숫자·한글(완성형과 macOS 의 풀어쓴 자모)·
+ * 공백·`.`·`_`·`-`·`/`. 셸이 이 문자들은 펼치지 않으므로 앱이 본 문자열이 그대로 파일 이름이
+ * 된다. 따옴표는 이미 벗겨진 뒤다. 그 밖의 문자가 하나라도 있으면 묻는다.
+ *
+ * 예외는 맨 앞의 윈도우 드라이브 접두 `X:/` 하나다. 지시문이 따옴표 절대경로를 쓰라고 하므로
+ * 윈도우에서는 `"C:/Users/…/scripts/gg.py"` 로 온다. 이 접두는 셸이 펼치지 않고 옵션으로
+ * 바뀌지도 않는다. 다른 자리의 `:`, `C:` 뒤 `\`, 슬래시 없는 `C:foo` 는 계속 묻는다.
+ */
+const SKILL_PATH = /^(?:[A-Za-z]:\/)?[A-Za-z0-9\p{Script=Hangul} ._\-/]+$/u
+/**
+ * 따로 도는 AI 프로그램들. 셸로 띄우면 학생 화면에 보이지 않고 멈출 수도 없으며,
+ * 이 대화의 승인·쿼터·로그인 확인을 건너뛴다. 경로가 전부 폴더 안이어도 묻는다.
+ *
+ * **실행 자리**에서만 본다. `grep claude notes.md`·`echo codex` 는 AI 를 실행하지 않는다.
+ * 다른 명령 뒤에 숨기는 길(`env claude`·`xargs claude`·`find -exec`·`sh -c "claude …"`)은
+ * 감싸기·실행 플래그·인라인 코드로 이미 묻고, 그 뒤 낱말에 이름이 있으면 카드 문구만 AI 로 바꾼다.
+ */
+const AI_CLI = new Set([
+  'claude', 'codex', 'gemini', 'agy', 'ocx', 'omp', 'opencode', 'ollama', 'aider', 'cursor-agent',
+  'qwen', 'kiro-cli'
+])
+/**
+ * 뒤에 오는 낱말을 프로그램으로 실행하는 명령들. 이름만 보면 `env`·`nohup` 이 실행 파일로
+ * 읽혀 진짜 실행 파일(AI·인터프리터)이 판정을 빠져나간다. 옵션 문법이 명령마다 달라
+ * 뒤 낱말을 다시 판정하지 않고 통째로 묻는다 — 스킬은 이것들을 쓰지 않는다.
+ * 윈도우의 실행기(`powershell -EncodedCommand …`·`cmd /c`·`start`)도 같은 부류다.
+ */
+const LAUNCHERS = new Set([
+  'env', 'nohup', 'time', 'timeout', 'gtimeout', 'nice', 'ionice', 'chrt', 'taskset', 'exec', 'command',
+  'builtin', 'eval', 'source', '.', 'xargs', 'parallel', 'caffeinate', 'stdbuf', 'unbuffer', 'setsid',
+  'script', 'watch', 'arch', 'flock', 'chronic', 'uv', 'uvx', 'pipx', 'bunx', 'bun', 'deno',
+  'powershell', 'pwsh', 'cmd', 'start', 'wsl', 'cscript', 'wscript'
+])
+/** 감싸기에 이것만 붙으면 버전·도움말을 찍을 뿐 아무것도 실행하지 않는다(`uv --version`). */
+const INFO_FLAG = /^(-v|-V|--version|-h|--help)$/
+/**
+ * 셸 상태를 바꾸는 내장 명령. 뒤에 오는 명령이 어떻게 실행될지(변수·별칭·함수·트랩)를
+ * 바꾼다. 무엇을 바꾸는지 분석하지 않고 감싸기와 같이 묻는다.
+ */
+const SHELL_STATE = new Set([
+  'export', 'declare', 'typeset', 'local', 'readonly', 'set', 'alias', 'unalias', 'function', 'hash', 'trap'
+])
+/** 이 옵션이 붙으면 프로그램을 실행하는 평범한 도구들. */
+const LAUNCH_FLAGS: Record<string, string[]> = {
+  find: ['-exec', '-execdir', '-ok', '-okdir'],
+  fd: ['-x', '-X', '--exec', '--exec-batch'],
+  fdfind: ['-x', '-X', '--exec', '--exec-batch'],
+  rg: ['--pre']
+}
+/** `X=1 python3 evil.py` — 앞에 붙은 변수 대입은 실행 파일 자리를 가리고 PATH 같은 것을 바꾼다. */
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
-/** 따옴표를 존중하는 최소 토크나이저. 이스케이프는 다루지 않는다(있으면 어차피 거절된다). */
-function tokens(seg: string): string[] {
-  const out: string[] = []
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(seg))) out.push(m[1] ?? m[2] ?? m[3])
-  return out
+/**
+ * 판정에 쓰는 실행 파일 이름. 맥(APFS 기본)과 윈도우는 대소문자를 가리지 않아 `Claude`·
+ * `Python3` 도 그대로 실행되고, 윈도우는 `claude.cmd`·`python.exe` 로 실행된다.
+ * 이름 목록과 비교하기 전에 그 차이를 접는다. 접어서 생기는 오판은 더 묻는 쪽뿐이다.
+ */
+function exeName(word: string): string {
+  return (word.split(/[\\/]/).pop() ?? word).toLowerCase().replace(/\.(exe|cmd|bat|com|ps1)$/, '')
+}
+
+/**
+ * 명령을 조각(`;`·`|`·`||`·`&&`)과 낱말로 나눈다. 판단할 수 없으면 null.
+ *
+ * 셸 파서를 흉내 내지 않는다. 셸이 다르게 읽을 수 있는 형태를 만나면 판정을 포기한다:
+ * - 따옴표 밖 `\`(이스케이프), 따옴표 안 `\"`·`\\` 같은 이스케이프, 닫히지 않은 따옴표.
+ * - 단일 `&`. 앞을 뒤로 돌리고 뒤를 따로 실행한다(`command -v claude & claude -p x`).
+ * - 실행 자리 낱말에 따옴표가 섞인 것(`'cl'aude`·`e"nv"`). 셸은 이어 붙여 `claude`·`env` 를
+ *   실행한다. 통째로 감싼 `"/…/.venv/bin/python"` 은 그대로 읽는다(지시문이 그렇게 쓰라고 한다).
+ * - 실행 자리의 `*`·`?`·`[`. 셸이 파일 이름으로 펼친다(`/opt/homebrew/bin/cl?ude`).
+ * 따옴표 안의 `;`·`|`·`&` 는 글자다(`rg "claude|codex" notes.md` 는 한 조각).
+ */
+function parseShell(raw: string): string[][] | null {
+  const cmd = raw.replace(BENIGN_REDIR, ' ')
+  if (SHELL_UNJUDGEABLE.test(cmd) || /\n/.test(cmd)) return null
+  const segs: string[][] = []
+  let seg: string[] = []
+  let word: string | null = null
+  let parts = 0                    // 낱말을 이루는 따옴표 구간·맨 글자 구간 수
+  let quoted = false
+  let exeMixed = false
+  const endWord = () => {
+    if (word === null) return
+    if (!seg.length && quoted && parts > 1) exeMixed = true
+    seg.push(word); word = null; parts = 0; quoted = false
+  }
+  const endSeg = () => { endWord(); if (seg.length) segs.push(seg); seg = [] }
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]
+    if (c === '"' || c === "'") {
+      const close = cmd.indexOf(c, i + 1)
+      if (close < 0) return null
+      const body = cmd.slice(i + 1, close)
+      if (c === '"' && /\\["\\$`]/.test(body)) return null
+      word = (word ?? '') + body; parts++; quoted = true; i = close
+    } else if (c === '\\') return null
+    else if (/\s/.test(c)) endWord()
+    else if (c === ';') endSeg()
+    else if (c === '|') { endSeg(); if (cmd[i + 1] === '|') i++ }
+    else if (c === '&') { if (cmd[i + 1] !== '&') return null; endSeg(); i++ }
+    else {
+      if (word === null || /["']/.test(cmd[i - 1] ?? '')) parts++
+      word = (word ?? '') + c
+    }
+  }
+  endSeg()
+  if (exeMixed || segs.some((t) => /[*?[]/.test(t[0]))) return null
+  return segs
+}
+
+type Reason = { kind: 'reach' | 'ai' | 'launch' | 'state' | 'interp'; name: string }
+/**
+ * 경로와 별개로, 이 조각을 묻는 이유. 없으면 null.
+ *
+ * 자동 허용과 카드 문구가 같은 판정을 쓴다 — 둘이 따로 놀면 "묻지 않은 이유"와
+ * "물은 이유"가 어긋난다.
+ */
+function segmentReason(t: string[]): Reason | null {
+  const [exe, ...args] = t
+  const base = exeName(exe)
+  // 찾아보기만 하고 실행하지 않는다 — 환경 점검에 `command -v kordoc pnpm node` 가 실제로 쓰였다.
+  if (['which', 'type', 'whereis'].includes(base) || (base === 'command' && /^-[vV]$/.test(args[0] ?? ''))) return null
+  if (AI_CLI.has(base)) return { kind: 'ai', name: base }
+  if (OUTSIDE_REACH.has(base)) return { kind: 'reach', name: base }
+  let runs: Reason | null = null
+  if (ASSIGNMENT.test(exe)) runs = { kind: args.length ? 'launch' : 'state', name: exe.split('=')[0] + '=' }
+  else if (SHELL_STATE.has(base)) runs = { kind: 'state', name: base }
+  else if (LAUNCHERS.has(base) && args.length && !args.every((a) => INFO_FLAG.test(a))) runs = { kind: 'launch', name: base }
+  else if (INTERPRETERS.test(base)) {
+    // 인터프리터는 **첫 인자가 스킬 스크립트 파일**일 때만 통과한다. 그 앞에 옵션이 하나라도
+    // 오면 묻는다 — 옵션은 묶을 수 있어(`-xc`·`-lc`·`-cc`) 하나씩 맞춰 보면 빠진다.
+    // `bash -xc "echo; claude scripts/gg.py"` 는 인라인 코드 문자열이 `/gg.py` 로 끝나
+    // 스킬 스크립트로 읽혔다(FIXCHECK AUTO-FIX-01). 첫 인자 자리라면 셸·파이썬은 그것을
+    // 코드가 아니라 파일 이름으로 연다. 버전·도움말 조회와 인자 없는 실행은 그대로 둔다.
+    // 셸이 펼치기 전 문자열로 판정하므로, 스킬 파일은 **펼쳐도 모양이 바뀌지 않는 문자만** 든
+    // 경로로 인정한다(SKILL_PATH). 막을 문자를 나열하지 않는다 — `python3 */gg.py -m helper`
+    // 의 `*/gg.py` 는 `-Wignore/gg.py` 같은 옵션으로 펼쳐져 뒤의 `-m` 이 실행됐다(FIXCHECK2).
+    // 공백은 허용한다: 맥 기본 폴더 이름("무제 폴더")이 경로에 들어간다.
+    const [script] = args
+    const skill = !!script && !script.startsWith('-') && SKILL_PATH.test(script) && SKILL_SCRIPT.test(script)
+    if (args.length && !skill && !args.every((a) => INFO_FLAG.test(a))) runs = { kind: 'interp', name: base }
+  } else {
+    const flags = LAUNCH_FLAGS[base] ?? []
+    const flag = args.find((a) => flags.some((f) => a === f || a.startsWith(`${f}=`)))
+    if (flag) runs = { kind: 'launch', name: `${base} ${flag.split('=')[0]}` }
+  }
+  if (!runs) return null
+  // 감싸기·인라인 코드 뒤에서 실행되는 AI 는 카드에 AI 라고 말한다.
+  const ai = args.flatMap((a) => a.split(/[\s=;]+/)).map(exeName).find((w) => AI_CLI.has(w))
+  return ai ? { kind: 'ai', name: ai } : runs
 }
 
 /**
@@ -121,7 +264,7 @@ function argsInRoot(root: string, args: string[]): boolean {
 }
 
 /**
- * 이 조각을 묻지 않고 통과시켜도 되는가.
+ * 이 명령을 묻지 않고 통과시켜도 되는가. 모든 조각이 묻는 이유 없이 폴더 안이어야 한다.
  *
  * 예전에는 아홉 개짜리 읽기 전용 목록이었다. 그래서 `shasum <폴더 안 파일>`,
  * `find <폴더 안>`, `mkdir -p <폴더 안>` 같은 것이 전부 승인 창을 띄웠고,
@@ -132,32 +275,15 @@ function argsInRoot(root: string, args: string[]): boolean {
  * **경로가 전부 논문 폴더 안이면 묻지 않는다.** 폴더 밖으로 나가는 도구와 앱이 읽을 수
  * 없는 프로그램만 계속 묻는다.
  */
-function safeSegment(root: string, seg: string): boolean {
-  const t = tokens(seg)
-  if (!t.length) return false
-  const [exe, ...args] = t
-  const base = exe.split('/').pop() ?? exe
-  if (INTERPRETERS.test(base)) {
-    if (args.some((a) => a === '-c' || a === '-m' || a === '-e')) return false // 인라인 코드
-    const script = args.find((a) => !a.startsWith('-'))
-    if (!script) return argsInRoot(root, args)                   // python3 --version 같은 조회
-    return SKILL_SCRIPT.test(script) && argsInRoot(root, args)
-  }
-  if (OUTSIDE_REACH.has(base)) return false
-  return argsInRoot(root, args)
-}
-
 function isSkillCommand(root: string, input: unknown): boolean {
   const raw = (input as { command?: unknown })?.command
   if (typeof raw !== 'string' || !raw.trim()) return false
-  const cmd = raw.replace(BENIGN_REDIR, ' ')
-  if (SHELL_UNJUDGEABLE.test(cmd) || /\n/.test(cmd)) return false
-  const segs = cmd.split(/\s*(?:\|\||&&|;|\|)\s*/).map((x) => x.trim()).filter(Boolean)
-  return segs.length > 0 && segs.every((x) => safeSegment(root, x))
+  const segs = parseShell(raw)
+  return !!segs?.length && segs.every((t) => segmentReason(t) === null && argsInRoot(root, t.slice(1)))
 }
 
 /**
- * Bash 명령의 인자 중 작업폴더 밖을 가리키는 경로만 모은다. 판정 자체가 불가능하면 null.
+ * Bash 명령의 인자 중 작업폴더 밖을 가리키는 경로만 모은다.
  *
  * isSkillCommand 와 규칙은 같지만 묻는 것이 다르다. 저쪽은 "통과시킬까",
  * 이쪽은 "학생에게 뭐라고 말할까"다. 이게 없으면 PATH_TOOLS 에 Bash 가 없는 탓에
@@ -165,13 +291,11 @@ function isSkillCommand(root: string, input: unknown): boolean {
  * 붙는다. 물어본 이유와 정반대를 읽은 학생은 그대로 허용을 누르고, 그 옆이
  * "이 폴더에서는 계속 허용"이라 한 번의 오독이 폴더 전체 신뢰로 굳는다.
  */
-function bashOutside(root: string, raw: string): string[] | null {
-  const cmd = raw.replace(BENIGN_REDIR, ' ')
-  if (SHELL_UNJUDGEABLE.test(cmd) || /\n/.test(cmd)) return null
+function bashOutside(root: string, segs: string[][]): string[] {
   const out: string[] = []
-  for (const seg of cmd.split(/\s*(?:\|\||&&|;|\|)\s*/)) {
+  for (const t of segs) {
     // 실행 파일 자체(/usr/bin/grep 등)는 뺀다 — argsInRoot 와 같은 범위.
-    for (const a of tokens(seg).slice(1)) {
+    for (const a of t.slice(1)) {
       if (a.startsWith('-') || !looksLikePath(a)) continue
       const o = outsideRoot(root, a)
       if (o && !out.includes(o)) out.push(o)
@@ -217,17 +341,25 @@ function describeTool(name: string, input: unknown, root: string): { title: stri
   if (outside) return { title: '논문 폴더 밖의 파일을 건드리려고 해요', detail: `대상: ${outside}\n\n논문 폴더 안이 아니에요. 의도한 일이 아니면 거절해 주세요.` }
   const cmd = (input as { command?: unknown })?.command
   if (name === 'Bash' && typeof cmd === 'string') {
-    const out = bashOutside(root, cmd)
-    if (out === null) return { title: '앱이 읽을 수 없는 명령이에요', detail: `${cmd}\n\n변수나 기호가 섞여 있어 무엇을 건드릴지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    const segs = parseShell(cmd)
+    if (segs === null) return { title: '앱이 읽을 수 없는 명령이에요', detail: `${cmd}\n\n변수나 기호가 섞여 있어 무엇을 건드릴지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    const out = bashOutside(root, segs)
     if (out.length) return { title: '논문 폴더 밖의 파일을 건드리려고 해요', detail: `${cmd}\n\n폴더 밖: ${out.join(', ')}\n\n논문 폴더 안이 아니에요. 의도한 일이 아니면 거절해 주세요.` }
     // 여기까지 왔다는 것은 autoAllow 가 통과시키지 않았다는 뜻이다. 이유를 사실대로
     // 나눠 말한다 — 예전에는 무엇에 걸렸든 "경로는 모두 논문 폴더 안이에요"라고 단정해서,
     // 경로 인자가 하나도 없는 명령(`command -v …`)에도 그렇게 적혔다(시험주행 발견 6).
-    const segs = cmd.split(/\s*(?:\|\||&&|;|\|)\s*/).map((x) => x.trim()).filter(Boolean)
-    const reach = segs.map((x) => (tokens(x)[0] ?? '').split('/').pop() ?? '').find((b) => OUTSIDE_REACH.has(b))
-    if (reach) return { title: '논문 폴더 밖으로 나가는 명령이에요', detail: `${cmd}\n\n"${reach}" 는 네트워크·다른 앱·설치처럼 폴더 밖에 닿아요. 의도한 일이 아니면 거절해 주세요.` }
-    const interp = segs.find((x) => INTERPRETERS.test((tokens(x)[0] ?? '').split('/').pop() ?? ''))
-    if (interp) return { title: '앱이 읽을 수 없는 프로그램을 실행해요', detail: `${cmd}\n\n프로그램 안에 무엇이 있는지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    // 여러 조각이 걸리면 바깥 효과가 큰 쪽을 먼저 말한다.
+    const reasons = segs.map(segmentReason).filter((r): r is Reason => r !== null)
+    const first = (kind: Reason['kind']) => reasons.find((r) => r.kind === kind)
+    const reach = first('reach')
+    if (reach) return { title: '논문 폴더 밖으로 나가는 명령이에요', detail: `${cmd}\n\n"${reach.name}" 는 네트워크·다른 앱·설치처럼 폴더 밖에 닿아요. 의도한 일이 아니면 거절해 주세요.` }
+    const ai = first('ai')
+    if (ai) return { title: '다른 AI 프로그램을 부르는 명령이에요', detail: `${cmd}\n\n"${ai.name}" 는 이 대화 밖에서 따로 도는 AI예요. 화면에 보이지 않고 멈출 수도 없어요. 의도한 일이 아니면 거절해 주세요.` }
+    const launch = first('launch')
+    if (launch) return { title: '다른 프로그램을 대신 실행하는 명령이에요', detail: `${cmd}\n\n"${launch.name}" 뒤에 오는 것이 실제로 실행돼요. 무엇이 실행될지 앱이 미리 확인하지 못해요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    const state = first('state')
+    if (state) return { title: '셸 설정을 바꾸는 명령이에요', detail: `${cmd}\n\n"${state.name}" 는 뒤에 오는 명령이 실행되는 방식을 바꿀 수 있어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
+    if (first('interp')) return { title: '앱이 읽을 수 없는 프로그램을 실행해요', detail: `${cmd}\n\n프로그램 안에 무엇이 있는지 앱이 미리 알 수 없어요. 무슨 일인지 모르겠으면 거절해 주세요.` }
     return { title: '컴퓨터에서 명령을 실행하려고 해요', detail: `${cmd}\n\n앱이 폴더 안 일이라고 확인하지 못한 명령이에요. 무슨 일인지 모르겠으면 거절해 주세요.` }
   }
   return { title: `도우미가 "${name}" 도구를 쓰려고 해요`, detail: JSON.stringify(input, null, 2) }
