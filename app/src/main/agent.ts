@@ -13,6 +13,7 @@ import { APP_NAME_SHORT } from '../shared/name'
 import { pathKeyOf } from './chat/contracts'
 import { renameWithRetry, writeFileAtomic } from './safeWrite'
 import { resolveSkillSource } from './update/source'
+import { agentActivity } from './update/activity'
 import { winSpawn } from './win'
 
 // ---------------------------------------------------------------- types
@@ -118,18 +119,16 @@ export function setAgentPlatformForTest(platform: NodeJS.Platform | null): NodeJ
   return prev
 }
 
-/**
- * 동봉한 CLI 를 찾을 자리의 **기본값**. 패키지에서는 `process.resourcesPath`, 개발 트리에서는
- * `out/main` 기준 `../../resources`(python.ts 의 APP_ROOT 와 같은 기준)를 본다.
- * 윈도우가 아니면 빈 배열 — 맥 설치본에는 동봉하지 않기로 했다(형님 범위 결정).
- */
+/** One layout calculation for both implicit chat discovery and explicit AgentCtx discovery. */
+export function bundledAgentLayout(base: string, platform: NodeJS.Platform, arch: string): string[] {
+  const dirs = [join(base, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', `claude-agent-sdk-${platform}-${arch}`)]
+  if (platform === 'win32') dirs.push(join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin'))
+  return dirs
+}
 function defaultBundledDirs(platform: NodeJS.Platform): string[] {
-  if (platform !== 'win32') return []
-  const roots: string[] = []
-  const resources = (process as { resourcesPath?: string }).resourcesPath
-  if (typeof resources === 'string' && resources) roots.push(join(resources, 'codex'))
-  if (typeof __dirname === 'string') roots.push(join(__dirname, '..', '..', 'resources', 'codex'))
-  return roots.map((root) => join(root, 'vendor', 'x86_64-pc-windows-msvc', 'bin'))
+  const resources = (process as { resourcesPath?: string; defaultApp?: boolean })
+  const base = resources.resourcesPath && !resources.defaultApp ? resources.resourcesPath : join(__dirname, '..', '..', 'resources')
+  return bundledAgentLayout(base, platform, process.arch)
 }
 
 let bundledDirsProvider: (platform: NodeJS.Platform) => string[] = defaultBundledDirs
@@ -199,21 +198,13 @@ function winCandidateNames(name: string): string[] {
   return [`${name}.exe`, `${name}.cmd`, `${name}.bat`]
 }
 
-/**
- * 설치본에 동봉한 Codex CLI 의 bin 디렉터리. **윈도우에서만** 본다 — 맥 설치본에는 동봉하지
- * 않기로 했고(형님 범위 결정), 맥은 지금처럼 학생이 직접 설치한 것을 쓴다.
- *
- * 동봉본은 자기 패키지 레이아웃(`codex-package.json`·`codex-path/rg.exe`·`codex-resources/`)을
- * 스스로 찾으므로 bin 디렉터리만 알려 주면 rg·sandbox 도구도 함께 산다.
- * 개발 트리(out/)에서는 `resources/codex/…` 가 없으면 그냥 넘어간다(다음 후보로).
- */
+/** Explicit context uses exactly the same bundled executable layout as default discovery. */
 export function bundledAgentDirs(
   ctx: Pick<AgentCtx, 'appRoot' | 'isPackaged' | 'resourcesPath'>,
   platform: NodeJS.Platform = hostPlatform()
 ): string[] {
-  if (platform !== 'win32') return []
   const base = ctx.isPackaged ? ctx.resourcesPath : join(ctx.appRoot, 'resources')
-  return [join(base, 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')]
+  return bundledAgentLayout(base, platform, process.arch)
 }
 
 /**
@@ -224,7 +215,8 @@ export function bundledAgentDirs(
  * 거친다. 이걸 빼면 찾은 도우미의 버전만 조용히 비어 배지가 빈칸으로 남는다.
  */
 export function probeVersion(path: string): Promise<string | null> {
-  return new Promise((resolve) => {
+  return agentActivity.run(async () => {
+    const { promise, resolve } = Promise.withResolvers<string | null>()
     try {
       const spec = winSpawn(path, ['--version'])
       execFile(spec.command, spec.args, { timeout: 8000, encoding: 'utf-8', windowsHide: true, ...spec.options }, (err, stdout) => {
@@ -232,9 +224,8 @@ export function probeVersion(path: string): Promise<string | null> {
         const line = String(stdout).split(/\r?\n/).map((l) => l.trim()).find(Boolean)
         resolve(line ?? null)
       })
-    } catch {
-      resolve(null)
-    }
+    } catch { resolve(null) }
+    return promise
   })
 }
 
@@ -606,6 +597,7 @@ export async function launch(o: LaunchOptions, deps: LaunchDeps = {}): Promise<L
 
 /** `root` is the open project; with no project open the skill reports 'missing'. */
 export async function getStatus(ctx: AgentCtx, root: string | null): Promise<AgentStatus> {
+  return agentActivity.run(async () => {
   const env = ctx.env ?? process.env
   const leadingDirs = bundledAgentDirs(ctx)
   const probe = async (name: AgentKind): Promise<AgentBinary> => {
@@ -624,18 +616,21 @@ export async function getStatus(ctx: AgentCtx, root: string | null): Promise<Age
     },
     skillVersion: version
   }
+  })
 }
 
 export const agentApi = {
   status: (ctx: AgentCtx, root: string | null): Promise<AgentStatus> => getStatus(ctx, root),
 
   installSkill: (ctx: AgentCtx, kind: AgentKind, root: string | null): InstallResult => {
+    agentActivity.ensureActive()
     if (!root) throw new Error('먼저 작업 폴더를 열어 주세요.')
     const source = skillSource(ctx.appRoot, ctx.isPackaged, ctx.resourcesPath)
     return installSkill(source, skillTargets(root)[kind], skillVersion(source))
   },
 
   launch: (ctx: AgentCtx, o: { root: string; kind: AgentKind; revision: number | null }): Promise<LaunchResult> => {
+    return agentActivity.run(async () => {
     const agentPath = findExecutable(o.kind, ctx.env ?? process.env, { leadingDirs: bundledAgentDirs(ctx) })
     if (!agentPath) throw new Error(`${o.kind} 실행 파일을 찾지 못함 (PATH에 없음)`)
     const venv = ctx.venvPython(o.root)
@@ -651,5 +646,6 @@ export const agentApi = {
       supportDir: ctx.supportDir,
       dryRun: ctx.dryRun
     }, { open: ctx.open })
+    })
   }
 }

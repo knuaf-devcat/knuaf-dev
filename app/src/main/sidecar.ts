@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { RpcError, SidecarInfo } from '../shared/types'
 import { choosePython, scriptsDir, sidecarDir } from './python'
 import { skillSwitch } from './update/switch'
+import { agentActivity } from './update/activity'
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: RpcError) => void; onEvent?: (event: string, data: unknown) => void }
 type OwnedProcess = {
@@ -47,7 +48,7 @@ export class Sidecar extends EventEmitter {
 
   configure(projectRoot: string | null, override: string | null): Promise<SidecarInfo> {
     const version = this.stopVersion
-    return skillSwitch.run(() => this.enqueue(() => this.configureNow(projectRoot, override, version)))
+    return agentActivity.run(() => skillSwitch.run(() => this.enqueue(() => this.configureNow(projectRoot, override, version))))
   }
 
   restart(): Promise<SidecarInfo> {
@@ -177,10 +178,10 @@ export class Sidecar extends EventEmitter {
 
   /** `onId` receives the request id right after it is minted, for cancellation. */
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent'], onId?: (id: string) => void): Promise<T> {
-    return skillSwitch.run(async () => {
+    return agentActivity.run(() => skillSwitch.run(async () => {
       await this.lifecycle
       return this.sendCall<T>(method, params, onEvent, onId)
-    })
+    }))
   }
 
   private async sendCall<T>(method: string, params: Record<string, unknown> = {}, onEvent?: Pending['onEvent'], onId?: (id: string) => void): Promise<T> {

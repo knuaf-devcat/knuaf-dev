@@ -8,6 +8,7 @@ import { runInNewContext } from 'node:vm'
 import { transpileModule, ModuleKind, ScriptTarget } from 'typescript'
 import type { Sidecar } from '../src/main/sidecar'
 import { skillSwitch } from '../src/main/update/switch'
+import { agentActivity } from '../src/main/update/activity'
 
 const source = transpileModule(readFileSync(join(__dirname, '../src/main/sidecar.ts'), 'utf8'), {
   compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 }
@@ -75,6 +76,7 @@ function harness(platform = 'darwin') {
     clearTimeout: (id: number) => timers.delete(id),
     require: (name: string) => {
       if (name === './update/switch') return { skillSwitch }
+      if (name === './update/activity') return { agentActivity }
       if (name === './python') return {
         choosePython: (_root: string | null, override: string | null) => ({ python: override ?? 'base', kind: 'env' }),
         scriptsDir: () => scripts, sidecarDir: () => '/sidecar'

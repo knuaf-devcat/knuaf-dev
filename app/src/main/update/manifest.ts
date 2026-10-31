@@ -48,13 +48,20 @@ function base64(value: unknown, max: number): Buffer {
   if (bytes.toString('base64') !== value) throw new Error('서명 정보 인코딩이 잘못됐어요.')
   return bytes
 }
-export function verifySkill(value: unknown, keys: readonly string[]): VerifiedSkill {
+/** Decode only after Ed25519 verification of the original bytes, shared by both payloads. */
+export function signedObject(value: unknown, keys: readonly string[]): { value: Record<string, unknown>; digest: string; envelope: Envelope } {
   const e = object(value)
   const bytes = base64(e.manifest, 256 * 1024), sig = base64(e.sig, 64)
   if (sig.length !== 64 || !keys.some(key => {
     try { const pk = createPublicKey(key); return pk.asymmetricKeyType === 'ed25519' && verify(null, bytes, pk, sig) } catch { return false }
-  })) throw new Error('규칙집 서명을 확인하지 못했어요.')
-  const m = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))
+  })) throw new Error('업데이트 서명을 확인하지 못했어요.')
+  return {
+    value: object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))),
+    digest: sha256(bytes), envelope: { manifest: String(e.manifest), sig: String(e.sig) }
+  }
+}
+export function verifySkill(value: unknown, keys: readonly string[]): VerifiedSkill {
+  const e = object(value), signed = signedObject(value, keys), m = signed.value
   exact(m, ['schema', 'name', 'version', 'api', 'minApp', 'url', 'size', 'sha256', 'files'])
   if (m.schema !== 1 || m.name !== 'knuaf-dev' || !Number.isSafeInteger(m.api) || Number(m.api) < 1 || !Number.isSafeInteger(m.size) || Number(m.size) < 1 || Number(m.size) > MAX_BYTES) throw new Error('규칙집 정보가 잘못됐어요.')
   version(m.version); version(m.minApp); assetUrl(m.url); hash(m.sha256)
@@ -69,6 +76,6 @@ export function verifySkill(value: unknown, keys: readonly string[]): VerifiedSk
   }
   for (const name of names) for (let i = name.indexOf('/'); i !== -1; i = name.indexOf('/', i + 1)) if (aliases.has(name.slice(0, i).toLowerCase())) throw new Error('파일과 폴더 경로가 겹쳐요.')
   for (const key of ['version', 'api', 'minApp', 'url']) if (Object.hasOwn(e, key) && e[key] !== m[key]) throw new Error('채널 정보와 서명된 정보가 달라요.')
-  return { manifest: m as unknown as SkillManifest, digest: sha256(bytes), envelope: { manifest: String(e.manifest), sig: String(e.sig) } }
+  return { manifest: m as unknown as SkillManifest, digest: signed.digest, envelope: signed.envelope }
 }
 export function compatible(m: SkillManifest, appVersion: string): boolean { return m.api === SKILL_API && compare(m.minApp, appVersion) <= 0 }

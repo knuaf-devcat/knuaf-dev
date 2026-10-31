@@ -32,11 +32,15 @@ export async function boundedFetch(url: string, signal: AbortSignal, fetch: Tran
   }
   throw new Error('업데이트 이동 횟수가 너무 많아요.')
 }
-export async function readChannel(config: UpdateConfig, fetch: Transport, signal: AbortSignal): Promise<VerifiedSkill> {
+export async function readChannelDocument(config: UpdateConfig, fetch: Transport, signal: AbortSignal): Promise<Record<string, unknown>> {
   if (!config.keys.length) throw new Error('업데이트를 확인할 수 없어요.')
   const response = await boundedFetch(config.channel, signal, fetch, 512 * 1024, config, true)
   const channel = object(JSON.parse(await response.text()))
   if (channel.schema !== 1) throw new Error('업데이트 채널 형식이 잘못됐어요.')
+  return channel
+}
+export async function readChannel(config: UpdateConfig, fetch: Transport, signal: AbortSignal): Promise<VerifiedSkill> {
+  const channel = await readChannelDocument(config, fetch, signal)
   return verifySkill(channel.skill, config.keys)
 }
 export const downloadLimit = (size: number): number => Math.min(MAX_BYTES, size)

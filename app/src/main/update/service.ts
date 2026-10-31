@@ -6,6 +6,7 @@ import { type UpdateConfig } from './keys'
 import { boundedFetch, downloadLimit, readChannel, type Transport } from './network'
 import { SkillStore } from './store'
 import { skillSwitch, type SkillSwitch } from './switch'
+import { agentActivity } from './activity'
 
 export interface UpdateStatus {
   phase: 'idle' | 'checking' | 'available' | 'repair' | 'ready' | 'needs-app' | 'downloading' | 'switching' | 'error' | 'unavailable'
@@ -58,6 +59,7 @@ export class SkillUpdates {
     }
   }
   async install(): Promise<UpdateStatus> {
+    agentActivity.ensureActive()
     if (this.controller || this.checking || this.lock.switching) throw new Error('이미 업데이트 작업 중이에요.')
     if (!this.candidate) throw new Error('먼저 업데이트를 확인해 주세요.')
     const p = verifySkill(this.candidate.envelope, this.opts.config.keys)
@@ -99,11 +101,13 @@ export class SkillUpdates {
   cancel(): boolean { if (!this.controller) return false; this.controller.abort(); return true }
   async select(v: string | null): Promise<UpdateStatus> {
     if (v !== null) version(v)
+    agentActivity.ensureActive()
     if (this.controller || this.checking) throw new Error('이미 업데이트 작업 중이에요.')
     return this.activate(v)
   }
   rollback(): Promise<UpdateStatus> { return this.select(this.store.rollbackTarget()) }
   private async activate(v: string | null, signal?: AbortSignal): Promise<UpdateStatus> {
+    agentActivity.ensureActive()
     return this.lock.switch(() => this.activateLocked(v, signal))
   }
   private async activateLocked(v: string | null, signal?: AbortSignal): Promise<UpdateStatus> {

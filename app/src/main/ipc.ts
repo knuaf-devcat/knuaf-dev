@@ -19,6 +19,13 @@ import { SkillStore } from './update/store'
 import { SkillUpdates } from './update/service'
 import { configureSkillSource } from './update/source'
 import { skillSwitch } from './update/switch'
+import { agentActivity, UpdateSuspendedError } from './update/activity'
+import { AppUpdates } from './update/appService'
+import { AppHandoff } from './update/handoff'
+import { WindowsUpdateRuntime } from './update/windows'
+
+/** V8's Error cloning does not preserve custom fields; pause codes must cross IPC plainly. */
+const ipcError = (error: unknown): unknown => error instanceof UpdateSuspendedError ? { code: error.code, message: error.message } : error
 
 /** Chrome hints the renderer uses to lay out its title bar; also used by main when creating the window. */
 export function windowInfo(): WindowInfo {
@@ -122,7 +129,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       const result = await sidecar.call(method, params, (event, data) => w?.webContents.send('rpc:event', { clientId, event, data }), (id) => inflight.set(clientId, { id, method }))
       return { result }
     } catch (error) {
-      return { error }
+      return { error: ipcError(error) }
     } finally {
       inflight.delete(clientId)
     }
@@ -158,7 +165,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     } catch (error) {
       // 실패한 **이 선택**의 python·kind 를 같이 돌려준다(PY-D1-03). renderer 의 store.sidecar 는
       // 성공 분기에서만 갱신되므로, 첫 실패에서 이전 프로젝트의 값으로 버튼을 판단하면 안 된다.
-      return { error, sidecar: sidecar.status(), startupFailed: true }
+      return { error: ipcError(error), sidecar: sidecar.status(), startupFailed: true }
     }
   })
 
@@ -233,22 +240,23 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
     supportDir: join(app.getPath('userData'), 'launch'), dryRun: process.env.KNUAF_DRY_LAUNCH === '1',
     open: (p) => shell.openPath(p), venvPython, bundledPython
   })
-  ipcMain.handle('agent:status', async (_e, root: string | null) => { try { return { result: await agentApi.status(agentCtx(), root ?? currentRoot) } } catch (error) { return { error: { code: 'internal', message: String(error) } } } })
+  ipcMain.handle('agent:status', async (_e, root: string | null) => { try { return { result: await agentApi.status(agentCtx(), root ?? currentRoot) } } catch (error) { return { error: { code: error instanceof UpdateSuspendedError ? error.code : 'internal', message: String(error) } } } })
   ipcMain.handle('agent:install-skill', (_e, kind: AgentKind, root: string | null) => {
     let release: (() => void) | undefined
-    try { release = skillSwitch.enter(); return { result: agentApi.installSkill(agentCtx(), kind, root ?? currentRoot) } }
-    catch (error) { return { error: { code: 'internal', message: String(error) } } }
+    try { agentActivity.ensureActive(); release = skillSwitch.enter(); return { result: agentApi.installSkill(agentCtx(), kind, root ?? currentRoot) } }
+    catch (error) { return { error: { code: error instanceof UpdateSuspendedError ? error.code : 'internal', message: String(error) } } }
     finally { release?.() }
   })
   ipcMain.handle('agent:launch', async (_e, opts: { root: string; kind: AgentKind; revision: number | null }) => {
     try {
+      agentActivity.ensureActive()
       const { install, launched } = await skillSwitch.run(async () => {
         const install = agentApi.installSkill(agentCtx(), opts.kind, opts.root ?? currentRoot)
         const launched = await agentApi.launch(agentCtx(), opts)
         return { install, launched }
       })
       return { result: { ...launched, install } }
-    } catch (error) { return { error: { code: 'internal', message: String(error) } } }
+    } catch (error) { return { error: { code: error instanceof UpdateSuspendedError ? error.code : 'internal', message: String(error) } } }
   })
 
   const chat = new ChatService({
@@ -283,7 +291,22 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       saveSettings({ chat_models: { ...(loadSettings().chat_models ?? {}), [provider]: choice } })
     }
   })
-  const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: 'chat', message: e instanceof Error ? e.message : String(e) } })
+  const windows = new WindowsUpdateRuntime(process.resourcesPath, process.execPath)
+  const handoff = new AppHandoff({ chat, sidecar, windows })
+  const appUpdates = new AppUpdates({
+    userData: app.getPath('userData'), current: app.getVersion(), platform: process.platform, arch: process.arch,
+    config, fetch: (url, init) => net.fetch(url, init), handoff,
+    startInstaller: request => windows.startInstaller(request), quit: () => app.quit(),
+    openExternal: url => shell.openExternal(url),
+    emit: status => win()?.webContents.send('app-update:status', status)
+  })
+  ipcMain.handle('app-update:status', async () => { await appUpdates.ready; return { result: appUpdates.status() } })
+  ipcMain.handle('app-update:check', async () => ({ result: await appUpdates.check() }))
+  ipcMain.handle('app-update:install', () => updateResult(async () => { await appUpdates.install(); return appUpdates.status() }))
+  ipcMain.handle('app-update:open-page', () => updateResult(async () => { await appUpdates.openPage(); return true }))
+  ipcMain.handle('app-update:cancel', () => ({ result: appUpdates.cancel() }))
+  void appUpdates.check()
+  const chatFail = (e: unknown): { error: { code: string; message: string } } => ({ error: { code: e instanceof UpdateSuspendedError ? e.code : 'chat', message: e instanceof Error ? e.message : String(e) } })
   ipcMain.handle('chat:snapshot', (_e, root: string, provider: Provider) => { try { return { result: chat.snapshot(root, provider) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:draft', (_e, root: string) => { try { return { result: chat.draft(root) } } catch (e) { return chatFail(e) } })
   ipcMain.handle('chat:set-draft', (_e, root: string, text: string, expected?: string) => { try { return { result: chat.setDraft(root, text, expected) } } catch (e) { return chatFail(e) } })
@@ -328,7 +351,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
 
   ipcMain.handle('sidecar:info', () => ({ ...sidecar.status(), basePython: basePython(loadSettings().python_override), wheelhouse: wheelhouseDir() }))
   ipcMain.handle('sidecar:restart', async () => {
-    try { return { result: await skillSwitch.run(() => sidecar.restart()) } } catch (error) { return { error } }
+    try { return { result: await agentActivity.run(() => skillSwitch.run(() => sidecar.restart())) } } catch (error) { return { error: ipcError(error) } }
   })
   /**
    * 앱 전용 Python 런타임(D7). 진행 이벤트는 기존 `rpc:event` 채널로 clientId 에만 보낸다.
@@ -342,7 +365,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       // 교체가 아니라 새 폴더 게시이므로 사이드카만 새 선택으로 다시 띄운다. 실패는 무시하고
       // 지금 상태를 돌려준다 — 설치 성공을 폴더 복구 성공으로 표시하지 않는다.
       let info = sidecar.status()
-      try { info = await skillSwitch.run(() => sidecar.restart()) } catch { /* 재시작 실패는 호출자가 재시도로 다룬다 */ }
+      try { info = await agentActivity.run(() => skillSwitch.run(() => sidecar.restart())) } catch { /* 재시작 실패는 호출자가 재시도로 다룬다 */ }
       cleanupRuntime()
       return { result: { installed: true, sidecar: info } }
     } catch (error) {
@@ -369,7 +392,7 @@ export function registerIpc(sidecar: Sidecar, win: () => BrowserWindow | null, o
       hideAppDirs(root)   // 준비가 이 폴더의 .venv 를 만든다
       return { result }
     } catch (error) {
-      return { error }
+      return { error: ipcError(error) }
     } finally {
       inflight.delete(clientId)
     }
