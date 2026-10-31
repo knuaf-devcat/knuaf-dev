@@ -102,8 +102,10 @@ test('normal install, durable interrupted recovery, verified cache reuse and bou
 })
 
 for (const phase of ['launching', 'preparation'] as const) for (const kind of ['write', 'file', 'parent']) test(`R1-01: ${phase} ${kind} replacement cannot execute changed bytes or quit`, async () => {
-  const h = scenario(); h[phase](() => h.edit(kind))
+  const h = scenario(); let injected = false
+  h[phase](() => { injected = true; h.edit(kind) })
   await h.updates.check(); await expect(install(h.updates)).rejects.toThrow()
+  expect(injected).toBe(true)
   expect(h.executed).toEqual([]); expect(h.quit()).toBe(0)
 })
 for (const phase of ['locked', 'elevation'] as const) test(`R1-01: ${phase} model holds file and all parent pins through the start result`, async () => {
@@ -115,6 +117,7 @@ for (const phase of ['locked', 'elevation'] as const) test(`R1-01: ${phase} mode
 
 for (const member of ['installer.exe.download', 'manifest.json.tmp', 'installer.exe', 'manifest.json', '../pending.json.tmp', '../pending.json']) for (const link of ['hard', 'symbolic']) test(`R1-02: initial install rejects ${link} ${member} without changing outside bytes`, async () => {
   const h = scenario(); await h.updates.ready
+  expect(h.updates.status().phase).toBe('idle')
   mkdirSync(join(h.root, 'app-update', '0.6.0'), { recursive: true })
   const student = join(h.root, 'thesis.txt'), bytes = Buffer.from('student data must remain byte-identical'); writeFileSync(student, bytes)
   const target = join(h.root, 'app-update', '0.6.0', member)
@@ -124,6 +127,7 @@ for (const member of ['installer.exe.download', 'manifest.json.tmp', 'installer.
 })
 for (const boundary of ['root', 'version']) test(`R1-02: initial install refuses linked ${boundary} before writing outside the store`, async () => {
   const h = scenario(); await h.updates.ready
+  expect(h.updates.status().phase).toBe('idle')
   const outside = join(h.root, 'student-folder'); mkdirSync(join(outside, '0.6.0'), { recursive: true })
   const student = join(outside, '0.6.0', 'thesis.txt'); writeFileSync(student, approved)
   const root = join(h.root, 'app-update')
@@ -134,6 +138,7 @@ for (const boundary of ['root', 'version']) test(`R1-02: initial install refuses
 })
 for (const boundary of ['root', 'version']) for (const emptyKeys of [false, true]) test(`R1-02: startup cleanup refuses linked ${boundary}, emptyKeys=${emptyKeys}`, async () => {
   const h = scenario(); await h.updates.ready
+  expect(h.updates.status().phase).toBe('idle')
   const outside = join(h.root, 'student-folder'); mkdirSync(join(outside, '0.6.0'), { recursive: true })
   const student = join(outside, '0.6.0', 'thesis.txt'); writeFileSync(student, approved)
   const root = join(h.root, 'app-update')
