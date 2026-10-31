@@ -127,6 +127,9 @@ interface ProjectState {
    * `local: true` — 실패를 전역 error 대신 반환값으로 돌려준다. 경로를 입력한 화면이
    * 제자리에서 알리게 하기 위함(GUI-04): 전역 error 는 Chat/Checkup 도 그리므로
    * 둘 다 세면 같은 오류가 두 화면에 뜬다.
+   *
+   * 기다리는 사이 다른 `open()` 이 시작되면(같은 폴더로 다시 연 경우 포함) 남은 단계를 하지 않고 null 을
+   * 돌려준다 — 그 결과는 새 열기가 낸다. 떠난 열기의 실패를 지금 화면에 띄우지 않는다(검토 CI43-R1-01).
    */
   open: (root: string, opts?: { local?: boolean }) => Promise<DescribedError | null>
   /** `quiet: true` — 감시 타이머가 스스로 부르는 갱신. 스피너를 켜지 않고 한 번의 실패로 화면을 덮지 않는다. */
@@ -166,6 +169,23 @@ let sectionHashes: Record<string, string> | null = null
 let statusInFlight = false
 /** 조용한 갱신이 잇따라 실패하면 그때는 말한다 — 한 번은 도우미가 쓰는 중일 수 있다. */
 let quietFailures = 0
+/**
+ * 폴더 열기의 세대 = **방문**. `open()` 이 부를 때마다 하나 오른다. 늦게 깨어난 비동기 단계는 자기가 시작한
+ * 방문이 아직 지금 방문인지 보고, 아니면 아무것도 쓰지 않고 다음 조회도 시작하지 않는다(검토 CI43-R1-01,
+ * OPEN-STALE-R1-01·02).
+ *
+ * 폴더 이름(root)만 비교하면 A→B→A 에서 막지 못한다. 첫 A 방문의 응답은 B 를 거쳐 다시 연 A 에서도 root 가
+ * 같아 통과해 지금 방문의 상태를 덮는다. 이전 방문과 지금 방문을 가르는 것은 폴더가 아니라 "몇 번째 열기인가"다.
+ */
+let openSeq = 0
+/**
+ * 지금 시작하는 비동기 단계의 소유자 확인. 시작 시점의 방문과 폴더를 잡아 두고, 응답 뒤에 둘 다 그대로인지
+ * 돌려준다 — 열기·갱신·감시·목록 읽기·준비가 모두 **같은 기준**을 쓴다.
+ */
+function visitOf(root: string): () => boolean {
+  const seq = openSeq
+  return () => openSeq === seq && useProject.getState().root === root
+}
 
 export const useProject = create<ProjectState>((set, get) => ({
   root: null,
@@ -207,9 +227,12 @@ export const useProject = create<ProjectState>((set, get) => ({
   loadSections: async () => {
     const root = get().root
     if (!root) { set({ sections: null }); return }
+    // 이 읽기를 시작한 방문. A→B→A 에서 첫 A 방문의 늦은 응답은 root 가 같아도 지금 방문의 것이 아니다 —
+    // 옛 목록으로 덮으면 지금 방문의 status 는 이미 최신 개정이라 주기 감시가 다시 읽지 않는다(검토 OPEN-STALE-R1-01).
+    const mine = visitOf(root)
     try {
       const rows = await rpc.sections(root)
-      if (get().root !== root) return
+      if (!mine()) return
       set({ sections: rows })
       const prev = sectionHashes
       sectionHashes = Object.fromEntries(rows.map((r) => [r.id, r.draft_hash]))
@@ -219,20 +242,21 @@ export const useProject = create<ProjectState>((set, get) => ({
       if (wrote.length) set((s) => ({ events: [...s.events, ...wrote.map((r) => ({ id: `${r.id}:${r.draft_hash}`, sectionId: r.id, title: r.title, at: new Date().toISOString() }))].slice(-20) }))
     } catch {
       // 읽지 못한 것을 "등록된 절이 없다"로 꾸미지 않는다 — null 은 모른다는 뜻이다.
-      if (get().root === root) set({ sections: null })
+      if (mine()) set({ sections: null })
     }
   },
   setWindowWidth: (windowWidth) => set({ windowWidth }),
   loadLists: async () => {
     const root = get().root
     if (!root) { set({ materials: null, artifacts: null, buildTree: null, projectLoad: null }); return }
+    const mine = visitOf(root)
     const [m, a, tree, load] = await Promise.all([
       rpc.materials(root).catch(() => null),
       rpc.artifacts(root).catch(() => null),
       rpc.buildTree(root).catch(() => null),
       rpc.load(root).catch(() => null)
     ])
-    if (get().root !== root) return
+    if (!mine()) return
     set({ materials: m, artifacts: a ? a.items : null, buildTree: tree, projectLoad: load })
   },
   setPaneView: (paneView) => set({ paneView }),
@@ -247,8 +271,12 @@ export const useProject = create<ProjectState>((set, get) => ({
     void window.knuaf.setSettings({ ui_prefs: prefs }).then(() => get().loadSettings())
   },
   open: async (root, opts) => {
+    const seq = ++openSeq
+    // 그 사이 다른 열기가 시작됐으면(같은 폴더로 다시 연 경우 포함) 이 열기의 남은 단계는 지금 화면의 것이 아니다.
+    const superseded = (): boolean => openSeq !== seq
     set({ loading: true, error: null, openFailure: null, retryFailed: null })
     const r = await window.knuaf.openProject(root)
+    if (superseded()) return null
     if (r.error) {
       const d = describeError(r.error)
       if (!opts?.local) set({ error: d })
@@ -267,6 +295,7 @@ export const useProject = create<ProjectState>((set, get) => ({
     }
     const opened = r.result
     const peek = await window.knuaf.peekProject(root)
+    if (superseded()) return null
     const settings = get().settings
     set({
       root, hasProject: opened.hasProject, sidecar: opened.sidecar, status: null, peek, depsReady: null,
@@ -287,8 +316,12 @@ export const useProject = create<ProjectState>((set, get) => ({
     const nested = opened.nestedProject
     if (nested) set({ error: { kind: 'warning', title: '도우미가 다른 폴더에 논문을 만들었어요.', action: `"${nested}" 폴더 안에 논문 데이터가 있어요. 그 폴더를 열거나, 이 폴더가 맞으면 도우미에게 이 폴더에서 작업하라고 알려 주세요.`, code: 'nested_project', raw: `${nested}/project.json` } })
     await get().loadSettings()
+    if (superseded()) return null
     if (opened.hasProject) await get().refresh()
     else { set({ loading: false }); set({ sections: null }) }
+    // 학생이 그 사이 다른 폴더를 눌렀다 — 준비·대화 읽기는 새 열기가 한다. 여기서 이전 폴더로 대화를 읽기
+    // 시작하면 지금 폴더의 대화·오류 줄이 잠깐 비고, 그 틈에 누른 닫기가 사라진다(검토 CI43-R1-01).
+    if (superseded()) return null
     // 준비는 폴더를 여는 순간 백그라운드로 시작하고 실패만 표면화한다(03-화면/01 결정).
     // 옮겨 온 폴더도 deps가 비어 있을 수 있으니 매번 확인한다 — 준비됐으면 아무 일도 없다.
     void get().prepareDeps(root)
@@ -299,14 +332,18 @@ export const useProject = create<ProjectState>((set, get) => ({
   },
   /** Quiet deps.ensure after refreshDeps reports not-ready; only a failure is surfaced. */
   prepareDeps: async (root) => {
+    // 이 준비를 시작한 방문. 떠난 방문의 조회 결과·실패는 지금 방문의 준비 상태와 오류 줄에 쓰지 않는다
+    // (검토 OPEN-STALE-R1-02). 지금 방문이 아니면 추가 조회(설치·재확인)도 시작하지 않는다.
+    const mine = visitOf(root)
     await get().refreshDeps()
-    if (get().root !== root || get().depsReady !== false) return
+    if (!mine() || get().depsReady !== false) return
     type DepsReply = { result?: { ok?: boolean; block_reason?: string | null; stderr?: string }; error?: { code?: string; message?: string } }
     // 준비하는 동안 대화 전송은 기다리고 화면은 진행 표시를 띄운다(store/prep.ts).
     usePrep.getState().begin(root)
+    // 작업 수는 방문과 상관없이 실제로 끝났을 때 줄인다 — 떠났다고 건너뛰면 그 폴더의 전송 대기가 남는다.
     const r: DepsReply = await window.knuaf.depsEnsure(root).catch((e: unknown) => ({ error: { message: String(e) } }))
       .finally(() => usePrep.getState().end(root))
-    if (get().root !== root) return
+    if (!mine()) return
     if ('result' in r && r.result?.ok) { void get().refreshDeps(); return }
     // 터미널 도우미가 작업 중이면 sidecar가 쓰기를 거절한다 — 실패가 아니라 바쁨이니 조용히 넘긴다.
     if ('error' in r && r.error?.code === 'agent_busy') return
@@ -330,8 +367,9 @@ export const useProject = create<ProjectState>((set, get) => ({
   watchCanon: async () => {
     const root = get().root
     if (!root) { stopCanonPoll(); return }
+    const mine = visitOf(root)
     const peek = await window.knuaf.peekProject(root)
-    if (get().root !== root) return
+    if (!mine()) return
     set({ peek })
     // 두 번 잇따라 실패해 화면에 오류가 떠 있으면 되풀이하지 않는다. 학생이 새로고침을
     // 누르면 다시 센다 — 읽히지 않는 정본으로 2초마다 사이드카를 띄우지 않기 위함이다.
@@ -345,19 +383,23 @@ export const useProject = create<ProjectState>((set, get) => ({
   refresh: async (opts) => {
     const root = get().root
     if (!root) return
+    // 이 갱신을 시작한 방문. 응답을 기다리는 사이 새 열기가 시작되면(같은 폴더 포함) 이 결과는 버린다.
+    const mine = visitOf(root)
     // 학생이 직접 누른 새로고침은 감시 타이머의 실패 횟수도 다시 센다(위 물러섬 해제).
     if (!opts?.quiet) { quietFailures = 0; set({ loading: true, error: null }) }
     statusInFlight = true
     try {
       const status = await rpc.status(root)
       const peek = await window.knuaf.peekProject(root)
-      if (get().root !== root) return
+      if (!mine()) return
       quietFailures = 0
       set({ status, peek, hasProject: true, loading: false, refreshSeq: get().refreshSeq + 1 })
       // 종이 칸·머리가 같은 목록을 본다 — 화면마다 따로 읽으면 한 곳만 갱신된다.
       void get().loadSections()
       void get().loadLists()
     } catch (e) {
+      // 떠난 방문의 실패는 지금 화면에 띄우지 않는다.
+      if (!mine()) return
       // 조용한 갱신의 첫 실패는 삼킨다 — 도우미가 쓰는 중이면 곧 풀린다. 두 번째부터는
       // 말한다: 화면의 숫자가 디스크의 정본보다 뒤처진 채 조용히 남는 것이 가장 나쁘다.
       if (opts?.quiet && ++quietFailures < 2) return
@@ -376,7 +418,9 @@ export const useProject = create<ProjectState>((set, get) => ({
   refreshDeps: async () => {
     const root = get().root
     if (!root) return
-    try { const d = await rpc.doctor(root); set({ depsReady: !!d.deps?.ready }) } catch { set({ depsReady: null }) }
+    const mine = visitOf(root)
+    // 떠난 방문의 doctor 응답이 지금 방문의 준비 상태를 바꾸지 않게 한다(검토 OPEN-STALE-R1-02).
+    try { const d = await rpc.doctor(root); if (mine()) set({ depsReady: !!d.deps?.ready }) } catch { if (mine()) set({ depsReady: null }) }
   },
   // 오류 카드를 닫으면 그 요청의 실패 정보·복구 실패 표시도 같이 지운다 — 버튼이 사라진 뒤
   // 재시도 대상만 남지 않게.
