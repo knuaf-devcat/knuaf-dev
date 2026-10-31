@@ -9,12 +9,13 @@ import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { Script } from 'node:vm'
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript'
-import { connectStoreBroker, StoreBrokerError, type OpenStore, type StoreBackend, type StoreDiagnostic } from '../src/main/update/appStore'
+import { connectStoreBroker, LocalStore, StoreBrokerError, type OpenStore, type StoreBackend, type StoreDiagnostic } from '../src/main/update/appStore'
 import { AppUpdates, type AppUpdateStatus } from '../src/main/update/appService'
 import { updateConfig } from '../src/main/update/keys'
 import { ASSET_PREFIX, CHANNEL_URL, sha256 } from '../src/main/update/manifest'
 import { releasePage } from '../src/main/update/appManifest'
 import type * as Ipc from '../src/main/ipc'
+import { TOKEN_OWNER_MATCH } from '../src/main/update/nativeFiles'
 
 class Child extends EventEmitter {
   stdout = new PassThrough()
@@ -373,4 +374,68 @@ test('an operation guard keeps its fixed native failure through later protocol e
   child.stdout.write('StudentMarker malformed output\n')
   await expect(verifying).rejects.toMatchObject({ diagnostic: { reason: 'native', stage: 'verify', nativeFailure: 'download_hash_mismatch', hresult: '0x80131620' } })
   await expect(backend.close()).rejects.toMatchObject({ diagnostic: { reason: 'native', stage: 'verify', nativeFailure: 'download_hash_mismatch' } })
+})
+
+// Execute the production C#/JS-compatible SID equality expression. Token queries
+// and ACL owner reads are the fake Windows boundary, not a substitute product backend.
+const processOwnerMatch = new Function('actual', 'tokenUser', 'tokenOwner', `return ${TOKEN_OWNER_MATCH}`) as (actual: string, tokenUser: string, tokenOwner: string) => boolean
+const sidUser = 'S-1-5-21-100-200-300-1001', sidThird = 'S-1-5-21-100-200-300-1002'
+const sidAdmin = 'S-1-5-32-544', sidDefaultGroup = 'S-1-5-21-100-200-300-2001'
+interface ModelToken { user: string | null; owner: string | null }
+const ownerContracts: { label: string; token: ModelToken | null; actual: string; allow: boolean; failure?: string }[] = [
+  { label: 'standard user owns userData', token: { user: sidUser, owner: sidUser }, actual: sidUser, allow: true },
+  { label: 'standard token rejects Administrators even for an admin-group account', token: { user: sidUser, owner: sidUser }, actual: sidAdmin, allow: false, failure: 'user_data_owner_administrators' },
+  { label: 'elevated token accepts its Administrators default owner', token: { user: sidUser, owner: sidAdmin }, actual: sidAdmin, allow: true },
+  { label: 'elevated token also accepts its TokenUser', token: { user: sidUser, owner: sidAdmin }, actual: sidUser, allow: true },
+  { label: 'standard token rejects a third-party owner', token: { user: sidUser, owner: sidUser }, actual: sidThird, allow: false, failure: 'user_data_owner_mismatch' },
+  { label: 'elevated token rejects a third-party owner', token: { user: sidUser, owner: sidAdmin }, actual: sidThird, allow: false, failure: 'user_data_owner_mismatch' },
+  { label: 'non-admin default owner is matched by identity, not a hardcoded group', token: { user: sidUser, owner: sidDefaultGroup }, actual: sidDefaultGroup, allow: true },
+  { label: 'process token query failure is closed', token: null, actual: sidUser, allow: false, failure: 'token_identity_unavailable' },
+  { label: 'missing TokenUser is closed even when TokenOwner matches', token: { user: null, owner: sidAdmin }, actual: sidAdmin, allow: false, failure: 'token_identity_unavailable' },
+  { label: 'missing TokenOwner is closed even when TokenUser matches', token: { user: sidUser, owner: null }, actual: sidUser, allow: false, failure: 'token_identity_unavailable' }
+]
+for (const contract of ownerContracts) test(`OWNER process-token contract: ${contract.label}`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-contract-')), student = join(root, 'thesis.txt')
+  writeFileSync(student, 'keep student bytes')
+  let starts = 0, quits = 0
+  const events: AppUpdateStatus[] = []
+  const openStore: OpenStore = async (userData, create) => {
+    let token: ModelToken
+    try {
+      if (!contract.token) throw new Error(`StudentMarker query failed for ${sidUser}`)
+      token = contract.token
+      if (!token.user || !token.owner) throw new Error('partial token identity')
+    } catch {
+      const child = new Child(), opening = connect(child)
+      child.line({ ok: false, diagnostic: { type: 'System.IO.IOException', failure: 'token_identity_unavailable', nativeCode: 5, hresult: -2146232800 } })
+      return opening
+    }
+    if (!processOwnerMatch(contract.actual, token.user!, token.owner!)) {
+      const child = new Child(), opening = connect(child)
+      child.line({ ok: false, diagnostic: { type: 'System.IO.IOException', failure: contract.actual === sidAdmin ? 'user_data_owner_administrators' : 'user_data_owner_mismatch', hresult: -2146232800 } })
+      return opening
+    }
+    return new LocalStore(userData, create)
+  }
+  try {
+    const app = new AppUpdates({ ...appOptions(root), openStore, emit: event => events.push(event),
+      startInstaller: async request => { expect(sha256(readFileSync(request.path))).toBe(request.sha256); ++starts }, quit: () => { ++quits } })
+    await app.check()
+    if (contract.allow) {
+      await app.install()
+      expect(starts).toBe(1); expect(quits).toBe(1)
+      const pending = JSON.parse(readFileSync(join(root, 'app-update/pending.json'), 'utf8'))
+      expect(pending).toMatchObject({ from: '0.5.1', to: '0.6.0', installer: join(root, 'app-update/0.6.0/installer.exe') })
+    } else {
+      const error = await app.install().catch(error => error) as StoreBrokerError
+      expect(error).toBeInstanceOf(StoreBrokerError)
+      expect(error.diagnostic).toMatchObject({ reason: 'native', stage: 'initialize', nativeFailure: contract.failure })
+      expect(app.status().phase).toBe('error')
+      expect(starts).toBe(0); expect(quits).toBe(0)
+      expect(existsSync(join(root, 'app-update'))).toBe(false)
+      const surface = details(error) + JSON.stringify(app.status()) + JSON.stringify(events)
+      for (const value of [sidUser, sidThird, sidAdmin, sidDefaultGroup, 'StudentMarker', root]) expect(surface).not.toContain(value)
+    }
+    expect(readFileSync(student, 'utf8')).toBe('keep student bytes')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

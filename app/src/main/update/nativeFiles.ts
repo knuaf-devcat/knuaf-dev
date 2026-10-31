@@ -10,8 +10,12 @@ export const STORE_FAILURE_CODES = [
   'invalid_member', 'store_missing', 'scan_reparse',
   'chunk_session_missing', 'chunk_member_mismatch', 'record_too_large', 'record_short_read',
   'download_already_open', 'chunk_target_mismatch', 'download_too_large',
-  'commit_without_download', 'download_hash_mismatch', 'unknown_operation'
+  'commit_without_download', 'download_hash_mismatch', 'unknown_operation',
+  'token_identity_unavailable'
 ] as const
+// SID values are canonical strings obtained from the process token and object ACL.
+// The same equality expression drives C# and the non-Windows boundary contract model.
+export const TOKEN_OWNER_MATCH = 'actual==tokenUser || actual==tokenOwner'
 export const NATIVE_FILES = String.raw`
 using System;
 using System.IO;
@@ -35,8 +39,11 @@ namespace KnuafUpdate {
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern uint GetFinalPathNameByHandle(SafeFileHandle file,StringBuilder path,uint length,uint flags);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern uint GetLongPathName(string path,StringBuilder output,uint size);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool MoveFileEx(string source,string target,uint flags);
+  [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out SafeFileHandle token);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(SafeFileHandle token,int kind,IntPtr data,int length,out int needed);
   readonly Dictionary<string,SafeFileHandle> pins=new Dictionary<string,SafeFileHandle>(StringComparer.OrdinalIgnoreCase);
-  readonly string owner=WindowsIdentity.GetCurrent().User.Value;
+  readonly string tokenUser,tokenOwner;
   public readonly string Root;
   public static IOException Reject(StoreFailure failure,int? nativeCode=null) {
    var error=new IOException();
@@ -44,8 +51,42 @@ namespace KnuafUpdate {
    if(nativeCode.HasValue) error.Data["knuaf_store_win32"]=nativeCode.Value;
    return error;
   }
+  static string ReadTokenSid(SafeFileHandle token,int kind) {
+   int length;
+   bool unexpected=GetTokenInformation(token,kind,IntPtr.Zero,0,out length);
+   int error=Marshal.GetLastWin32Error();
+   if(unexpected || error!=122 || length<IntPtr.Size) throw Reject(StoreFailure.token_identity_unavailable,error);
+   IntPtr data=Marshal.AllocHGlobal(length);
+   try {
+    int needed;
+    if(!GetTokenInformation(token,kind,data,length,out needed)) throw Reject(StoreFailure.token_identity_unavailable,Marshal.GetLastWin32Error());
+    if(needed<IntPtr.Size || needed>length) throw Reject(StoreFailure.token_identity_unavailable);
+    // TOKEN_USER.User.Sid and TOKEN_OWNER.Owner are both the first pointer.
+    IntPtr sid=Marshal.ReadIntPtr(data);
+    if(sid==IntPtr.Zero) throw Reject(StoreFailure.token_identity_unavailable);
+    try {
+     string value=new SecurityIdentifier(sid).Value;
+     if(String.IsNullOrEmpty(value)) throw Reject(StoreFailure.token_identity_unavailable);
+     return value;
+    } catch(ArgumentException) { throw Reject(StoreFailure.token_identity_unavailable); }
+   } finally { Marshal.FreeHGlobal(data); }
+  }
+  static void ReadProcessOwners(out string user,out string owner) {
+   SafeFileHandle token;
+   // Open the process token explicitly: never substitute a thread impersonation token.
+   if(!OpenProcessToken(GetCurrentProcess(),0x0008,out token)) {
+    int error=Marshal.GetLastWin32Error();
+    if(token!=null) token.Dispose();
+    throw Reject(StoreFailure.token_identity_unavailable,error);
+   }
+   using(token) {
+    if(token==null || token.IsInvalid) throw Reject(StoreFailure.token_identity_unavailable);
+    user=ReadTokenSid(token,1); // TokenUser
+    owner=ReadTokenSid(token,4); // TokenOwner; failure never falls back to TokenUser
+   }
+  }
   void CheckOwner(string actual,StoreFailure mismatch,StoreFailure administrators) {
-   if(actual!=owner) throw Reject(actual=="S-1-5-32-544" ? administrators : mismatch);
+   if(!(${TOKEN_OWNER_MATCH})) throw Reject(actual=="S-1-5-32-544" ? administrators : mismatch);
   }
   static string Normalize(string path) {
    if(path.StartsWith(@"\\?\UNC\",StringComparison.OrdinalIgnoreCase)) path=@"\\"+path.Substring(8);
@@ -95,6 +136,8 @@ namespace KnuafUpdate {
   }
   public Files(string userData,bool create) {
    try {
+    string userSid,ownerSid; ReadProcessOwners(out userSid,out ownerSid);
+    tokenUser=userSid; tokenOwner=ownerSid;
     userData=Path.GetFullPath(userData); Chain(userData); PinOwner(userData,StoreFailure.user_data_owner_mismatch,StoreFailure.user_data_owner_administrators);
     Root=Path.Combine(userData,"app-update");
     if(!DirectoryEntry(Root) && create) Directory.CreateDirectory(Root);
