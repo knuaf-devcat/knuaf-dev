@@ -6,6 +6,8 @@ import { useProject } from '../store/project'
 import { FOLDER, TITLEBAR, relativeTime } from '../copy'
 import { showsToggle, useLayout } from './useLayout'
 import { useShallow } from 'zustand/react/shallow'
+import { AppUpdateDialog, useUpdateSubscription, useUpdates } from './Updates'
+import { UPDATE } from '../copy'
 
 /**
  * 제목줄 (DESIGN §1-3, 시안 ③④⑯).
@@ -20,6 +22,13 @@ import { useShallow } from 'zustand/react/shallow'
  * 가운데 "지금 · ○○ ▾"은 `StageMenu` 다 — 3-A 의 `derive()` 가 정한 "지금" 하나를 말한다.
  */
 export function TitleBar() {
+  useUpdateSubscription()
+  const skillUpdate = useUpdates(s => s.skill)
+  const appUpdate = useUpdates(s => s.app)
+  const showUpdate = useUpdates(s => s.setDialog)
+  const blocked = appUpdate?.phase === 'blocked'
+  const appAvailable = blocked || !!appUpdate?.latest && ['available', 'interrupted', 'error', 'downloading', 'preparing', 'launching'].includes(appUpdate.phase)
+  const hasUpdate = skillUpdate?.phase === 'available' || appAvailable
   const { root, settings, open, setPaperClosed, paperClosed, paneView, setPaneView, openSheet } = useProject(useShallow((s) => ({
     root: s.root, settings: s.settings, open: s.open, setPaperClosed: s.setPaperClosed, paperClosed: s.paperClosed,
     paneView: s.paneView, setPaneView: s.setPaneView, openSheet: s.openSheet
@@ -77,7 +86,12 @@ export function TitleBar() {
       {layout.kind === 'solo' && <span className="tbtn quiet">{TITLEBAR.paperLater}</span>}
 
 
-      <button className="tbtn icon" title={TITLEBAR.settingsTitle} onClick={() => openSheet('settings')}><Icon name="gear" size={17} /></button>
+      <button className="tbtn icon" style={{ position: 'relative' }} title={TITLEBAR.settingsTitle} aria-label={hasUpdate ? `${TITLEBAR.settingsTitle} · ${blocked ? UPDATE.appBlockedTitle : UPDATE.newAvailable}` : TITLEBAR.settingsTitle} onClick={() => openSheet('settings')}>
+        <Icon name="gear" size={17} />
+        {hasUpdate && <span aria-hidden="true" style={{ position: 'absolute', right: 3, top: 3, width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />}
+      </button>
+      {appAvailable && <button className="tbtn" style={{ borderRadius: 5, background: 'var(--btn-bg)', color: 'var(--btn-ink)', border: '1px solid var(--btn-border)' }} onClick={() => showUpdate(true)}>{blocked ? UPDATE.appBlockedTitle : UPDATE.title}</button>}
+      <AppUpdateDialog />
     </header>
   )
 }
