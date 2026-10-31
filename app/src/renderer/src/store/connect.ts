@@ -54,7 +54,7 @@ const POLL_MS = 3_000
 const POLL_LIMIT_MS = 180_000
 
 /** 로그인 감시 타이머 핸들 — 런타임(DOM/Node)에 따라 모양이 달라 이름을 한 번만 붙인다. */
-type PollTimer = ReturnType<typeof setInterval>
+type PollTimer = { interval: ReturnType<typeof setInterval>; deadline: ReturnType<typeof setTimeout> }
 
 /**
  * 폴더 대화의 감시와 전역 계정 감시는 수명이 다르다. 폴더를 바꿀 때 `useChat.load`
@@ -62,27 +62,36 @@ type PollTimer = ReturnType<typeof setInterval>
  */
 const polls = new Map<Provider, PollTimer>()
 const globalPolls = new Map<Provider, PollTimer>()
+// A replaced poll cannot cancel an IPC already in flight; do not overlap it with the next poll.
+const pendingPolls = new WeakMap<Map<Provider, PollTimer>, Set<Provider>>()
 
 function clearPoll(map: Map<Provider, PollTimer>, provider?: Provider): void {
   if (provider) {
     const timer = map.get(provider)
-    if (timer) { clearInterval(timer); map.delete(provider) }
+    if (timer) { clearInterval(timer.interval); clearTimeout(timer.deadline); map.delete(provider) }
     return
   }
-  for (const timer of map.values()) clearInterval(timer)
+  for (const timer of map.values()) { clearInterval(timer.interval); clearTimeout(timer.deadline) }
   map.clear()
 }
 
 function poll(map: Map<Provider, PollTimer>, provider: Provider, tick: () => Promise<boolean>): void {
   clearPoll(map, provider)
-  const deadline = Date.now() + POLL_LIMIT_MS
-  const timer = setInterval(() => {
-    void (async () => {
-      const done = await tick()
-      if (map.get(provider) !== timer) return
-      if (done || Date.now() > deadline) clearPoll(map, provider)
-    })()
-  }, POLL_MS)
+  let pending = pendingPolls.get(map)
+  if (!pending) { pending = new Set<Provider>(); pendingPolls.set(map, pending) }
+  const inFlight = pending
+  const timer: PollTimer = {
+    interval: setInterval(() => {
+      if (inFlight.has(provider) || map.get(provider) !== timer) return
+      inFlight.add(provider)
+      void tick().then(done => {
+        if (done && map.get(provider) === timer) clearPoll(map, provider)
+      }).finally(() => { inFlight.delete(provider) })
+    }, POLL_MS),
+    deadline: setTimeout(() => {
+      if (map.get(provider) === timer) clearPoll(map, provider)
+    }, POLL_LIMIT_MS)
+  }
   map.set(provider, timer)
 }
 
@@ -188,6 +197,10 @@ export const useConnect = create<ConnectState>((set, get) => ({
   },
   refresh: async (provider) => {
     const r = await window.knuaf.connect.status(provider) as Reply<ConnectionStatus>
+    if ('error' in r && r.error.code === 'update_suspended') {
+      set((s) => ({ ...one(provider, { state: 'unknown', detail: r.error.message, version: null }), loggingIn: { ...s.loggingIn, [provider]: false } }))
+      return
+    }
     if (!('result' in r)) {
       set(one(provider, { state: 'unknown', detail: r.error?.message ?? '', version: null }))
       return
