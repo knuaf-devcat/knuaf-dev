@@ -182,7 +182,7 @@ const ipcFactory = new Script(`(function(require, exports) {\n${transpileModule(
   compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 }
 }).outputText}\n})`, { filename: ipcFile }).runInThisContext() as (require: (name: string) => unknown, exports: Partial<IpcModule>) => void
 
-function ipcHarness(root: string, openStore: OpenStore, counts: { installs: number; quits: number }) {
+function ipcHarness(root: string, openStore: OpenStore, counts: { installs: number; quits: number }, openExternal: (url: string) => Promise<unknown> = async () => {}) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>(), events: AppUpdateStatus[] = []
   let updates!: AppUpdates
   const dependencies: Record<string, unknown> = {
@@ -195,7 +195,7 @@ function ipcHarness(root: string, openStore: OpenStore, counts: { installs: numb
     './update/source': { configureSkillSource: () => {} },
     './update/appService': { AppUpdates: class extends AppUpdates {
       constructor(options: ConstructorParameters<typeof AppUpdates>[0]) {
-        super({ ...appOptions(root), emit: options.emit, openStore, startInstaller: async () => { ++counts.installs }, quit: () => { ++counts.quits } })
+        super({ ...appOptions(root), emit: options.emit, openStore, openExternal, startInstaller: async () => { ++counts.installs }, quit: () => { ++counts.quits } })
         updates = this
       }
     } }
@@ -204,10 +204,10 @@ function ipcHarness(root: string, openStore: OpenStore, counts: { installs: numb
   ipcFactory(name => Object.hasOwn(dependencies, name) ? dependencies[name] : ipcRequire(name), module)
   const win = { webContents: { send: (channel: string, status: AppUpdateStatus) => { if (channel === 'app-update:status') events.push(structuredClone(status)) } } }
   module.registerIpc!(new EventEmitter() as unknown as Parameters<IpcModule['registerIpc']>[0], () => win as unknown as ReturnType<Parameters<IpcModule['registerIpc']>[1]>)
-  return { updates, events, invoke: async (name: string) => {
+  return { updates, events, invoke: async (name: string, ...args: unknown[]) => {
     const handler = handlers.get(name)
     if (!handler) throw new Error(`Missing IPC handler: ${name}`)
-    return handler()
+    return handler(...args)
   } }
 }
 
@@ -344,10 +344,10 @@ for (const [label, failure, category, nativeCode] of [
   try {
     const h = ipcHarness(root, openStore, counts)
     await h.updates.ready
-    expect(await h.invoke('app-update:check')).toMatchObject({ result: { phase: 'available' } })
+    expect(await h.invoke('app-update:check')).toMatchObject({ result: { phase: category === 'user_data_owner_administrators' ? 'blocked' : 'available' } })
     const response = await h.invoke('app-update:install'), status = await h.invoke('app-update:status')
     expect(response).toMatchObject({ error: { code: 'update' } })
-    expect(status).toMatchObject({ result: { phase: 'error' } })
+    expect(status).toMatchObject({ result: { phase: category === 'user_data_owner_administrators' ? 'blocked' : 'error' } })
     for (const error of failures) expect(error.diagnostic).toEqual({
       reason: 'native', stage: 'initialize', nativeType: 'System.IO.IOException', nativeFailure: category,
       ...(nativeCode === undefined ? {} : { nativeCode }), hresult: '0x80131620', compilerCodes: ['CS9999']
@@ -430,12 +430,196 @@ for (const contract of ownerContracts) test(`OWNER process-token contract: ${con
       const error = await app.install().catch(error => error) as StoreBrokerError
       expect(error).toBeInstanceOf(StoreBrokerError)
       expect(error.diagnostic).toMatchObject({ reason: 'native', stage: 'initialize', nativeFailure: contract.failure })
-      expect(app.status().phase).toBe('error')
+      expect(app.status().phase).toBe(contract.failure === 'token_identity_unavailable' ? 'error' : 'blocked')
       expect(starts).toBe(0); expect(quits).toBe(0)
       expect(existsSync(join(root, 'app-update'))).toBe(false)
       const surface = details(error) + JSON.stringify(app.status()) + JSON.stringify(events)
       for (const value of [sidUser, sidThird, sidAdmin, sidDefaultGroup, 'StudentMarker', root]) expect(surface).not.toContain(value)
     }
     expect(readFileSync(student, 'utf8')).toBe('keep student bytes')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+const releasesPage = 'https://github.com/knuaf-devcat/knuaf-dev/releases'
+const ownerFailures = [
+  'user_data_owner_mismatch', 'user_data_owner_administrators',
+  'pinned_owner_mismatch', 'pinned_owner_administrators',
+  'entry_owner_mismatch', 'entry_owner_administrators'
+] as const
+
+for (const failure of ownerFailures) test(`OWNER fallback: ${failure} survives checks and exposes only a fixed signed page through IPC`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-page-')), student = join(root, 'thesis.txt')
+  writeFileSync(student, 'keep student bytes')
+  const opened: string[] = [], counts = { installs: 0, quits: 0 }
+  const openStore: OpenStore = async () => {
+    const child = new Child(), opening = connect(child)
+    child.line({ ok: false, diagnostic: { type: 'System.IO.IOException', failure, message: `StudentMarker ${privatePath}`, hresult: -2146232800 } })
+    return opening
+  }
+  try {
+    const h = ipcHarness(root, openStore, counts, async url => { opened.push(url) })
+    const status = await h.invoke('app-update:check')
+    expect(status).toMatchObject({ result: { phase: 'blocked', reason: 'store_owner', latest: '0.6.0', page: releasePage('0.6.0') } })
+    expect(h.events.every(event => event.phase === 'blocked' && event.reason === 'store_owner')).toBe(true)
+    expect(opened).toEqual([])
+    expect(await h.invoke('app-update:open-page', 'https://evil.example/setup.exe')).toEqual({ result: true })
+    expect(opened).toEqual([releasePage('0.6.0')])
+    expect(await h.invoke('app-update:install')).toMatchObject({ error: { code: 'update' } })
+    expect(await h.invoke('app-update:status')).toMatchObject({ result: { phase: 'blocked', reason: 'store_owner' } })
+    expect(await h.invoke('app-update:check')).toEqual(status)
+    expect(counts).toEqual({ installs: 0, quits: 0 })
+    expect(readFileSync(student, 'utf8')).toBe('keep student bytes')
+    expect(existsSync(join(root, 'app-update'))).toBe(false)
+    for (const marker of forbidden) expect(JSON.stringify({ status, events: h.events })).not.toContain(marker)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const failure of [
+  'token_identity_unavailable', 'pin_reparse', 'file_link_count', 'path_identity_mismatch',
+  'directory_kind_mismatch', 'download_hash_mismatch', 'user_data_owner_administrators_StudentMarker', undefined
+]) test(`OWNER fallback: non-owner native rejection ${failure ?? 'access denied'} cannot open a Windows page`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-no-owner-page-')), opened: string[] = []
+  const counts = { installs: 0, quits: 0 }
+  try {
+    const h = ipcHarness(root, async () => {
+      throw new StoreBrokerError({ reason: 'native', stage: 'initialize', nativeFailure: failure, nativeCode: 5 })
+    }, counts, async url => { opened.push(url) })
+    expect(await h.invoke('app-update:check')).toMatchObject({ result: { phase: 'available' } })
+    expect(await h.invoke('app-update:open-page')).toMatchObject({ error: { code: 'update' } })
+    await h.invoke('app-update:install')
+    expect(await h.invoke('app-update:status')).toMatchObject({ result: { phase: 'error' } })
+    expect(h.updates.status().reason).toBeUndefined()
+    expect(await h.invoke('app-update:open-page')).toMatchObject({ error: { code: 'update' } })
+    expect(opened).toEqual([]); expect(counts).toEqual({ installs: 0, quits: 0 })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const location of ['userData', 'app-update entry'] as const) test(`OWNER fallback: elevated then standard execution preserves ${location} bytes and offers manual pages only`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-transition-')), student = join(root, 'thesis.txt')
+  writeFileSync(student, 'keep student bytes')
+  let tokenOwner = sidAdmin, starts = 0, quits = 0
+  const opened: string[] = [], events: AppUpdateStatus[] = []
+  const openStore: OpenStore = async (userData, create) => {
+    if (!processOwnerMatch(sidAdmin, sidUser, tokenOwner)) throw new StoreBrokerError({
+      reason: 'native', stage: 'initialize', nativeType: 'System.IO.IOException',
+      nativeFailure: location === 'userData' ? 'user_data_owner_administrators' : 'entry_owner_administrators'
+    })
+    return new LocalStore(userData, create)
+  }
+  const options = { ...appOptions(root), openStore, startInstaller: async () => { ++starts }, quit: () => { ++quits },
+    openExternal: async (url: string) => { opened.push(url) } }
+  try {
+    const elevated = new AppUpdates(options)
+    await elevated.check(); await elevated.install()
+    expect([starts, quits]).toEqual([1, 1])
+    const members = ['pending.json', '0.6.0/manifest.json', '0.6.0/installer.exe']
+    const before = members.map(member => readFileSync(join(root, 'app-update', member)))
+    tokenOwner = sidUser; starts = 0; quits = 0
+    const standard = new AppUpdates({ ...options, emit: event => events.push(event) })
+    await standard.ready
+    expect(standard.status()).toMatchObject({ phase: 'blocked', reason: 'store_owner', latest: null, page: releasesPage })
+    expect(opened).toEqual([])
+    await standard.openPage()
+    expect((await standard.check())).toMatchObject({ phase: 'blocked', reason: 'store_owner', latest: '0.6.0', page: releasePage('0.6.0') })
+    await expect(standard.install()).rejects.toBeInstanceOf(StoreBrokerError)
+    await standard.openPage()
+    expect(opened).toEqual([releasesPage, releasePage('0.6.0')])
+    expect([starts, quits]).toEqual([0, 0])
+    expect(members.map(member => readFileSync(join(root, 'app-update', member)))).toEqual(before)
+    expect(readFileSync(student, 'utf8')).toBe('keep student bytes')
+    expect(events.every(event => event.phase === 'blocked' && event.reason === 'store_owner')).toBe(true)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const channel of ['offline', 'unsigned', 'tampered', 'current', 'empty keys'] as const) test(`OWNER fallback: ${channel} has no verified newer target and opens only the fixed releases list`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-unverified-')), opened: string[] = []
+  const options = appOptions(root)
+  try {
+    const app = new AppUpdates({ ...options,
+      current: channel === 'current' ? '0.6.0' : options.current,
+      config: channel === 'empty keys' ? { ...config, keys: [] } : config,
+      openStore: async () => { throw new StoreBrokerError({ reason: 'native', stage: 'initialize', nativeFailure: 'pinned_owner_administrators' }) },
+      fetch: async url => {
+        if (channel === 'offline') throw new Error('offline')
+        const response = await options.fetch(url), data = await response.json()
+        data.app.latest = '0.99.0'; data.app.page = releasePage('0.99.0')
+        if (channel === 'unsigned') delete data.app['win32-x64']
+        if (channel === 'tampered') {
+          const bytes = Buffer.from(data.app['win32-x64'].manifest, 'base64'); bytes[1] ^= 1
+          data.app['win32-x64'].manifest = bytes.toString('base64')
+        }
+        if (channel === 'current') { data.app.latest = '0.6.0'; data.app.page = releasePage('0.6.0') }
+        return new Response(JSON.stringify(data))
+      },
+      openExternal: async url => { opened.push(url) }
+    })
+    expect(await app.check()).toMatchObject({ phase: 'blocked', reason: 'store_owner', latest: null, page: releasesPage })
+    await app.openPage()
+    expect(opened).toEqual([releasesPage])
+    expect(app.cancel()).toBe(false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('OWNER fallback: ordinary Windows states and message-shaped owner errors cannot authorize a page', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-lookalike-')), opened: string[] = []
+  try {
+    const options = { ...appOptions(root), openStore: async () => new LocalStore(root, false), openExternal: async (url: string) => { opened.push(url) } }
+    const ordinary = new AppUpdates(options)
+    await ordinary.ready; await expect(ordinary.openPage()).rejects.toThrow()
+    await ordinary.check(); await expect(ordinary.openPage()).rejects.toThrow()
+    const forged = new AppUpdates({ ...options, openStore: async () => {
+      throw Object.assign(new Error('user_data_owner_administrators'), { diagnostic: { reason: 'native', nativeFailure: 'user_data_owner_administrators' } })
+    } })
+    await forged.check(); await expect(forged.install()).rejects.toThrow()
+    expect(forged.status().reason).toBeUndefined()
+    await expect(forged.openPage()).rejects.toThrow()
+    expect(opened).toEqual([])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const stage of ['verify', 'close'] as const) test(`OWNER fallback: an owner rejection during ${stage} blocks automatic installation and enables the signed page`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-operation-')), opened: string[] = []
+  let starts = 0, quits = 0
+  try {
+    const app = new AppUpdates({ ...appOptions(root), openStore: async (userData, create) => {
+      const backend = new LocalStore(userData, create)
+      return {
+        request: async command => {
+          if (command.op === stage) throw new StoreBrokerError({ reason: 'native', stage, nativeFailure: 'pinned_owner_mismatch' })
+          return backend.request(command)
+        },
+        close: async () => {
+          await backend.close()
+          if (stage === 'close') throw new StoreBrokerError({ reason: 'native', stage, nativeFailure: 'entry_owner_mismatch' })
+        }
+      }
+    }, startInstaller: async () => { ++starts }, quit: () => { ++quits }, openExternal: async url => { opened.push(url) } })
+    await app.check()
+    if (stage === 'verify') { await expect(app.openPage()).rejects.toThrow(); expect(app.status().phase).toBe('available') }
+    await expect(app.install()).rejects.toBeInstanceOf(StoreBrokerError)
+    expect(app.status()).toMatchObject({ phase: 'blocked', reason: 'store_owner', page: releasePage('0.6.0') })
+    await app.openPage(); expect(opened).toEqual([releasePage('0.6.0')])
+    expect([starts, quits]).toEqual([0, 0])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('OWNER fallback: only a successful store boundary clears the block, not a new channel check', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-owner-restored-')), opened: string[] = [], events: AppUpdateStatus[] = []
+  let ownerMatches = false, starts = 0, quits = 0
+  try {
+    const app = new AppUpdates({ ...appOptions(root), openStore: async (userData, create) => {
+      if (!ownerMatches) throw new StoreBrokerError({ reason: 'native', stage: 'initialize', nativeFailure: 'user_data_owner_mismatch' })
+      return new LocalStore(userData, create)
+    }, emit: event => events.push(event), startInstaller: async () => { ++starts }, quit: () => { ++quits }, openExternal: async url => { opened.push(url) } })
+    expect(await app.check()).toMatchObject({ phase: 'blocked', reason: 'store_owner' })
+    ownerMatches = true // Fake an externally restored owner; the app never changes ACLs.
+    expect(await app.check()).toMatchObject({ phase: 'blocked', reason: 'store_owner' })
+    await app.install()
+    expect(events.filter(event => ['preparing', 'launching'].includes(event.phase)).map(event => ({ phase: event.phase, reason: event.reason }))).toEqual([
+      { phase: 'preparing', reason: undefined }, { phase: 'launching', reason: undefined }
+    ])
+    expect([starts, quits]).toEqual([1, 1])
+    await expect(app.openPage()).rejects.toThrow()
+    expect(opened).toEqual([])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
