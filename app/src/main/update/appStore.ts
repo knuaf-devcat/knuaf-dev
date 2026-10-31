@@ -5,7 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { Writable } from 'node:stream'
 import { constants as osConstants } from 'node:os'
-import { NATIVE_FILES } from './nativeFiles'
+import { NATIVE_FILES, STORE_FAILURE_CODES } from './nativeFiles'
 import { object, version } from './manifest'
 
 interface Command { op: 'read' | 'write' | 'verify' | 'remove' | 'begin' | 'chunk' | 'commit' | 'cleanup'; path: string; data?: Buffer; size?: number; sha256?: string }
@@ -163,7 +163,7 @@ namespace KnuafUpdate {
    while(error.InnerException!=null) error=error.InnerException;
    var native=error as Win32Exception;
    return new Dictionary<string,object>{{"ok",false},{"diagnostic",new Dictionary<string,object>{
-    {"stage",stage},{"type",error.GetType().FullName},{"nativeCode",native==null ? null : (object)native.NativeErrorCode},{"hresult",error.HResult},{"message",error.Message}
+    {"stage",stage},{"type",error.GetType().FullName},{"nativeCode",native==null ? error.Data["knuaf_store_win32"] : (object)native.NativeErrorCode},{"hresult",error.HResult},{"message",error.Message},{"failure",error.Data["knuaf_store_failure"]}
    }}};
   }
   public static void Run(string userData,bool create) {
@@ -178,26 +178,30 @@ namespace KnuafUpdate {
        var command=json.Deserialize<Dictionary<string,object>>(line); string op=(string)command["op"], relative=(string)command["path"];
        operation=op;
        string path; object result=null;
-       if(op=="chunk") { if(download==null || relative!=activeRelative) throw new IOException("Download missing"); path=target; }
+       if(op=="chunk") {
+        if(download==null) throw Files.Reject(StoreFailure.chunk_session_missing);
+        if(relative!=activeRelative) throw Files.Reject(StoreFailure.chunk_member_mismatch);
+        path=target;
+       }
        else path=files.Target(relative,op=="begin" || op=="write");
        switch(op) {
-        case "read": if(File.Exists(path)) using(var file=files.Open(path)) { if(file.Length>1024*1024) throw new IOException("Update record too large"); var bytes=new byte[(int)file.Length]; int offset=0,n; while(offset<bytes.Length && (n=file.Read(bytes,offset,bytes.Length-offset))>0) offset+=n; if(offset!=bytes.Length) throw new IOException("Short update record"); result=Convert.ToBase64String(bytes); } break;
+        case "read": if(File.Exists(path)) using(var file=files.Open(path)) { if(file.Length>1024*1024) throw Files.Reject(StoreFailure.record_too_large); var bytes=new byte[(int)file.Length]; int offset=0,n; while(offset<bytes.Length && (n=file.Read(bytes,offset,bytes.Length-offset))>0) offset+=n; if(offset!=bytes.Length) throw Files.Reject(StoreFailure.record_short_read); result=Convert.ToBase64String(bytes); } break;
         case "write": files.Write(path,Convert.FromBase64String((string)command["data"])); break;
         case "remove": files.Remove(path); break;
         case "verify": result=files.Verify(path,Convert.ToInt64(command["size"]),(string)command["sha256"]); break;
         case "begin":
-         if(download!=null) throw new IOException("Download already open");
+         if(download!=null) throw Files.Reject(StoreFailure.download_already_open);
          target=path; activeRelative=relative; size=Convert.ToInt64(command["size"]); sha=(string)command["sha256"]; temporary=path+"."+Guid.NewGuid().ToString("N")+".download";
          download=new FileStream(temporary,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None); files.CheckDownload(download,temporary); files.DownloadPath=temporary; break;
         case "chunk":
-         if(download==null || target!=path) throw new IOException("Download missing");
-         byte[] chunk=Convert.FromBase64String((string)command["data"]); if(download.Length+chunk.Length>size) throw new IOException("Download too large"); download.Write(chunk,0,chunk.Length); break;
+         if(download==null || target!=path) throw Files.Reject(StoreFailure.chunk_target_mismatch);
+         byte[] chunk=Convert.FromBase64String((string)command["data"]); if(download.Length+chunk.Length>size) throw Files.Reject(StoreFailure.download_too_large); download.Write(chunk,0,chunk.Length); break;
         case "commit":
-         if(download==null || target!=path) throw new IOException("Download missing");
-         files.CheckDownload(download,temporary); download.Flush(true); if(!Files.Matches(download,size,sha)) throw new IOException("Download hash mismatch");
+         if(download==null || target!=path) throw Files.Reject(StoreFailure.commit_without_download);
+         files.CheckDownload(download,temporary); download.Flush(true); if(!Files.Matches(download,size,sha)) throw Files.Reject(StoreFailure.download_hash_mismatch);
          download.Dispose(); download=null; files.DownloadPath=null; files.Replace(temporary,target); temporary=null; break;
         case "cleanup": files.Remove(path); files.Remove(files.Target(relative.Replace("installer.exe","manifest.json"),false)); break;
-        default: throw new IOException("Unknown update operation");
+        default: throw Files.Reject(StoreFailure.unknown_operation);
        }
        Console.WriteLine(json.Serialize(new Dictionary<string,object>{{"ok",true},{"result",result}}));
       } catch(Exception error) { Console.WriteLine(json.Serialize(Failure(error,operation))); }
@@ -217,6 +221,7 @@ export interface StoreDiagnostic {
   signal?: string | null
   osCode?: string
   nativeType?: string
+  nativeFailure?: string
   nativeCode?: number
   hresult?: string
   errno?: number
@@ -232,6 +237,7 @@ const stages = fixedNames(['initialize', 'close', 'read', 'write', 'verify', 're
 const reasons = fixedNames(['spawn', 'stdin', 'exit', 'timeout', 'protocol', 'native'])
 const signals = fixedNames(Object.keys(osConstants.signals))
 const osCodes = fixedNames(Object.keys(osConstants.errno))
+const nativeFailures = fixedNames(STORE_FAILURE_CODES)
 // Native file/ACL/stream operations, conversion/JSON, and Add-Type/Invoke-Expression.
 // Full names remain stable diagnostic categories; anything unlisted is just "other".
 const nativeTypes = fixedNames([
@@ -293,6 +299,7 @@ export class StoreBrokerError extends Error {
     if (osCode) diagnostic.osCode = osCode
     if (nativeInteger(input.errno)) diagnostic.errno = input.errno
     if (input.nativeType !== undefined) diagnostic.nativeType = (typeof input.nativeType === 'string' ? nativeTypes.get(input.nativeType) : undefined) ?? 'other'
+    if (input.nativeFailure !== undefined) diagnostic.nativeFailure = (typeof input.nativeFailure === 'string' ? nativeFailures.get(input.nativeFailure) : undefined) ?? 'other'
     if (nativeInteger(input.nativeCode)) diagnostic.nativeCode = input.nativeCode
     if (typeof input.hresult === 'string' && input.hresult.length === 10 && /^0x[0-9a-f]{8}$/.test(input.hresult)) diagnostic.hresult = `0x${Number.parseInt(input.hresult.slice(2), 16).toString(16).padStart(8, '0')}`
     if (Array.isArray(input.compilerCodes)) {
@@ -310,6 +317,7 @@ export class StoreBrokerError extends Error {
     if (diagnostic.osCode) context.push(`os=${diagnostic.osCode}`)
     if (diagnostic.errno !== undefined) context.push(`errno=${diagnostic.errno}`)
     if (diagnostic.nativeType) context.push(`native=${diagnostic.nativeType}`)
+    if (diagnostic.nativeFailure) context.push(`failure=${diagnostic.nativeFailure}`)
     if (diagnostic.nativeCode !== undefined) context.push(`nativeCode=${diagnostic.nativeCode}`)
     if (diagnostic.hresult) context.push(`hresult=${diagnostic.hresult}`)
     if (diagnostic.compilerCodes) context.push(`compiler=${diagnostic.compilerCodes.join(',')}`)
@@ -338,6 +346,7 @@ export async function connectStoreBroker(
       const native = data.diagnostic && typeof data.diagnostic === 'object' && !Array.isArray(data.diagnostic) ? data.diagnostic as Record<string, unknown> : {}
       fail('native', {
         nativeType: typeof native.type === 'string' ? native.type : 'other',
+        ...(typeof native.failure === 'string' ? { nativeFailure: native.failure } : {}),
         ...(nativeInteger(native.nativeCode) ? { nativeCode: native.nativeCode } : {}),
         ...(nativeInteger(native.hresult) ? { hresult: `0x${(native.hresult >>> 0).toString(16).padStart(8, '0')}` } : {}),
         compilerCodes: [...compilerCodes(typeof native.message === 'string' ? native.message : ''), ...compilerCodes(typeof native.errorId === 'string' ? native.errorId : '')]
@@ -380,8 +389,8 @@ export async function connectStoreBroker(
 async function nativeStore(userData: string, create: boolean): Promise<StoreBackend> {
   const script = `[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $ErrorActionPreference='Stop'; try { Add-Type -ReferencedAssemblies System.dll,System.Core.dll,System.Web.Extensions.dll -TypeDefinition @'\n${NATIVE_FILES}\n${STORE_NATIVE}\n'@; [KnuafUpdate.StoreWorker]::Run(${quote(userData)},$${create}) } catch {
 $e=$_.Exception; while ($e.InnerException) {$e=$e.InnerException};
-$native=if ($e -is [System.ComponentModel.Win32Exception]) {$e.NativeErrorCode} else {$null};
-@{ok=$false;diagnostic=@{stage='initialize';type=$e.GetType().FullName;nativeCode=$native;hresult=$e.HResult;message=$e.Message;errorId=$_.FullyQualifiedErrorId}} | ConvertTo-Json -Depth 4 -Compress; exit 1
+$native=if ($e -is [System.ComponentModel.Win32Exception]) {$e.NativeErrorCode} else {$e.Data['knuaf_store_win32']};
+@{ok=$false;diagnostic=@{stage='initialize';type=$e.GetType().FullName;nativeCode=$native;hresult=$e.HResult;message=$e.Message;errorId=$_.FullyQualifiedErrorId;failure=$e.Data['knuaf_store_failure']}} | ConvertTo-Json -Depth 4 -Compress; exit 1
 }`
   const exe = win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
   const bootstrap = 'Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::ReadLine())))'

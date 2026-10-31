@@ -217,7 +217,7 @@ for (const [label, payload] of privacyInputs) for (const source of ['native', 's
   const openStore: OpenStore = async () => {
     const child = new Child(), opening = connect(child)
     const message = `${payload}\nPrivateFreeTextMarker: error CS9999; PS1234`
-    if (source === 'native') child.line({ ok: false, diagnostic: { type: 'System.UnauthorizedAccessException', nativeCode: 5, hresult: -2147024891, message, errorId: 'SOURCE_CODE_ERROR,StudentMarker', path: payload, stderr: payload } })
+    if (source === 'native') child.line({ ok: false, diagnostic: { type: 'System.UnauthorizedAccessException', failure: payload, nativeCode: 5, hresult: -2147024891, message, errorId: 'SOURCE_CODE_ERROR,StudentMarker', path: payload, stderr: payload } })
     else { child.stderr.write(`${message}; FullyQualifiedErrorId: SOURCE_CODE_ERROR`); child.close(23) }
     return opening.catch(error => { failures.push(error); throw error })
   }
@@ -233,7 +233,7 @@ for (const [label, payload] of privacyInputs) for (const source of ['native', 's
     expect(response).toMatchObject({ error: { code: 'update' } })
     expect(await h.invoke('app-update:status')).toMatchObject({ result: { phase: 'error' } })
     const expected = source === 'native'
-      ? { reason: 'native', stage: 'initialize', nativeType: 'System.UnauthorizedAccessException', nativeCode: 5, hresult: '0x80070005', compilerCodes: ['CS9999', 'PS1234', 'SOURCE_CODE_ERROR'] }
+      ? { reason: 'native', stage: 'initialize', nativeType: 'System.UnauthorizedAccessException', nativeFailure: 'other', nativeCode: 5, hresult: '0x80070005', compilerCodes: ['CS9999', 'PS1234', 'SOURCE_CODE_ERROR'] }
       : { reason: 'exit', stage: 'initialize', exitCode: 23, compilerCodes: ['CS9999', 'PS1234', 'SOURCE_CODE_ERROR'] }
     for (const error of failures) { expect(error).toBeInstanceOf(StoreBrokerError); expect(error.diagnostic).toEqual(expected) }
     expect(h.events.slice(beforeInstall).filter(event => event.phase === 'error')).toEqual([h.updates.status()])
@@ -323,4 +323,54 @@ test('canonical diagnostic codes preserve leading zeroes and exclude trailing te
     nativeCode: 5, hresult: '0x00000005', compilerCodes: ['CS0001', 'PS0000', 'SOURCE_CODE_ERROR']
   })
   for (const marker of forbidden) expect(details(error)).not.toContain(marker)
+})
+
+for (const [label, failure, category, nativeCode] of [
+  ['administrator-owned user data', 'user_data_owner_administrators', 'user_data_owner_administrators', undefined],
+  ['ambiguous identity', 'path_identity_mismatch', 'path_identity_mismatch', undefined],
+  ['failed final-path API', 'final_path_query_failed', 'final_path_query_failed', 5],
+  ['private suffix', 'user_data_owner_administrators_StudentMarker', 'other', undefined],
+  ['private token', 'syntheticCredentialMarker1234567890', 'other', undefined]
+] as const) test(`ROOT fixed native failure: ${label} across all six public surfaces`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'knuaf-root-diagnostic-')), student = join(root, 'thesis.txt')
+  writeFileSync(student, 'keep student bytes')
+  const failures: StoreBrokerError[] = [], counts = { installs: 0, quits: 0 }
+  const openStore: OpenStore = async () => {
+    const child = new Child(), opening = connect(child)
+    child.line({ ok: false, diagnostic: { type: 'System.IO.IOException', failure, nativeCode, hresult: -2146232800, message: `StudentMarker '${privatePath}'; error CS9999` } })
+    return opening.catch(error => { failures.push(error); throw error })
+  }
+  try {
+    const h = ipcHarness(root, openStore, counts)
+    await h.updates.ready
+    expect(await h.invoke('app-update:check')).toMatchObject({ result: { phase: 'available' } })
+    const response = await h.invoke('app-update:install'), status = await h.invoke('app-update:status')
+    expect(response).toMatchObject({ error: { code: 'update' } })
+    expect(status).toMatchObject({ result: { phase: 'error' } })
+    for (const error of failures) expect(error.diagnostic).toEqual({
+      reason: 'native', stage: 'initialize', nativeType: 'System.IO.IOException', nativeFailure: category,
+      ...(nativeCode === undefined ? {} : { nativeCode }), hresult: '0x80131620', compilerCodes: ['CS9999']
+    })
+    const surfaces = {
+      recovery: details(failures[0]), install: details(failures[1]), state: JSON.stringify(h.updates.status()),
+      events: JSON.stringify(h.events), installIPC: JSON.stringify(response), statusIPC: JSON.stringify(status)
+    }
+    for (const [surfaceName, surface] of Object.entries(surfaces)) {
+      for (const value of [`failure=${category}`, 'stage=initialize', '0x80131620', 'CS9999']) expect(surface, surfaceName).toContain(value)
+      if (nativeCode !== undefined) expect(surface, surfaceName).toContain('nativeCode=5')
+      for (const marker of forbidden) expect(surface, surfaceName).not.toContain(marker)
+    }
+    expect(counts).toEqual({ installs: 0, quits: 0 })
+    expect(readFileSync(student, 'utf8')).toBe('keep student bytes')
+    expect(existsSync(join(root, 'app-update', 'pending.json'))).toBe(false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('an operation guard keeps its fixed native failure through later protocol errors and cleanup', async () => {
+  const child = new Child(), opening = connect(child); child.line({ ok: true })
+  const backend = await opening, verifying = backend.request({ op: 'verify', path: '0.6.0/installer.exe', size: 1, sha256: 'a'.repeat(64) })
+  child.line({ ok: false, diagnostic: { type: 'System.IO.IOException', failure: 'download_hash_mismatch', hresult: -2146232800 } })
+  child.stdout.write('StudentMarker malformed output\n')
+  await expect(verifying).rejects.toMatchObject({ diagnostic: { reason: 'native', stage: 'verify', nativeFailure: 'download_hash_mismatch', hresult: '0x80131620' } })
+  await expect(backend.close()).rejects.toMatchObject({ diagnostic: { reason: 'native', stage: 'verify', nativeFailure: 'download_hash_mismatch' } })
 })
